@@ -9,10 +9,11 @@ import re
 import time
 import logging
 from typing import List, Dict, Optional
-import pdfplumber
-from nltk.tokenize import sent_tokenize
 
-from pdf_chunker.utils import fallback_sent_tokenize
+import pdfplumber
+
+from pdf_chunker.custom_tokenizer import tokenize_sentences
+from pdf_chunker.cleaner import TextCleaner
 
 class PDFProcessor:
     """
@@ -34,12 +35,14 @@ class PDFProcessor:
         self.max_pages_per_batch = config.MAX_PAGES_PER_BATCH
         self.timeout_per_page = config.TIMEOUT_PER_PAGE
         self.patterns = config.TEXT_PATTERNS
+        self.apply_cleaning = getattr(config, 'APPLY_CLEANING', True)
         
         self.logger = logging.getLogger("PDFChunker.Processor")
+        self.cleaner = TextCleaner() if self.apply_cleaning else None
     
     def tokenize_sentences(self, text: str) -> List[str]:
         """
-        Tokenizza il testo in frasi utilizzando NLTK o un metodo fallback.
+        Tokenizza il testo in frasi utilizzando il tokenizer personalizzato.
         
         Args:
             text: Testo da tokenizzare
@@ -50,32 +53,13 @@ class PDFProcessor:
         if not text or text.isspace():
             self.logger.warning("Tentativo di tokenizzare testo vuoto")
             return []
-            
+        
+        # Usa direttamente il nostro tokenizer personalizzato
         try:
-            # Prima tentativo: usa sent_tokenize con la lingua specificata
-            try:
-                sentences = sent_tokenize(text, language=self.language)
-                if sentences:
-                    return sentences
-            except Exception as e:
-                self.logger.warning(f"Tokenizer con lingua '{self.language}' fallito: {str(e)}")
-            
-            # Secondo tentativo: usa sent_tokenize senza specificare la lingua
-            try:
-                sentences = sent_tokenize(text)
-                if sentences:
-                    return sentences
-            except Exception as e:
-                self.logger.warning(f"Tokenizer base fallito: {str(e)}")
-                
-            # Ultimo tentativo: usa il fallback
-            self.logger.warning("NLTK non ha funzionato, utilizzo tokenizer fallback")
-            return fallback_sent_tokenize(text, self.max_chunk_size)
-            
+            return tokenize_sentences(text, self.max_chunk_size)
         except Exception as e:
-            # Se NLTK fallisce per qualsiasi motivo, usa il metodo fallback
-            self.logger.warning(f"Problema generale nel tokenizer: {str(e)}. Utilizzo tokenizer fallback.")
-            return fallback_sent_tokenize(text, self.max_chunk_size)
+            self.logger.error(f"Errore nella tokenizzazione: {str(e)}")
+            return []
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """
@@ -398,6 +382,10 @@ class PDFProcessor:
         
         # Crea dizionari per ogni chunk
         for i, chunk_text in enumerate(text_chunks):
+            # Applica pulizia avanzata se abilitata
+            if self.cleaner and chunk_text:
+                chunk_text = self.cleaner.clean_text(chunk_text)
+            
             # Trova le prime parole per un identificativo più significativo
             first_words = ' '.join(chunk_text.split()[:5]).replace(' ', '_')
             first_words = re.sub(r'[^\w]', '', first_words)

@@ -58,3 +58,6 @@ class Config:
         'footnotes': r'\[\d+\]|\(\d+\)',
         'references': r'(?:Art\.|Artt\.) \d+(?:[-,]\d+)*',
     }
+    
+        # Applica pulizia avanzata
+    APPLY_CLEANING = True  # Abilita/disabilita la pulizia avanzata dei chunk#!/usr/bin/env python3

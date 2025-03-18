@@ -19,8 +19,6 @@ from pdf_chunker.cpu_monitor import CPUMonitor
 
 # Variabili globali per i worker
 _cpu_monitor = None
-_throttle_sleep = 1.0
-_config = None
 
 def _process_single_pdf(data_with_config: Tuple[str, str, Dict[str, Any]]) -> bool:
     """

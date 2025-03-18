@@ -8,10 +8,8 @@ import os
 import re
 import glob
 import logging
-import nltk
 from datetime import datetime
 from typing import List
-from nltk.tokenize import sent_tokenize
 
 def setup_logging():
     """
@@ -74,65 +72,14 @@ def find_pdf_files(input_folder: str) -> List[str]:
 
 def initialize_nltk():
     """
-    Inizializza NLTK scaricando le risorse necessarie.
+    Funzione vuota per compatibilità, non utilizziamo più NLTK.
     
     Returns:
-        True se l'inizializzazione è andata a buon fine, False altrimenti
+        True sempre
     """
-    from pdf_chunker.config import Config
-    
     logger = logging.getLogger("PDFChunker")
-    
-    try:
-        # Scarica il tokenizer per le frasi
-        nltk.download('punkt', quiet=False)
-        logger.info(f"NLTK punkt tokenizer scaricato con successo")
-        
-        # Workaround per evitare il problema con punkt_tab
-        import nltk.data
-        from nltk.tokenize.punkt import PunktSentenceTokenizer, PunktParameters
-        
-        # Crea una versione base del tokenizer
-        logger.info("Inizializzazione tokenizer alternativo per tutte le lingue")
-        punkt_param = PunktParameters()
-        abbreviation = ['art', 'n', 'nr', 'pag', 'pp', 'par', 'lett', 'cfr', 'fig', 'es', 'p', 'cap']
-        punkt_param.abbrev_types = set(abbreviation)
-        base_tokenizer = PunktSentenceTokenizer(punkt_param)
-        
-        # Funzione di sostituzione per il punto di ingresso
-        def alt_tokenize(text, language='italian'):
-            return base_tokenizer.tokenize(text)
-            
-        # Conserva l'originale per ripristino
-        original_sent_tokenize = nltk.tokenize.sent_tokenize
-        
-        # Verifica se il tokenizer funziona con la lingua specificata
-        test_sentence = "Questa è una frase di prova. Questa è una seconda frase."
-        
-        try:
-            # Prova con la lingua specificata standard
-            test_tokens = original_sent_tokenize(test_sentence, language=Config.LANGUAGE)
-            logger.info(f"Test di tokenizzazione per '{Config.LANGUAGE}' completato. Frasi rilevate: {len(test_tokens)}")
-            return True
-        except Exception as lang_error:
-            # Sostituisce il tokenizer con la nostra versione
-            logger.warning(f"Il tokenizer NLTK standard non supporta '{Config.LANGUAGE}', uso alternativo: {str(lang_error)}")
-            nltk.tokenize.sent_tokenize = alt_tokenize
-            
-            # Verifica il tokenizer alternativo
-            try:
-                test_tokens = nltk.tokenize.sent_tokenize(test_sentence)
-                logger.info(f"Test di tokenizzazione alternativa completato. Frasi rilevate: {len(test_tokens)}")
-                return True
-            except Exception as alt_error:
-                logger.error(f"Anche il tokenizer alternativo fallisce: {str(alt_error)}")
-                logger.error("Si userà il tokenizer fallback come ultima risorsa")
-                return False
-        
-    except Exception as e:
-        logger.error(f"Errore nell'inizializzazione di NLTK: {str(e)}")
-        logger.error("Si proverà a utilizzare un metodo alternativo per la tokenizzazione.")
-        return False
+    logger.info("NLTK non è più necessario, utilizzo tokenizer personalizzato")
+    return True
 
 def fallback_sent_tokenize(text, max_chunk_size=1000):
     """

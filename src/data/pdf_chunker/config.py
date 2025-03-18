@@ -24,9 +24,9 @@ class Config:
     OUTPUT_FOLDER = "/Users/guglielmo/Desktop/CODE/MERL-T/src/data/dottrina/raw_txt/diritto_civile"  # Cartella dove salvare i risultati
     
     # Parametri di chunking
-    MIN_CHUNK_SIZE = 1500       # Dimensione minima in caratteri per un chunk
-    MAX_CHUNK_SIZE = 2500      # Dimensione massima in caratteri per un chunk
-    OVERLAP_SIZE = 150         # Numero di caratteri di sovrapposizione tra i chunk
+    MIN_CHUNK_SIZE = 3000       # Dimensione minima in caratteri per un chunk
+    MAX_CHUNK_SIZE = 5000      # Dimensione massima in caratteri per un chunk
+    OVERLAP_SIZE = 1500         # Numero di caratteri di sovrapposizione tra i chunk
     USE_SLIDING_WINDOW = True  # True: usa finestra scorrevole, False: divisione per paragrafi
     
     # Lingua per la tokenizzazione

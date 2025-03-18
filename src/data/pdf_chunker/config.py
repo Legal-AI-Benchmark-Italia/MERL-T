@@ -38,9 +38,9 @@ class Config:
     
     # Parametri di parallelizzazione
     MAX_WORKERS = 0            # Numero di processi paralleli (0=automatico basato sul numero di CPU)
-    CPU_LIMIT = 70             # Limite di utilizzo CPU in percentuale
+    CPU_LIMIT = 90             # Limite di utilizzo CPU in percentuale
     CPU_CHECK_INTERVAL = 2     # Intervallo in secondi per controllare l'utilizzo della CPU
-    THROTTLE_SLEEP = 1         # Tempo di attesa in secondi quando la CPU è troppo utilizzata
+    THROTTLE_SLEEP = 5         # Tempo di attesa in secondi quando la CPU è troppo utilizzata
     
     # File per tracciare i progressi
     PROGRESS_FILE = "pdf_chunker_progress.json"
@@ -59,5 +59,5 @@ class Config:
         'references': r'(?:Art\.|Artt\.) \d+(?:[-,]\d+)*',
     }
     
-        # Applica pulizia avanzata
+    # Applica pulizia avanzata
     APPLY_CLEANING = True  # Abilita/disabilita la pulizia avanzata dei chunk#!/usr/bin/env python3

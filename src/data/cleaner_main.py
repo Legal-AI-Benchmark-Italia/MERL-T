@@ -100,6 +100,60 @@ def clean_json_file(file_path, output_dir, cleaner, dry_run=False):
             'error': str(e)
         })
 
+def clean_text_file(file_path, output_dir, cleaner, dry_run=False):
+    """
+    Pulisce un singolo file di testo.
+    
+    Args:
+        file_path: Percorso del file di testo da pulire
+        output_dir: Directory dove salvare il file pulito
+        cleaner: Istanza di TextCleaner
+        dry_run: Se True, non scrive i file ma solo analizza
+        
+    Returns:
+        Tuple (successo, statistiche)
+    """
+    try:
+        # Leggi il file di testo
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        
+        # Backup dei valori originali per le statistiche
+        original_text = text
+        original_chars = len(text)
+        original_tokens = len(text.split())
+        
+        # Applica la pulizia
+        cleaned_text = cleaner.clean_text(text)
+        
+        # Calcola le statistiche
+        stats = {
+            'file': os.path.basename(file_path),
+            'original_chars': original_chars,
+            'cleaned_chars': len(cleaned_text),
+            'original_tokens': original_tokens,
+            'cleaned_tokens': len(cleaned_text.split())
+        }
+        
+        # In modalità dry_run, restituisci solo le statistiche senza scrivere
+        if dry_run:
+            return (True, stats)
+        
+        # Crea il percorso di output mantenendo il nome del file originale
+        output_path = os.path.join(output_dir, os.path.basename(file_path))
+        
+        # Scrivi il file pulito
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(cleaned_text)
+        
+        return (True, stats)
+    
+    except Exception as e:
+        return (False, {
+            'file': file_path,
+            'error': str(e)
+        })#!/usr/bin/env python3
+
 def process_directory(input_dir, output_dir, num_workers=0, dry_run=False, verbose=False):
     """
     Processa tutti i file JSON in una directory.

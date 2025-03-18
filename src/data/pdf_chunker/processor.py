@@ -384,7 +384,13 @@ class PDFProcessor:
         for i, chunk_text in enumerate(text_chunks):
             # Applica pulizia avanzata se abilitata
             if self.cleaner and chunk_text:
-                chunk_text = self.cleaner.clean_text(chunk_text)
+                # FIX: Handle tuple return value by unpacking
+                cleaned_result = self.cleaner.clean_text(chunk_text)
+                # Check if the result is a tuple (from our enhanced TextCleaner)
+                if isinstance(cleaned_result, tuple):
+                    chunk_text = cleaned_result[0]  # Extract just the text
+                else:
+                    chunk_text = cleaned_result  # For backward compatibility
             
             # Trova le prime parole per un identificativo più significativo
             first_words = ' '.join(chunk_text.split()[:5]).replace(' ', '_')
@@ -400,7 +406,6 @@ class PDFProcessor:
             all_chunks.append(chunk_dict)
         
         return all_chunks
-    
     def process_pdf(self, pdf_path: str) -> List[Dict]:
         """
         Processa completamente un PDF e restituisce i chunk.

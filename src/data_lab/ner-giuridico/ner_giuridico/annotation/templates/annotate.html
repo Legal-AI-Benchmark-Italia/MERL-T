@@ -42,6 +42,26 @@
                     <button id="clear-selection">Annulla selezione</button>
                     <button id="auto-annotate">Riconoscimento automatico</button>
                     <div class="annotation-status" id="annotation-status"></div>
+                    
+                    <!-- Aggiungiamo qui i nuovi controlli -->
+                    <div class="annotation-batch-actions">
+                        <button id="clear-all-annotations" class="danger-btn" title="Elimina tutte le annotazioni del documento corrente">
+                            Elimina tutte le annotazioni
+                        </button>
+                    </div>
+                    
+                    <!-- Aggiungiamo un menu a discesa per l'eliminazione per tipo -->
+                    <div class="annotation-type-actions">
+                        <select id="entity-type-filter">
+                            <option value="">Seleziona un tipo di entità</option>
+                            {% for entity_type in entity_types %}
+                                <option value="{{ entity_type.id }}">{{ entity_type.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <button id="clear-type-annotations" class="warning-btn" disabled title="Elimina tutte le annotazioni del tipo selezionato">
+                            Elimina per tipo
+                        </button>
+                    </div>
                 </div>
                 <div class="keyboard-shortcuts">
                     <h4>Scorciatoie da tastiera</h4>
@@ -101,5 +121,351 @@
     <div id="notification" class="notification"></div>
     
     <script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
+    <style>
+        .annotation-batch-actions,
+        .annotation-type-actions {
+            margin-top: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .annotation-type-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        
+        .danger-btn {
+            background-color: #dc3545;
+            color: white;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .danger-btn:hover {
+            background-color: #c82333;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .warning-btn {
+            background-color: #ffc107;
+            color: #212529;
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .warning-btn:hover {
+            background-color: #e0a800;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .warning-btn:disabled,
+        .danger-btn:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        </style>
+        
+    <!-- Script aggiuntivo per gestire l'eliminazione per tipo -->
+    <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                const clearAllBtn = document.getElementById('clear-all-annotations');
+                const entityTypeFilter = document.getElementById('entity-type-filter');
+                const clearTypeBtn = document.getElementById('clear-type-annotations');
+                const docId = document.getElementById('text-content').dataset.docId;
+                
+                // Abilita/disabilita il pulsante "Elimina per tipo" in base alla selezione
+                entityTypeFilter.addEventListener('change', function() {
+                    clearTypeBtn.disabled = !this.value;
+                });
+                
+                // Gestisci l'eliminazione di tutte le annotazioni
+                if (clearAllBtn) {
+                    clearAllBtn.addEventListener('click', function() {
+                        if (typeof window.clearAnnotations === 'function') {
+                            window.clearAnnotations(docId);
+                        } else {
+                            if (confirm('Sei sicuro di voler eliminare tutte le annotazioni?')) {
+                                fetch('/api/clear_annotations', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({doc_id: docId})
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        showNotification('Tutte le annotazioni eliminate con successo', 'success');
+                                        setTimeout(() => {
+                                            window.location.reload();
+                                        }, 1500);
+                                    } else {
+                                        showNotification('Errore: ' + data.message, 'error');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Errore:', error);
+                                    showNotification('Si è verificato un errore durante l\'eliminazione', 'error');
+                                });
+                            }
+                        }
+                    });
+                }
+                
+                // Gestisci l'eliminazione delle annotazioni per tipo
+                if (clearTypeBtn) {
+                    clearTypeBtn.addEventListener('click', function() {
+                        const entityType = entityTypeFilter.value;
+                        if (!entityType) return;
+                        
+                        if (typeof window.clearAnnotations === 'function') {
+                            window.clearAnnotations(docId, entityType);
+                        } else {
+                            if (confirm(`Sei sicuro di voler eliminare tutte le annotazioni di tipo "${entityType}"?`)) {
+                                fetch('/api/clear_annotations', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({
+                                        doc_id: docId,
+                                        entity_type: entityType
+                                    })
+                                })
+                                .then(response => response.json())
+                                .then(data => {
+                                    if (data.status === 'success') {
+                                        showNotification(`Annotazioni di tipo "${entityType}" eliminate con successo`, 'success');
+                                        setTimeout(() => {
+                                            window.location.reload();
+                                        }, 1500);
+                                    } else {
+                                        showNotification('Errore: ' + data.message, 'error');
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Errore:', error);
+                                    showNotification('Si è verificato un errore durante l\'eliminazione', 'error');
+                                });
+                            }
+                        }
+                    });
+                }
+                
+                // Funzione di utilità per mostrare notifiche (se non è già definita globalmente)
+                if (typeof window.showNotification !== 'function') {
+                    window.showNotification = function(message, type) {
+                        const notification = document.getElementById('notification');
+                        if (notification) {
+                            notification.textContent = message;
+                            notification.className = `notification ${type} show`;
+                            setTimeout(() => {
+                                notification.className = 'notification';
+                            }, 3000);
+                        }
+                    };
+                }
+            });
+    </script>
+    
+    <script>
+        /**
+        * Script per aggiungere funzionalità di modifica inline dei documenti
+        * 
+        * Questo script può essere incluso nella pagina annotate.html per permettere
+        * la modifica del testo direttamente nell'interfaccia di annotazione.
+        */
+       
+       document.addEventListener('DOMContentLoaded', function() {
+           // Riferimenti agli elementi DOM
+           const textContent = document.getElementById('text-content');
+           const docId = textContent ? textContent.dataset.docId : null;
+           
+           if (!textContent || !docId) return;
+           
+           // Aggiungi il pulsante per la modifica del testo
+           const textControls = document.querySelector('.text-controls');
+           if (textControls) {
+               const editBtn = document.createElement('button');
+               editBtn.id = 'edit-text';
+               editBtn.title = 'Modifica testo';
+               editBtn.innerHTML = '✏️';
+               textControls.appendChild(editBtn);
+               
+               // Aggiungi pulsanti per salvare e annullare (inizialmente nascosti)
+               const saveBtn = document.createElement('button');
+               saveBtn.id = 'save-text';
+               saveBtn.title = 'Salva modifiche';
+               saveBtn.innerHTML = '💾';
+               saveBtn.style.display = 'none';
+               textControls.appendChild(saveBtn);
+               
+               const cancelBtn = document.createElement('button');
+               cancelBtn.id = 'cancel-edit';
+               cancelBtn.title = 'Annulla modifiche';
+               cancelBtn.innerHTML = '❌';
+               cancelBtn.style.display = 'none';
+               textControls.appendChild(cancelBtn);
+           }
+           
+           // Variabile per memorizzare il testo originale
+           let originalText = '';
+           
+           // Gestione del pulsante di modifica
+           const editBtn = document.getElementById('edit-text');
+           const saveBtn = document.getElementById('save-text');
+           const cancelBtn = document.getElementById('cancel-edit');
+           
+           if (editBtn && saveBtn && cancelBtn) {
+               editBtn.addEventListener('click', function() {
+                   // Salva il testo originale
+                   originalText = textContent.innerHTML;
+                   
+                   // Rendi il testo modificabile
+                   textContent.contentEditable = true;
+                   textContent.focus();
+                   textContent.classList.add('editing');
+                   
+                   // Mostra/nascondi pulsanti appropriati
+                   editBtn.style.display = 'none';
+                   saveBtn.style.display = 'inline-block';
+                   cancelBtn.style.display = 'inline-block';
+                   
+                   // Disabilita la selezione del testo per l'annotazione
+                   textContent.addEventListener('mouseup', preventDefaultHandler);
+                   
+                   // Aggiungi stile per indicare la modalità di modifica
+                   textContent.style.border = '2px dashed #007bff';
+                   textContent.style.padding = '1rem';
+                   
+                   // Mostra un messaggio di aiuto
+                   showNotification('Stai modificando il testo. Le annotazioni saranno temporaneamente disabilitate.', 'info');
+               });
+               
+               saveBtn.addEventListener('click', function() {
+                   // Ottieni il nuovo testo
+                   const newText = textContent.innerText;
+                   
+                   // Verifica che ci siano modifiche
+                   if (newText === originalText) {
+                       exitEditMode();
+                       return;
+                   }
+                   
+                   // Chiedi conferma
+                   if (confirm('Sei sicuro di voler salvare le modifiche? Questo potrebbe influire sulle annotazioni esistenti.')) {
+                       // Mostra un indicatore di caricamento
+                       saveBtn.disabled = true;
+                       saveBtn.innerHTML = '⏳';
+                       
+                       // Salva le modifiche
+                       if (typeof window.updateDocument === 'function') {
+                           window.updateDocument(docId, newText)
+                               .then(() => {
+                                   showNotification('Testo aggiornato con successo', 'success');
+                                   setTimeout(() => {
+                                       window.location.reload();
+                                   }, 1500);
+                               })
+                               .catch(() => {
+                                   exitEditMode();
+                               });
+                       } else {
+                           fetch('/api/update_document', {
+                               method: 'POST',
+                               headers: {'Content-Type': 'application/json'},
+                               body: JSON.stringify({
+                                   doc_id: docId,
+                                   content: newText
+                               })
+                           })
+                           .then(response => response.json())
+                           .then(data => {
+                               if (data.status === 'success') {
+                                   showNotification('Testo aggiornato con successo', 'success');
+                                   setTimeout(() => {
+                                       window.location.reload();
+                                   }, 1500);
+                               } else {
+                                   showNotification('Errore: ' + data.message, 'error');
+                                   exitEditMode();
+                               }
+                           })
+                           .catch(error => {
+                               console.error('Errore:', error);
+                               showNotification('Si è verificato un errore durante l\'aggiornamento', 'error');
+                               exitEditMode();
+                           });
+                       }
+                   }
+               });
+               
+               cancelBtn.addEventListener('click', function() {
+                   // Ripristina il testo originale
+                   textContent.innerHTML = originalText;
+                   exitEditMode();
+               });
+           }
+           
+           // Funzione per uscire dalla modalità di modifica
+           function exitEditMode() {
+               textContent.contentEditable = false;
+               textContent.classList.remove('editing');
+               
+               editBtn.style.display = 'inline-block';
+               saveBtn.style.display = 'none';
+               saveBtn.disabled = false;
+               saveBtn.innerHTML = '💾';
+               cancelBtn.style.display = 'none';
+               
+               textContent.removeEventListener('mouseup', preventDefaultHandler);
+               textContent.style.border = '';
+               textContent.style.padding = '';
+           }
+           
+           // Gestore eventi per prevenire l'annotazione durante la modifica
+           function preventDefaultHandler(e) {
+               e.stopPropagation();
+               e.preventDefault();
+           }
+           
+           // Funzione di utilità per mostrare notifiche (se non è già definita globalmente)
+           if (typeof window.showNotification !== 'function') {
+               window.showNotification = function(message, type) {
+                   const notification = document.getElementById('notification');
+                   if (notification) {
+                       notification.textContent = message;
+                       notification.className = `notification ${type} show`;
+                       setTimeout(() => {
+                           notification.className = 'notification';
+                       }, 3000);
+                   }
+               };
+           }
+           
+           // Aggiungi stili per la modalità di modifica
+           const style = document.createElement('style');
+           style.textContent = `
+               #text-content.editing {
+                   background-color: #f8f9fa;
+                   min-height: 200px;
+               }
+               
+               .text-controls button {
+                   margin-left: 5px;
+               }
+           `;
+           document.head.appendChild(style);
+       });
+    </script>
 </body>
 </html>

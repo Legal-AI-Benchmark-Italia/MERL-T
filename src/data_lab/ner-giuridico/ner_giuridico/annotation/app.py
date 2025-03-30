@@ -378,30 +378,32 @@ def update_annotation():
         annotation = data.get('annotation')
         if not doc_id or not annotation:
             return jsonify({"status": "error", "message": "Dati mancanti"}), 400
+        
+        annotation_id = annotation.get('id')
+        if not annotation_id:
+            return jsonify({"status": "error", "message": "ID annotazione mancante"}), 400
+            
         annotations = load_annotations()
-        if doc_id in annotations:
-            for i, ann in enumerate(annotations[doc_id]):
-                if ann.get('id') == annotation.get('id'):
-                    annotations[doc_id][i] = annotation
-                    break
-            save_annotations(annotations)
-        return jsonify({"status": "success"})
+        if doc_id not in annotations:
+            return jsonify({"status": "error", "message": f"Documento {doc_id} non trovato"}), 404
+            
+        # Cerca e aggiorna l'annotazione
+        updated = False
+        for i, ann in enumerate(annotations[doc_id]):
+            if ann.get('id') == annotation_id:
+                annotations[doc_id][i] = annotation
+                updated = True
+                break
+                
+        if not updated:
+            return jsonify({"status": "error", "message": f"Annotazione {annotation_id} non trovata"}), 404
+            
+        save_annotations(annotations)
+        cleanup_backups()
+        return jsonify({"status": "success", "message": "Annotazione aggiornata con successo"})
     except Exception as e:
         annotation_logger.error(f"Errore nell'aggiornamento dell'annotazione: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-        
-        # Find and update the annotation
-        for i, ann in enumerate(annotations.get(doc_id, [])):
-            if ann['id'] == annotation['id']:
-                annotations[doc_id][i] = annotation
-                break
-        
-        save_annotations(annotations)
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return handle_error(e)
 
 @app.route('/api/upload_document', methods=['POST'])
 def upload_document():
@@ -529,17 +531,32 @@ def delete_document():
         documents = load_documents()
         annotations = load_annotations()
         
+        # Verifica se il documento esiste
+        if not any(doc['id'] == doc_id for doc in documents):
+            return jsonify({"status": "error", "message": f"Documento {doc_id} non trovato"}), 404
+        
         # Rimuovi il documento dalla lista
         documents = [doc for doc in documents if doc['id'] != doc_id]
-        save_documents(documents)
+        save_result = save_documents(documents)
         
         # Rimuovi anche le annotazioni associate
         if doc_id in annotations:
             del annotations[doc_id]
-            save_annotations(annotations)
+            annotations_result = save_annotations(annotations)
+        else:
+            annotations_result = True
         
-        cleanup_backups()
-        return jsonify({"status": "success", "message": f"Documento {doc_id} eliminato con successo"})
+        if save_result and annotations_result:
+            cleanup_backups()
+            return jsonify({
+                "status": "success", 
+                "message": f"Documento {doc_id} e relative annotazioni eliminati con successo"
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Errore nel salvataggio dopo l'eliminazione"
+            }), 500
     except Exception as e:
         annotation_logger.error(f"Errore nell'eliminazione del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -548,25 +565,45 @@ def delete_document():
 def update_document():
     try:
         data = request.json
-        doc_id = data['doc_id']
-        new_content = data['content']
+        doc_id = data.get('doc_id')
+        new_content = data.get('content')
+        new_title = data.get('title')
         
-        # Load documents
+        if not doc_id:
+            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
+        
+        # Carica i documenti
         documents = load_documents()
         
-        # Find and update document
+        # Trova e aggiorna il documento
+        document_found = False
         for doc in documents:
             if doc['id'] == doc_id:
-                doc['content'] = new_content
-                doc['modified_at'] = datetime.datetime.now().isoformat()
+                if new_content is not None:
+                    doc['text'] = new_content
+                if new_title is not None:
+                    doc['title'] = new_title
+                doc['date_modified'] = datetime.datetime.now().isoformat()
+                document_found = True
                 break
         
-        # Save updated documents
-        save_documents(documents)
+        if not document_found:
+            return jsonify({"status": "error", "message": f"Documento {doc_id} non trovato"}), 404
         
-        return jsonify({"status": "success"})
+        # Salva i documenti aggiornati
+        if save_documents(documents):
+            return jsonify({
+                "status": "success", 
+                "message": "Documento aggiornato con successo"
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Errore nel salvataggio del documento"
+            }), 500
     except Exception as e:
-        return handle_error(e)
+        annotation_logger.error(f"Errore nell'aggiornamento del documento: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/clear_annotations', methods=['POST'])
 def clear_annotations():
@@ -586,17 +623,23 @@ def clear_annotations():
         if entity_type:
             # Elimina solo le annotazioni del tipo specificato
             annotations[doc_id] = [ann for ann in annotations[doc_id] if ann.get('type') != entity_type]
+            message = f"Annotazioni di tipo {entity_type} eliminate con successo"
         else:
             # Elimina tutte le annotazioni
             annotations[doc_id] = []
+            message = "Tutte le annotazioni eliminate con successo"
         
-        save_annotations(annotations)
-        cleanup_backups()
-        
-        return jsonify({
-            "status": "success", 
-            "message": f"Annotazioni {('di tipo ' + entity_type) if entity_type else ''} eliminate con successo"
-        })
+        if save_annotations(annotations):
+            cleanup_backups()
+            return jsonify({
+                "status": "success", 
+                "message": message
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Errore nel salvataggio dopo l'eliminazione delle annotazioni"
+            }), 500
     except Exception as e:
         annotation_logger.error(f"Errore nell'eliminazione delle annotazioni: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500

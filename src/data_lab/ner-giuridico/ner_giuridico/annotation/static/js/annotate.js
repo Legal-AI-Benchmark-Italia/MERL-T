@@ -725,11 +725,45 @@ document.addEventListener('DOMContentLoaded', function() {
     highlightExistingAnnotations();
 });
 
-// Add document management functions
-function deleteDocument(docId) {
-    if (!confirm('Sei sicuro di voler eliminare questo documento e tutte le sue annotazioni?')) {
+// Funzione di utility per gestire le risposte delle richieste di API
+function handleResponse(response) {
+    if (!response.ok) {
+        return response.json().then(err => {
+            throw new Error(err.message || `Errore HTTP: ${response.status}`);
+        });
+    }
+    return response.json();
+}
+
+// Funzione di utility per gestire gli errori
+function handleError(error) {
+    console.error('Errore:', error);
+    // Mostra la notifica di errore nella pagina
+    const notification = document.getElementById('notification');
+    if (notification) {
+        notification.textContent = error.message || 'Si è verificato un errore';
+        notification.className = 'notification error show';
+        setTimeout(() => {
+            notification.className = 'notification';
+        }, 3000);
+    }
+}
+
+// Funzione migliorata per l'eliminazione di un documento
+function deleteDocument(docId, docTitle) {
+    if (!docId) {
+        console.error('ID documento non specificato');
         return;
     }
+    
+    // Verifica la conferma dell'utente
+    if (!confirm(`Sei sicuro di voler eliminare il documento "${docTitle || docId}" e tutte le sue annotazioni?`)) {
+        return;
+    }
+    
+    // Mostra un indicatore di caricamento, se disponibile
+    const loadingIndicator = document.getElementById('loading-indicator');
+    if (loadingIndicator) loadingIndicator.style.display = 'block';
     
     fetch('/api/delete_document', {
         method: 'POST',
@@ -737,14 +771,132 @@ function deleteDocument(docId) {
         body: JSON.stringify({doc_id: docId})
     })
     .then(handleResponse)
-    .then(() => window.location.href = '/')
-    .catch(handleError);
+    .then(data => {
+        console.log('Documento eliminato con successo:', data);
+        
+        // Mostra una notifica di successo
+        const notification = document.getElementById('notification');
+        if (notification) {
+            notification.textContent = data.message || 'Documento eliminato con successo';
+            notification.className = 'notification success show';
+            
+            // Reindirizza alla pagina principale dopo un breve ritardo
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1500);
+        } else {
+            // Reindirizza immediatamente se non c'è una notifica
+            window.location.href = '/';
+        }
+    })
+    .catch(error => {
+        handleError(error);
+        // Nascondi l'indicatore di caricamento in caso di errore
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+    });
 }
 
-function updateDocument(docId, newContent) {
+// Funzione migliorata per l'aggiornamento di un documento
+function updateDocument(docId, newContent, newTitle) {
+    if (!docId) {
+        console.error('ID documento non specificato');
+        return Promise.reject(new Error('ID documento non specificato'));
+    }
+    
+    const data = { doc_id: docId };
+    if (newContent !== undefined) data.content = newContent;
+    if (newTitle !== undefined) data.title = newTitle;
+    
+    // Mostra un indicatore di caricamento, se disponibile
+    const loadingIndicator = document.getElementById('loading-indicator');
+    if (loadingIndicator) loadingIndicator.style.display = 'block';
+    
     return fetch('/api/update_document', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({doc_id: docId, content: newContent})
+        body: JSON.stringify(data)
+    })
+    .then(handleResponse)
+    .then(data => {
+        console.log('Documento aggiornato con successo:', data);
+        
+        // Mostra una notifica di successo
+        const notification = document.getElementById('notification');
+        if (notification) {
+            notification.textContent = data.message || 'Documento aggiornato con successo';
+            notification.className = 'notification success show';
+            setTimeout(() => {
+                notification.className = 'notification';
+            }, 3000);
+        }
+        
+        // Nascondi l'indicatore di caricamento
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+        
+        return data;
+    })
+    .catch(error => {
+        handleError(error);
+        // Nascondi l'indicatore di caricamento in caso di errore
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+        return Promise.reject(error);
     });
 }
+
+// Funzione per eliminare tutte le annotazioni di un documento o di un tipo specifico
+function clearAnnotations(docId, entityType) {
+    if (!docId) {
+        console.error('ID documento non specificato');
+        return Promise.reject(new Error('ID documento non specificato'));
+    }
+    
+    let confirmMessage = 'Sei sicuro di voler eliminare tutte le annotazioni?';
+    if (entityType) {
+        confirmMessage = `Sei sicuro di voler eliminare tutte le annotazioni di tipo "${entityType}"?`;
+    }
+    
+    if (!confirm(confirmMessage)) {
+        return Promise.resolve(false);
+    }
+    
+    const data = { doc_id: docId };
+    if (entityType) {
+        data.entity_type = entityType;
+    }
+    
+    return fetch('/api/clear_annotations', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(handleResponse)
+    .then(data => {
+        console.log('Annotazioni eliminate con successo:', data);
+        
+        // Mostra una notifica di successo
+        const notification = document.getElementById('notification');
+        if (notification) {
+            notification.textContent = data.message || 'Annotazioni eliminate con successo';
+            notification.className = 'notification success show';
+            setTimeout(() => {
+                notification.className = 'notification';
+            }, 3000);
+        }
+        
+        // Ricarica la pagina o aggiorna l'UI per mostrare le modifiche
+        setTimeout(() => {
+            window.location.reload();
+        }, 1500);
+        
+        return true;
+    })
+    .catch(error => {
+        handleError(error);
+        return false;
+    });
+}
+
+// Aggiungi le funzioni come proprietà globali, se necessario
+window.deleteDocument = deleteDocument;
+window.updateDocument = updateDocument;
+window.clearAnnotations = clearAnnotations;

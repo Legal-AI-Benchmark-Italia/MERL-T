@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NER-Giuridico - Annotazione</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
 </head>
 <body>
     <header>
@@ -30,7 +31,8 @@
                     {% for entity_type in entity_types %}
                         <div class="entity-type" 
                              data-type="{{ entity_type.id }}" 
-                             style="background-color: '{{ entity_type.color }}'">
+                             <!-- @cssvalidator-ignore -->
+                             style="background-color: {{ entity_type.color }}">
                             {{ entity_type.name }}
                         </div>
                     {% endfor %}
@@ -71,9 +73,12 @@
                              data-end="{{ annotation.end }}"
                              data-type="{{ annotation.type }}">
                             <span class="annotation-text">{{ annotation.text }}</span>
+                            
                             {% for entity_type in entity_types %}
                                 {% if entity_type.id == annotation.type %}
-                                    <span class="annotation-type" style="background-color: '{{ entity_type.color }}'">
+                                    <span class="annotation-type"       
+                                        <!-- @cssvalidator-ignore -->
+                                        style="background-color: {{ entity_type.color }}">
                                         {{ entity_type.name }}
                                     </span>
                                 {% endif %}

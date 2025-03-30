@@ -258,6 +258,193 @@ def log_response(response):
     annotation_logger.debug(f"Risposta: {response.status_code}")
     return response
 
+# Aggiungi questi endpoint dopo gli altri endpoint API esistenti in app.py
+
+@app.route('/api/entity_types', methods=['GET'])
+@handle_api_error
+def get_entity_types():
+    """Ottiene tutti i tipi di entità."""
+    try:
+        entity_manager = get_entity_manager()
+        all_entity_types = entity_manager.get_all_entity_types()
+        
+        # Converti in un formato più adatto per JSON
+        result = []
+        for name, info in all_entity_types.items():
+            result.append({
+                "name": name,
+                "display_name": info.get("display_name", name),
+                "category": info.get("category", "custom"),
+                "color": info.get("color", "#CCCCCC"),
+                "metadata_schema": info.get("metadata_schema", {}),
+                "patterns": info.get("patterns", [])
+            })
+        
+        return jsonify({"status": "success", "entity_types": result})
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'ottenimento dei tipi di entità: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/entity_types/<name>', methods=['GET'])
+@handle_api_error
+def get_entity_type(name):
+    """Ottiene un tipo di entità specifico."""
+    try:
+        entity_manager = get_entity_manager()
+        entity_type = entity_manager.get_entity_type(name)
+        
+        if not entity_type:
+            return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
+        
+        # Converti in un formato adatto per JSON
+        result = {
+            "name": name,
+            "display_name": entity_type.get("display_name", name),
+            "category": entity_type.get("category", "custom"),
+            "color": entity_type.get("color", "#CCCCCC"),
+            "metadata_schema": entity_type.get("metadata_schema", {}),
+            "patterns": entity_type.get("patterns", [])
+        }
+        
+        return jsonify({"status": "success", "entity_type": result})
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'ottenimento del tipo di entità '{name}': {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/entity_types', methods=['POST'])
+@handle_api_error
+def create_entity_type():
+    """Crea un nuovo tipo di entità."""
+    try:
+        data = request.json
+        
+        if not data or not data.get('name'):
+            return jsonify({"status": "error", "message": "Nome entità mancante"}), 400
+        
+        name = data['name'].upper()  # Converti in maiuscolo come da convenzione
+        display_name = data.get('display_name', name)
+        category = data.get('category', 'custom')
+        color = data.get('color', '#CCCCCC')
+        metadata_schema = data.get('metadata_schema', {})
+        patterns = data.get('patterns', [])
+        
+        # Validazione
+        if not name.isupper() or ' ' in name:
+            return jsonify({
+                "status": "error", 
+                "message": "Il nome dell'entità deve essere in maiuscolo e senza spazi"
+            }), 400
+        
+        # Aggiungi il tipo di entità
+        entity_manager = get_entity_manager()
+        success = entity_manager.add_entity_type(
+            name=name,
+            display_name=display_name,
+            category=category,
+            color=color,
+            metadata_schema=metadata_schema,
+            patterns=patterns
+        )
+        
+        if not success:
+            return jsonify({"status": "error", "message": f"Impossibile creare il tipo di entità '{name}'"}), 400
+        
+        # Ottieni il tipo di entità appena creato per la risposta
+        entity_type = entity_manager.get_entity_type(name)
+        
+        result = {
+            "name": name,
+            "display_name": entity_type.get("display_name", name),
+            "category": entity_type.get("category", "custom"),
+            "color": entity_type.get("color", "#CCCCCC"),
+            "metadata_schema": entity_type.get("metadata_schema", {}),
+            "patterns": entity_type.get("patterns", [])
+        }
+        
+        return jsonify({"status": "success", "message": f"Tipo di entità '{name}' creato con successo", "entity_type": result})
+    except Exception as e:
+        annotation_logger.error(f"Errore nella creazione del tipo di entità: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/entity_types/<name>', methods=['PUT'])
+@handle_api_error
+def update_entity_type(name):
+    """Aggiorna un tipo di entità esistente."""
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({"status": "error", "message": "Dati mancanti"}), 400
+        
+        # Controlla se il tipo di entità esiste
+        entity_manager = get_entity_manager()
+        if not entity_manager.entity_type_exists(name):
+            return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
+        
+        # Estrai i campi da aggiornare
+        display_name = data.get('display_name')
+        color = data.get('color')
+        metadata_schema = data.get('metadata_schema')
+        patterns = data.get('patterns')
+        
+        # Aggiorna il tipo di entità
+        success = entity_manager.update_entity_type(
+            name=name,
+            display_name=display_name,
+            color=color,
+            metadata_schema=metadata_schema,
+            patterns=patterns
+        )
+        
+        if not success:
+            return jsonify({"status": "error", "message": f"Impossibile aggiornare il tipo di entità '{name}'"}), 400
+        
+        # Ottieni il tipo di entità aggiornato per la risposta
+        entity_type = entity_manager.get_entity_type(name)
+        
+        result = {
+            "name": name,
+            "display_name": entity_type.get("display_name", name),
+            "category": entity_type.get("category", "custom"),
+            "color": entity_type.get("color", "#CCCCCC"),
+            "metadata_schema": entity_type.get("metadata_schema", {}),
+            "patterns": entity_type.get("patterns", [])
+        }
+        
+        return jsonify({"status": "success", "message": f"Tipo di entità '{name}' aggiornato con successo", "entity_type": result})
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'aggiornamento del tipo di entità '{name}': {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/entity_types/<name>', methods=['DELETE'])
+@handle_api_error
+def delete_entity_type(name):
+    """Elimina un tipo di entità."""
+    try:
+        # Controlla se il tipo di entità esiste
+        entity_manager = get_entity_manager()
+        if not entity_manager.entity_type_exists(name):
+            return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
+        
+        # Impedisci l'eliminazione dei tipi di entità predefiniti
+        entity_type = entity_manager.get_entity_type(name)
+        if entity_type.get("category") != "custom":
+            return jsonify({
+                "status": "error", 
+                "message": f"Non è possibile eliminare il tipo di entità predefinito '{name}'"
+            }), 400
+        
+        # Elimina il tipo di entità
+        success = entity_manager.remove_entity_type(name)
+        
+        if not success:
+            return jsonify({"status": "error", "message": f"Impossibile eliminare il tipo di entità '{name}'"}), 400
+        
+        return jsonify({"status": "success", "message": f"Tipo di entità '{name}' eliminato con successo"})
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'eliminazione del tipo di entità '{name}': {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 # Funzioni di persistenza migliorate
 def load_documents() -> List[Dict[str, Any]]:
     """Carica i documenti dal file JSON con gestione degli errori migliorata."""
@@ -776,6 +963,12 @@ def annotation_stats():
         "document_stats": doc_stats,
         "temporal_stats": [{"date": k, **v} for k, v in temporal_stats.items()]
     })
+    
+@app.route('/entity_types')
+def entity_types():
+    """Pagina per la gestione dei tipi di entità."""
+    return render_template('entity_types.html', entity_types=ENTITY_TYPES)
+
 
 # Inizializzazione dell'app
 if __name__ == '__main__':

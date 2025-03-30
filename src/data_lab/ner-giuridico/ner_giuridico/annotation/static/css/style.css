@@ -552,3 +552,246 @@ input[type="file"] {
         flex-direction: column;
     }
 }
+
+/* Aggiungi questi stili a style.css */
+
+/* Stili per la pagina di gestione dei tipi di entità */
+.entity-types-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.entity-types-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.entity-types-table-container {
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+}
+
+.data-table th, 
+.data-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-table th {
+    background-color: var(--light-bg);
+    font-weight: 600;
+}
+
+.data-table tr:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.color-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.color-preview {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    display: inline-block;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.entity-type-form-container {
+    background-color: white;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.entity-type-form-container.hidden {
+    display: none;
+}
+
+.form-group {
+    margin-bottom: 1.2rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.form-group input[type="text"],
+.form-group select,
+.form-group textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    font-size: 1rem;
+}
+
+.form-group textarea {
+    min-height: 100px;
+    font-family: monospace;
+}
+
+.form-group small {
+    display: block;
+    margin-top: 0.3rem;
+    color: var(--text-light);
+    font-size: 0.8rem;
+}
+
+.color-picker-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.color-picker-container input[type="color"] {
+    width: 50px;
+    height: 30px;
+    padding: 0;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.primary-btn {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.primary-btn:hover {
+    background-color: var(--primary-dark);
+    transform: translateY(-1px);
+}
+
+.secondary-btn {
+    background-color: var(--light-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.secondary-btn:hover {
+    background-color: #e9ecef;
+    transform: translateY(-1px);
+}
+
+.danger-btn {
+    background-color: var(--danger-color);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.danger-btn:hover {
+    background-color: var(--danger-dark);
+    transform: translateY(-1px);
+}
+
+.edit-btn {
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: var(--transition);
+}
+
+.edit-btn:hover {
+    background-color: #5a6268;
+}
+
+.delete-btn {
+    background-color: var(--danger-color);
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: var(--transition);
+}
+
+.delete-btn:hover {
+    background-color: var(--danger-dark);
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal.hidden {
+    display: none;
+}
+
+.modal-content {
+    background-color: white;
+    border-radius: 5px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-content h3 {
+    margin-top: 0;
+    color: var(--danger-color);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}

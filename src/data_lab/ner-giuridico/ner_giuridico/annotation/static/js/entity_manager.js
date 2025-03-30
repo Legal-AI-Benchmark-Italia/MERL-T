@@ -36,20 +36,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const testResults = document.getElementById('test-results');
     const testOutput = document.getElementById('test-output');
     
-    // Stato dell'applicazione
+    // Stato dell'applicazione - CORREZIONE: inizializza allEntities come array vuoto
     let entityToDelete = null;
     let allEntities = [];
     let isLoading = true;
     
-    // Imposta lo stato di caricamento
+    // Imposta lo stato di caricamento - CORREZIONE: logica migliorata
     function setLoading(loading) {
         isLoading = loading;
+        
+        // Assicuriamoci che allEntities sia sempre un array
+        if (!Array.isArray(allEntities)) {
+            allEntities = [];
+        }
+        
         if (loading) {
             loadingIndicator.classList.remove('hidden');
             entityTypesTable.classList.add('hidden');
             emptyState.classList.add('hidden');
         } else {
             loadingIndicator.classList.add('hidden');
+            
             if (allEntities.length === 0) {
                 emptyState.classList.remove('hidden');
                 entityTypesTable.classList.add('hidden');
@@ -93,7 +100,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 5000);
     }
     
-    // Funzione per caricare i tipi di entità
+    // Funzione per caricare i tipi di entità - CORREZIONE: gestione degli errori migliorata
     function loadEntityTypes() {
         setLoading(true);
         
@@ -105,18 +112,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
-                if (data.status === 'success') {
+                // CORREZIONE: verifica che i dati siano nel formato atteso
+                if (data && data.status === 'success' && Array.isArray(data.entity_types)) {
                     allEntities = data.entity_types;
-                    renderEntityTypes(allEntities);
-                    setLoading(false);
                 } else {
-                    showNotification(`Errore nel caricamento dei tipi di entità: ${data.message}`, 'error');
-                    setLoading(false);
+                    console.error('Formato risposta non valido:', data);
+                    allEntities = [];
+                    showNotification('Errore nel formato dei dati ricevuti', 'error');
                 }
+                
+                renderEntityTypes(allEntities);
             })
             .catch(error => {
                 console.error('Errore:', error);
+                allEntities = [];
                 showNotification(`Errore durante il caricamento dei tipi di entità: ${error.message}`, 'error');
+            })
+            .finally(() => {
                 setLoading(false);
             });
     }
@@ -126,6 +138,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const searchTerm = entitySearch.value.toLowerCase();
         const categoryValue = categoryFilter.value;
         
+        // CORREZIONE: assicuriamoci che allEntities sia un array
+        if (!Array.isArray(allEntities)) {
+            allEntities = [];
+            setLoading(false);
+            return;
+        }
+
         const filteredEntities = allEntities.filter(entity => {
             const matchesSearch = 
                 entity.name.toLowerCase().includes(searchTerm) || 
@@ -152,12 +171,30 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Funzione per visualizzare i tipi di entità nella tabella
+    // Funzione per visualizzare i tipi di entità nella tabella - CORREZIONE: gestione di casi limite
     function renderEntityTypes(entityTypes) {
         // Svuota la tabella
         const tbody = entityTypesTable.querySelector('tbody');
         tbody.innerHTML = '';
         
+        // CORREZIONE: verifica che entityTypes sia un array
+        if (!Array.isArray(entityTypes)) {
+            console.error('entityTypes non è un array:', entityTypes);
+            entityTypes = [];
+        }
+        
+        // CORREZIONE: aggiunta una gestione esplicita di zero entità
+        if (entityTypes.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.textContent = 'Nessun tipo di entità trovato';
+            td.className = 'empty-results';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+            return;
+        }
+
         // Aggiungi i tipi di entità alla tabella
         entityTypes.forEach(entityType => {
             const tr = document.createElement('tr');

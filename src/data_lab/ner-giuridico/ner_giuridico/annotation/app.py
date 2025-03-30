@@ -628,27 +628,44 @@ def validate_regex_patterns(patterns: List[str]) -> None:
         except re.error as e:
             raise ValueError(f"Pattern regex non valido: '{pattern}' - {str(e)}")
 
+
 @api_endpoint
 def get_entity_types():
-    from ner_giuridico.entities.entity_manager import get_entity_manager
-    category = request.args.get('category')
-    entity_manager = get_entity_manager()
-    all_entity_types = entity_manager.get_all_entity_types()
-    result = []
-    for name, info in all_entity_types.items():
-        if category and info.get("category") != category:
-            continue
-        result.append({
-            "name": name,
-            "display_name": info.get("display_name", name),
-            "category": info.get("category", "custom"),
-            "color": info.get("color", "#CCCCCC"),
-            "metadata_schema": info.get("metadata_schema", {}),
-            "patterns": info.get("patterns", [])
-        })
-    result.sort(key=lambda x: (x["category"], x["name"]))
-    return jsonify({"status": "success", "entity_types": result})
-
+    """Ottiene la lista dei tipi di entità."""
+    try:
+        from ner_giuridico.entities.entity_manager import get_entity_manager
+        category = request.args.get('category')
+        entity_manager = get_entity_manager()
+        all_entity_types = entity_manager.get_all_entity_types()
+        result = []
+        
+        # Verifica che all_entity_types sia un dizionario
+        if not isinstance(all_entity_types, dict):
+            logger.error(f"get_all_entity_types ha restituito un tipo non valido: {type(all_entity_types)}")
+            return jsonify({"status": "error", "message": "Formato dei dati non valido"}), 500
+        
+        for name, info in all_entity_types.items():
+            if category and info.get("category") != category:
+                continue
+            
+            # Assicuriamoci che tutte le proprietà siano presenti
+            entry = {
+                "name": name,
+                "display_name": info.get("display_name", name),
+                "category": info.get("category", "custom"),
+                "color": info.get("color", "#CCCCCC"),
+                "metadata_schema": info.get("metadata_schema", {}),
+                "patterns": info.get("patterns", [])
+            }
+            result.append(entry)
+        
+        # Ordina il risultato per categoria e nome
+        result.sort(key=lambda x: (x["category"], x["name"]))
+        return jsonify({"status": "success", "entity_types": result})
+    except Exception as e:
+        logger.error(f"Errore nel caricamento dei tipi di entità: {e}")
+        logger.exception(e)
+        return jsonify({"status": "error", "message": str(e)}), 500
 @api_endpoint
 def get_entity_type(name: str):
     from ner_giuridico.entities.entity_manager import get_entity_manager

@@ -29,10 +29,10 @@
             <div class="entity-types">
                 <h3>Tipi di entità</h3>
                 <div class="entity-type-list">
+                    <!-- @cssvalidator-ignore -->
                     {% for entity_type in entity_types %}
                         <div class="entity-type" 
                              data-type="{{ entity_type.id }}" 
-                             <!-- @cssvalidator-ignore -->
                              style="background-color: {{ entity_type.color }}">
                             {{ entity_type.name }}
                         </div>
@@ -78,7 +78,6 @@
                             {% for entity_type in entity_types %}
                                 {% if entity_type.id == annotation.type %}
                                     <span class="annotation-type"       
-                                        <!-- @cssvalidator-ignore -->
                                         style="background-color: {{ entity_type.color }}">
                                         {{ entity_type.name }}
                                     </span>

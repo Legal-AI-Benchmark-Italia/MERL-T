@@ -41,28 +41,36 @@ document.addEventListener('DOMContentLoaded', function() {
     let allEntities = [];
     let isLoading = true;
     
-    // Imposta lo stato di caricamento - CORREZIONE: logica migliorata
     function setLoading(loading) {
         isLoading = loading;
         
-        // Assicuriamoci che allEntities sia sempre un array
-        if (!Array.isArray(allEntities)) {
-            allEntities = [];
+        // Debug logging
+        console.log('Setting loading state:', loading);
+        console.log('Entity types count:', Array.isArray(allEntities) ? allEntities.length : 'not an array');
+        
+        // Make sure DOM elements exist
+        if (!loadingIndicator || !entityTypesTable || !emptyState) {
+            console.error('DOM elements not found:', {
+                loadingIndicator: !!loadingIndicator,
+                entityTypesTable: !!entityTypesTable,
+                emptyState: !!emptyState
+            });
+            return;
         }
         
         if (loading) {
-            loadingIndicator.classList.remove('hidden');
-            entityTypesTable.classList.add('hidden');
-            emptyState.classList.add('hidden');
+            loadingIndicator.style.display = 'flex';
+            entityTypesTable.style.display = 'none';
+            emptyState.style.display = 'none';
         } else {
-            loadingIndicator.classList.add('hidden');
+            loadingIndicator.style.display = 'none';
             
-            if (allEntities.length === 0) {
-                emptyState.classList.remove('hidden');
-                entityTypesTable.classList.add('hidden');
+            if (!Array.isArray(allEntities) || allEntities.length === 0) {
+                emptyState.style.display = 'block';
+                entityTypesTable.style.display = 'none';
             } else {
-                emptyState.classList.add('hidden');
-                entityTypesTable.classList.remove('hidden');
+                emptyState.style.display = 'none';
+                entityTypesTable.style.display = 'table';
             }
         }
     }

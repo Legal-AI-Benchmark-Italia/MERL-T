@@ -369,6 +369,39 @@ def delete_annotation():
     except Exception as e:
         annotation_logger.error(f"Errore nell'eliminazione dell'annotazione: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+        
+@app.route('/api/update_annotation', methods=['POST'])
+def update_annotation():
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')
+        annotation = data.get('annotation')
+        if not doc_id or not annotation:
+            return jsonify({"status": "error", "message": "Dati mancanti"}), 400
+        annotations = load_annotations()
+        if doc_id in annotations:
+            for i, ann in enumerate(annotations[doc_id]):
+                if ann.get('id') == annotation.get('id'):
+                    annotations[doc_id][i] = annotation
+                    break
+            save_annotations(annotations)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'aggiornamento dell'annotazione: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+        
+        # Find and update the annotation
+        for i, ann in enumerate(annotations.get(doc_id, [])):
+            if ann['id'] == annotation['id']:
+                annotations[doc_id][i] = annotation
+                break
+        
+        save_annotations(annotations)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return handle_error(e)
 
 @app.route('/api/upload_document', methods=['POST'])
 def upload_document():
@@ -484,6 +517,89 @@ def train_model():
     except Exception as e:
         annotation_logger.error(f"Errore nell'esportazione dei dati di addestramento: {e}")
         return jsonify({"status": "error", "message": f"Errore: {str(e)}"}), 500
+
+@app.route('/api/delete_document', methods=['POST'])
+def delete_document():
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')
+        if not doc_id:
+            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
+        
+        documents = load_documents()
+        annotations = load_annotations()
+        
+        # Rimuovi il documento dalla lista
+        documents = [doc for doc in documents if doc['id'] != doc_id]
+        save_documents(documents)
+        
+        # Rimuovi anche le annotazioni associate
+        if doc_id in annotations:
+            del annotations[doc_id]
+            save_annotations(annotations)
+        
+        cleanup_backups()
+        return jsonify({"status": "success", "message": f"Documento {doc_id} eliminato con successo"})
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'eliminazione del documento: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
+@app.route('/api/update_document', methods=['POST'])
+def update_document():
+    try:
+        data = request.json
+        doc_id = data['doc_id']
+        new_content = data['content']
+        
+        # Load documents
+        documents = load_documents()
+        
+        # Find and update document
+        for doc in documents:
+            if doc['id'] == doc_id:
+                doc['content'] = new_content
+                doc['modified_at'] = datetime.datetime.now().isoformat()
+                break
+        
+        # Save updated documents
+        save_documents(documents)
+        
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return handle_error(e)
+
+@app.route('/api/clear_annotations', methods=['POST'])
+def clear_annotations():
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')
+        entity_type = data.get('entity_type')  # Opzionale: per eliminare solo annotazioni di un tipo
+        
+        if not doc_id:
+            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
+        
+        annotations = load_annotations()
+        
+        if doc_id not in annotations:
+            return jsonify({"status": "success", "message": "Nessuna annotazione da eliminare"})
+        
+        if entity_type:
+            # Elimina solo le annotazioni del tipo specificato
+            annotations[doc_id] = [ann for ann in annotations[doc_id] if ann.get('type') != entity_type]
+        else:
+            # Elimina tutte le annotazioni
+            annotations[doc_id] = []
+        
+        save_annotations(annotations)
+        cleanup_backups()
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Annotazioni {('di tipo ' + entity_type) if entity_type else ''} eliminate con successo"
+        })
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'eliminazione delle annotazioni: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/annotation_stats', methods=['GET'])
 def annotation_stats():
@@ -666,6 +782,7 @@ def get_entity_types():
         logger.error(f"Errore nel caricamento dei tipi di entità: {e}")
         logger.exception(e)
         return jsonify({"status": "error", "message": str(e)}), 500
+
 @api_endpoint
 def get_entity_type(name: str):
     from ner_giuridico.entities.entity_manager import get_entity_manager
@@ -681,7 +798,7 @@ def get_entity_type(name: str):
         "metadata_schema": entity_type.get("metadata_schema", {}),
         "patterns": entity_type.get("patterns", [])
     }
-    return jsonify({"status": "success", "entity_type": result})
+    return jsonify({"status": "success", "entity_types": result})
 
 @api_endpoint
 def create_entity_type():

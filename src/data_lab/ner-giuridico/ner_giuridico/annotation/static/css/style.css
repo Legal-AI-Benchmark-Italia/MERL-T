@@ -194,6 +194,12 @@ input[type="file"] {
     margin-bottom: 1rem;
 }
 
+.document-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
 .annotate-btn {
     display: inline-block;
     padding: 0.5rem 1rem;
@@ -204,12 +210,29 @@ input[type="file"] {
     transition: var(--transition);
     text-align: center;
     font-weight: 500;
+    flex: 1;
 }
 
 .annotate-btn:hover {
     background-color: var(--success-dark);
     transform: translateY(-1px);
     box-shadow: var(--shadow-sm);
+}
+
+.delete-doc-btn {
+    background-color: var(--danger-color);
+    color: white;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: var(--transition);
+    flex: 1;
+}
+
+.delete-doc-btn:hover {
+    background-color: var(--danger-dark);
 }
 
 .export-buttons {

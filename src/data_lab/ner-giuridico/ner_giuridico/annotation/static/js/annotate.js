@@ -724,3 +724,27 @@ document.addEventListener('DOMContentLoaded', function() {
     // Inizializzazione: evidenzia le annotazioni esistenti
     highlightExistingAnnotations();
 });
+
+// Add document management functions
+function deleteDocument(docId) {
+    if (!confirm('Sei sicuro di voler eliminare questo documento e tutte le sue annotazioni?')) {
+        return;
+    }
+    
+    fetch('/api/delete_document', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({doc_id: docId})
+    })
+    .then(handleResponse)
+    .then(() => window.location.href = '/')
+    .catch(handleError);
+}
+
+function updateDocument(docId, newContent) {
+    return fetch('/api/update_document', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({doc_id: docId, content: newContent})
+    });
+}

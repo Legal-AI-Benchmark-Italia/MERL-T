@@ -11,7 +11,7 @@ python-multipart>=0.0.6
 spacy>=3.5.1
 transformers>=4.28.1
 torch>=2.0.0
-numpy>=2.0.0
+numpy<2.0.0
 regex>=2023.3.23
 
 # Dipendenze per l'integrazione con Neo4j
@@ -30,3 +30,10 @@ werkzeug>=2.3.4
 accelerate>=0.18.0
 bitsandbytes>=0.38.0
 optimum>=1.7.1
+
+# Dipendenze per l'addestramento NER
+datasets>=2.12.0
+evaluate>=0.4.0
+transformers>=4.28.1
+torch>=2.0.0
+--only-binary=pyarrow

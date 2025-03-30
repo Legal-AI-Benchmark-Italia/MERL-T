@@ -32,11 +32,23 @@ class TextPreprocessor:
             logger.info(f"Caricamento del modello spaCy {spacy_model}")
             try:
                 self.nlp = spacy.load(spacy_model, disable=disabled_components)
+                
+                # Add sentencizer component if not present
+                if "sentencizer" not in self.nlp.pipe_names:
+                    self.nlp.add_pipe("sentencizer")
+                    logger.info("Componente 'sentencizer' aggiunto al modello spaCy")
+                    
                 logger.info(f"Modello spaCy {spacy_model} caricato con successo")
             except OSError:
                 logger.warning(f"Modello spaCy {spacy_model} non trovato. Installazione in corso...")
                 spacy.cli.download(spacy_model)
                 self.nlp = spacy.load(spacy_model, disable=disabled_components)
+                
+                # Add sentencizer component here too
+                if "sentencizer" not in self.nlp.pipe_names:
+                    self.nlp.add_pipe("sentencizer")
+                    logger.info("Componente 'sentencizer' aggiunto al modello spaCy")
+                    
                 logger.info(f"Modello spaCy {spacy_model} installato e caricato con successo")
     
     def preprocess(self, text: str) -> Tuple[str, Optional[Doc]]:

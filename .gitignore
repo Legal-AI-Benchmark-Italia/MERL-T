@@ -11,3 +11,4 @@ raw_txt/*/*
 *.ipynb_checkpoints
 __pycache__
 *.jsonl
+models/transformer/*

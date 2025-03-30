@@ -1,267 +1,565 @@
 
-# NER-Giuridico User Manual
+# MERL-T NER Module: Technical Analysis and Documentation
 
-## Table of Contents
+## 1. Executive Summary
 
-1. [Introduction](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#introduction)
-2. [Installation and Setup](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#installation-and-setup)
-3. [System Architecture](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#system-architecture)
-4. [Using the System](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#using-the-system)
-5. [Entity Types and Recognition](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#entity-types-and-recognition)
-6. [Customizing the System](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#customizing-the-system)
-7. [Training and Fine-tuning](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#training-and-fine-tuning)
-8. [Annotation Interface](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#annotation-interface)
-9. [API Reference](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#api-reference)
-10. [Deployment Guide](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#deployment-guide)
-11. [Troubleshooting](https://claude.ai/chat/b37a541e-c6d1-4e39-bb27-49dea763b2fd#troubleshooting)
+The Named Entity Recognition (NER) module for MERL-T is a sophisticated system designed to identify, classify, and normalize legal entities in Italian text. Operating as a preprocessing component for user queries, it extracts critical legal references that guide the rules module. The system employs both rule-based pattern matching and transformer-based deep learning approaches, with robust normalization capabilities to standardize detected entities.
 
-## Introduction
+The module is architected with flexibility in mind, supporting both static predefined entity types and dynamic runtime-defined entities. A comprehensive annotation interface has been developed alongside the core functionality to facilitate the creation of training data for continual improvement of the system.
 
-NER-Giuridico is a specialized Named Entity Recognition system designed for identifying and normalizing legal entities in Italian texts. Developed as a component of the MERL-T (Multi Expert Retrieval Legal Transformer) project, it processes text to identify, classify, and normalize references to various legal sources.
+This document provides a detailed analysis of the current implementation, highlighting its technical architecture, component interactions, and areas for improvement.
 
-### Key Features
+## 2. System Architecture
 
-* Recognition of normative references (code articles, laws, decrees, EU regulations)
-* Recognition of jurisprudential references (court decisions, ordinances)
-* Recognition of legal concepts
-* Rule-based and transformer-based recognition models
-* Entity normalization and metadata enrichment
-* Integration with knowledge graphs
-* Dynamic entity type management
-* REST API for easy integration
-* Annotation interface for training data creation
-* Fine-tuning capabilities for domain-specific models
+### 2.1 Overall Architecture
 
-### Use Cases
+The NER module follows a layered architecture pattern with distinct components handling specific aspects of the entity recognition pipeline:
 
-* Legal document processing
-* Query preprocessing for legal information retrieval
-* Automatic tagging of legal documents
-* Enhanced legal search functionality
-* Relationship extraction between legal entities
-
-## Installation and Setup
-
-### Prerequisites
-
-* Python 3.8+
-* Neo4j (optional, for knowledge graph integration)
-* Docker (optional, for containerized deployment)
-
-### Hardware Requirements
-
-* CPU: 4+ cores
-* RAM: 8+ GB (16+ GB recommended for high workloads)
-* Disk Space: 10+ GB
-* GPU: Optional but recommended for optimal performance with transformer models
-
-### Installation Steps
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/merl-t/ner-giuridico.git
-   cd ner-giuridico
-   ```
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Install language models:
-   ```bash
-   python -m spacy download it_core_news_lg
-   ```
-5. Run the setup script to configure the system:
-   ```bash
-   python setup.py --all
-   ```
-
-### Configuration
-
-The system uses a YAML configuration file located at `config/config.yaml`. Key configuration sections include:
-
-* `general`: Basic system settings
-* `models`: Configuration for transformer, spaCy, and rule-based models
-* `entities`: Entity type definitions and settings
-* `preprocessing`: Text preprocessing pipeline settings
-* `normalization`: Entity normalization settings
-* `api`: REST API configuration
-* `monitoring`: Prometheus and logging configuration
-
-Example configuration for transformer models:
-
-```yaml
-models:
-  transformer:
-    model_name: "dbmdz/bert-base-italian-xxl-cased"
-    max_length: 512
-    batch_size: 16
-    device: "cuda"  # Use "cpu" if no GPU is available
-    quantization: true
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       API Layer                             │
+└───────────────────────────┬─────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    NER Controller                           │
+│            (NERGiuridico/DynamicNERGiuridico)              │
+└───────┬─────────────────┬────────────────┬─────────┬────────┘
+        │                 │                │         │
+        ▼                 ▼                ▼         ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────┐
+│Preprocessor  │  │Rule-Based    │  │Transformer│  │Entity    │
+│              │  │Recognizer    │  │Recognizer │  │Normalizer│
+└──────────────┘  └──────────────┘  └──────────┘  └──────────┘
+        │                 │                │         │
+        └─────────────────┼───────────────┼─────────┘
+                          │               │
+                          ▼               ▼
+┌─────────────────────────────┐  ┌────────────────────────────┐
+│      Entity Manager         │  │   Annotation Interface     │
+└─────────────────────────────┘  └────────────────────────────┘
 ```
 
-## System Architecture
+### 2.2 Processing Flow
 
-NER-Giuridico follows a modular architecture that combines multiple components for entity recognition, normalization, and management.
+1. **Input** : Text containing potential legal entities
+2. **Preprocessing** : Text normalization, tokenization, segmentation
+3. **Entity Recognition** : Parallel processing by rule-based and transformer-based recognizers
+4. **Entity Merging** : Combining results from different recognizers, resolving conflicts
+5. **Normalization** : Converting detected entities to canonical forms
+6. **Structured References** : Organizing entities into a structured, typed format
+7. **Output** : Recognized entities with metadata and normalized representations
 
-### Core Components
+### 2.3 Key Components
 
-![NER-Giuridico Architecture](https://claude.ai/chat/architecture-diagram.png)
+1. **NERGiuridico/DynamicNERGiuridico** : Core controllers orchestrating the entity recognition process
+2. **EntityManager** : Manages entity type definitions, properties, and relationships
+3. **RuleBasedRecognizer** : Identifies entities using regex patterns and gazetteers
+4. **TransformerRecognizer** : Uses deep learning models for entity extraction
+5. **EntityNormalizer** : Standardizes entity representations to canonical forms
+6. **Annotation Interface** : Web-based tool for labeling training data
+7. **Training Module** : Supports fine-tuning and training of models
 
-1. **NERGiuridico** : The main class that coordinates the NER process.
-2. **EntityManager** : Manages entity types, their definitions, and properties.
-3. **PreProcessor** : Handles text preprocessing, including tokenization and segmentation.
-4. **RuleBasedRecognizer** : Identifies entities using regex patterns and gazetteers.
-5. **TransformerRecognizer** : Uses transformer models for entity recognition.
-6. **EntityNormalizer** : Normalizes recognized entities to canonical forms.
-7. **API** : Provides REST API access to the system.
+## 3. Core Components Analysis
 
-### Processing Pipeline
+### 3.1 Entity Management
 
-1. **Preprocessing** : Text is tokenized, normalized, and segmented.
-2. **Entity Recognition** :
+#### 3.1.1 Entity Classes
 
-* Rule-based recognizer identifies entities using patterns.
-* Transformer-based recognizer identifies entities using trained models.
-* Results are merged and overlapping entities are resolved.
+The system defines several entity-related classes:
 
-1. **Normalization** : Recognized entities are normalized to canonical forms.
-2. **Structured Reference Creation** : Normalized entities are converted to structured references.
+1. **Entity** : Base class representing a recognized entity
 
-### Entity Management
-
-The system supports both static and dynamic entity types:
-
-* **Static Entities** : Defined through the `EntityType` enum in `entities.py`.
-* **Dynamic Entities** : Managed by the `DynamicEntityManager` in `entity_manager.py`.
-
-## Using the System
-
-### Command-Line Interface
-
-The system provides a command-line interface for various operations:
-
-#### Server Mode
-
-To start the API server:
-
-```bash
-python main.py server --host 0.0.0.0 --port 8000
+```python
+   @dataclass
+   class Entity:
+       text: str                  # Original text of the entity
+       type: EntityTypeVar        # Type (enum or string)
+       start_char: int            # Start position in text
+       end_char: int              # End position in text
+       normalized_text: Optional[str] = None  # Normalized form
+       metadata: Dict[str, Any] = field(default_factory=dict)
 ```
 
-#### Process Mode
+1. **EntityType** : Enumeration of static entity types
 
-To process a single text:
-
-```bash
-python main.py process --text "L'articolo 1414 c.c. disciplina la simulazione del contratto."
+```python
+   class EntityType(Enum):
+       # Normative references
+       ARTICOLO_CODICE = auto()
+       LEGGE = auto()
+       DECRETO = auto()
+       REGOLAMENTO_UE = auto()
+     
+       # Jurisprudential references
+       SENTENZA = auto()
+       ORDINANZA = auto()
+     
+       # Legal concepts
+       CONCETTO_GIURIDICO = auto()
 ```
 
-Or from a file:
+1. **NormativeReference** : Specialized class for normative references
+2. **JurisprudenceReference** : Specialized class for jurisprudential references
+3. **LegalConcept** : Specialized class for legal concepts
 
-```bash
-python main.py process --file input.txt --output result.json
+#### 3.1.2 Entity Manager
+
+The `DynamicEntityManager` class handles entity type definitions:
+
+```python
+class DynamicEntityManager:
+    def __init__(self, entities_file: Optional[str] = None):
+        self.entity_types = {}  # name -> attributes
+        self.entity_categories = {
+            "normative": set(),
+            "jurisprudence": set(),
+            "concepts": set(),
+            "custom": set()
+        }
+        self.observers: List[EntityObserver] = []
+      
+    def add_entity_type(self, name: str, display_name: str, category: str, 
+                        color: str, metadata_schema: Dict[str, str], 
+                        patterns: List[str] = None) -> bool:
+        # Implementation to add a new entity type
+  
+    def update_entity_type(self, name: str, display_name: Optional[str] = None, 
+                          color: Optional[str] = None, 
+                          metadata_schema: Optional[Dict[str, str]] = None,
+                          patterns: Optional[List[str]] = None) -> bool:
+        # Implementation to update an entity type
+  
+    def remove_entity_type(self, name: str) -> bool:
+        # Implementation to remove an entity type
 ```
 
-#### Batch Mode
+The entity manager supports:
 
-To process multiple files:
+* Dynamic addition, modification, and removal of entity types
+* Category-based organization (normative, jurisprudence, concepts, custom)
+* Observer pattern for notifying components of entity changes
+* Persistence through JSON files
 
-```bash
-python main.py batch --dir /path/to/input/dir --output /path/to/output/dir --ext txt
+### 3.2 NER Systems
+
+The system provides two main NER classes:
+
+1. **NERGiuridico** : Core class using static EntityType enumeration
+
+```python
+   class NERGiuridico(BaseNERGiuridico):
+       def __init__(self, **kwargs):
+           logger.info("Inizializzazione del sistema NER-Giuridico standard")
+           super().__init__(**kwargs)
 ```
 
-#### Annotation Mode
+1. **DynamicNERGiuridico** : Extended class supporting dynamic entity types
 
-To start the annotation interface:
-
-```bash
-python main.py annotate --tool label-studio
+```python
+   class DynamicNERGiuridico(BaseNERGiuridico):
+       def __init__(self, entities_file: Optional[str] = None, **kwargs):
+           logger.info("Inizializzazione del sistema NER-Giuridico con gestione dinamica delle entità")
+           self.entity_manager = kwargs.pop('entity_manager', None) or get_entity_manager(entities_file)
+           # Initialize components with entity manager
+           super().__init__(**kwargs)
+           self._entity_cache = {}
 ```
 
-### REST API
+Both inherit from `BaseNERGiuridico`, which implements the core processing pipeline:
 
-The system provides a RESTful API for integration with other applications.
-
-#### Endpoints
-
-* `POST /api/v1/recognize`: Recognizes entities in a text.
-* `POST /api/v1/batch`: Processes multiple texts in batch.
-* `POST /api/v1/feedback`: Provides feedback on recognized entities.
-* `POST /api/v1/moe/preprocess`: Preprocesses a query for the MoE router.
-* `GET /api/v1/entities/`: Lists all entity types.
-* `GET /api/v1/entities/{entity_name}`: Gets information about a specific entity type.
-* `POST /api/v1/entities/`: Creates a new entity type.
-* `PUT /api/v1/entities/{entity_name}`: Updates an existing entity type.
-* `DELETE /api/v1/entities/{entity_name}`: Deletes an entity type.
-
-#### Example API Request
-
-Recognize entities in a text:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/recognize \
-  -H "Content-Type: application/json" \
-  -d '{"text": "L'\''articolo 1414 c.c. disciplina la simulazione del contratto."}'
+```python
+def process(self, text: str) -> Dict[str, Any]:
+    # Preprocessing
+    preprocessed_text, doc = self.preprocessor.preprocess(text)
+    segments = self.preprocessor.segment_text(preprocessed_text)
+  
+    # Entity recognition
+    all_entities = []
+    for segment in segments:
+        rule_entities = self.rule_based_recognizer.recognize(segment)
+        transformer_entities = self.transformer_recognizer.recognize(segment)
+        segment_entities = self._merge_entities(rule_entities, transformer_entities)
+        all_entities.extend(segment_entities)
+  
+    # Post-processing
+    unique_entities = self._remove_overlapping_entities(all_entities)
+    normalized_entities = self.normalizer.normalize(unique_entities)
+    structured_references = self._create_structured_references(normalized_entities)
+  
+    # Result preparation
+    result = {
+        "text": text,
+        "entities": [entity.to_dict() for entity in normalized_entities],
+        "references": structured_references
+    }
+  
+    return result
 ```
 
-Example response:
+### 3.3 Entity Recognizers
+
+#### 3.3.1 Rule-Based Recognizer
+
+The `RuleBasedRecognizer` uses regex patterns and gazetteers to identify entities:
+
+```python
+class RuleBasedRecognizer:
+    def __init__(self, entity_manager=None):
+        self.enabled = config.get("models.rule_based.enable", True)
+        self.entity_manager = entity_manager
+      
+        # Load patterns
+        self.normative_patterns = self._load_patterns("riferimenti_normativi")
+        self.jurisprudence_patterns = self._load_patterns("riferimenti_giurisprudenziali")
+        self.concepts_gazetteer = self._load_gazetteer("concetti_giuridici")
+        self.dynamic_patterns = {}
+      
+        # Compile dynamic patterns if entity manager is available
+        if self.entity_manager:
+            self._compile_dynamic_patterns()
+  
+    def recognize(self, text: str) -> List[Entity]:
+        # Implementation to recognize entities using patterns
+```
+
+Key features:
+
+* Pattern-based recognition for normative and jurisprudential references
+* Gazetteer-based recognition for legal concepts
+* Support for dynamic patterns loaded from the entity manager
+* Pattern loading from JSON files with fallback to default patterns
+
+#### 3.3.2 Transformer-Based Recognizer
+
+The `TransformerRecognizer` uses pre-trained transformer models:
+
+```python
+class TransformerRecognizer:
+    def __init__(self):
+        self.model_name = config.get("models.transformer.model_name", "dbmdz/bert-base-italian-xxl-cased")
+        self.max_length = config.get("models.transformer.max_length", 512)
+        self.batch_size = config.get("models.transformer.batch_size", 16)
+        self.device = config.get("models.transformer.device", "cuda" if torch.cuda.is_available() else "cpu")
+        self.quantization = config.get("models.transformer.quantization", False)
+      
+        # Load the model and tokenizer
+        self._load_model()
+  
+    def recognize(self, text: str) -> List[Entity]:
+        # Implementation to recognize entities using transformer models
+```
+
+Key features:
+
+* Support for various transformer models (default: dbmdz/bert-base-italian-xxl-cased)
+* Handling of long texts through segmentation
+* GPU support and model quantization options
+* Automatic mapping between model labels and entity types
+
+### 3.4 Entity Normalizer
+
+The `EntityNormalizer` converts detected entities to canonical forms:
+
+```python
+class EntityNormalizer:
+    def __init__(self, entity_manager=None):
+        self.enable = config.get("normalization.enable", True)
+        self.entity_manager = entity_manager
+      
+        # Load normalization resources
+        self.canonical_forms = self._load_canonical_forms()
+        self.abbreviations = self._load_abbreviations()
+      
+        # Knowledge graph integration
+        self.use_knowledge_graph = config.get("normalization.use_knowledge_graph", False)
+        if self.use_knowledge_graph:
+            self._setup_knowledge_graph()
+          
+        # Register normalizers
+        self.normalizers = {}
+        self._register_default_normalizers()
+  
+    def normalize(self, entities: List[Entity]) -> List[Entity]:
+        # Implementation to normalize entities
+```
+
+Key features:
+
+* Conversion of entities to canonical forms
+* Category-specific normalization for different entity types
+* Knowledge graph integration for entity enrichment
+* Extensible through custom normalizer registration
+
+### 3.5 Annotation Interface
+
+The annotation interface is implemented as a Flask web application:
+
+```python
+app = Flask(__name__, 
+            template_folder='templates',
+            static_folder='static')
+
+@app.route('/')
+def index():
+    documents = load_documents()
+    return render_template('index.html', documents=documents)
+
+@app.route('/annotate/<doc_id>')
+def annotate(doc_id):
+    # Implementation for annotation page
+```
+
+Key features:
+
+* Document upload and management
+* Entity annotation through text selection
+* Integration with the NER system for automatic annotation
+* Export of annotations in various formats (JSON, spaCy)
+
+### 3.6 Training Module
+
+The `NERTrainer` class provides functionality for training and fine-tuning models:
+
+```python
+class NERTrainer:
+    def __init__(self, model_dir: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
+        # Initialize trainer with configuration
+      
+    def train_from_spacy_format(self, spacy_data: List[Dict[str, Any]], 
+                               output_model_name: Optional[str] = None,
+                               validation_data: Optional[List[Dict[str, Any]]] = None,
+                               callbacks: Optional[List[Callable]] = None) -> str:
+        # Implementation for training spaCy models
+      
+    def train_transformer_model(self, annotations_file: str, 
+                              base_model: str = "dbmdz/bert-base-italian-xxl-cased",
+                              output_model_name: Optional[str] = None,
+                              validation_split: float = 0.2) -> str:
+        # Implementation for training transformer models
+```
+
+Key features:
+
+* Support for training both spaCy and transformer models
+* Training from annotated data in various formats
+* Automatic evaluation on validation data
+* Model export and integration with the NER system
+
+## 4. Integration Patterns
+
+### 4.1 API Endpoints
+
+The system provides a REST API through FastAPI:
+
+```python
+app = FastAPI(
+    title="NER-Giuridico API",
+    description="API per il riconoscimento di entità giuridiche in testi legali",
+    version="0.1.0"
+)
+
+@api_router.post("/recognize")
+async def recognize_entities(
+    request: TextRequest,
+    background_tasks: BackgroundTasks,
+    dynamic: Optional[bool] = Query(None, description="Usa il sistema dinamico se True")
+):
+    # Implementation for entity recognition endpoint
+```
+
+Key endpoints:
+
+* `POST /api/v1/recognize`: Recognizes entities in a text
+* `POST /api/v1/batch`: Processes multiple texts
+* `POST /api/v1/moe/preprocess`: Preprocesses a query for the MoE router
+* `GET /api/v1/entities/`: Lists entity types
+* `POST /api/v1/entities/`: Creates a new entity type
+
+### 4.2 Data Flow
+
+The data flow for entity recognition:
+
+1. **Input** : Text containing potential legal entities
 
 ```json
-{
-  "text": "L'articolo 1414 c.c. disciplina la simulazione del contratto.",
-  "entities": [
-    {
-      "text": "articolo 1414 c.c.",
-      "type": "ARTICOLO_CODICE",
-      "start_char": 2,
-      "end_char": 19,
-      "normalized_text": "Articolo 1414 Codice Civile",
-      "metadata": {
-        "codice": "Codice Civile",
-        "articolo": "1414"
-      }
-    },
-    {
-      "text": "simulazione",
-      "type": "CONCETTO_GIURIDICO",
-      "start_char": 32,
-      "end_char": 43,
-      "normalized_text": "simulazione",
-      "metadata": {
-        "concept": "simulazione"
-      }
-    }
-  ],
-  "references": {
-    "normative": [
-      {
-        "type": "ARTICOLO_CODICE",
-        "original_text": "articolo 1414 c.c.",
-        "normalized_text": "Articolo 1414 Codice Civile",
-        "codice": "Codice Civile",
-        "articolo": "1414"
-      }
-    ],
-    "jurisprudence": [],
-    "concepts": [
-      {
-        "type": "CONCETTO_GIURIDICO",
-        "original_text": "simulazione",
-        "normalized_text": "simulazione"
-      }
-    ]
-  }
-}
+   {
+     "text": "L'articolo 1414 c.c. disciplina la simulazione del contratto."
+   }
 ```
 
-### Programmatic Usage
+1. **Output** : Recognized entities with metadata and normalized forms
 
-You can use the NER-Giuridico system programmatically within your Python applications:
+```json
+   {
+     "text": "L'articolo 1414 c.c. disciplina la simulazione del contratto.",
+     "entities": [
+       {
+         "text": "articolo 1414 c.c.",
+         "type": "ARTICOLO_CODICE",
+         "start_char": 2,
+         "end_char": 19,
+         "normalized_text": "Articolo 1414 Codice Civile",
+         "metadata": {
+           "codice": "Codice Civile",
+           "articolo": "1414"
+         }
+       },
+       {
+         "text": "simulazione",
+         "type": "CONCETTO_GIURIDICO",
+         "start_char": 32,
+         "end_char": 43,
+         "normalized_text": "simulazione",
+         "metadata": {
+           "concept": "simulazione"
+         }
+       }
+     ],
+     "references": {
+       "normative": [...],
+       "jurisprudence": [...],
+       "concepts": [...]
+     }
+   }
+```
+
+## 5. Implementation Assessment
+
+### 5.1 Strengths
+
+1. **Well-Structured Architecture** : The system follows a modular, layered architecture with clear separation of concerns.
+2. **Dual Recognition Approach** : Combining rule-based and transformer-based recognition leverages the strengths of both approaches.
+3. **Dynamic Entity Management** : Support for runtime-defined entity types provides flexibility.
+4. **Comprehensive Normalization** : Sophisticated entity normalization with knowledge graph integration.
+5. **Integrated Annotation** : Built-in annotation interface streamlines the training data creation process.
+6. **Extensive Configuration** : Fine-grained configuration through YAML files.
+7. **Thorough Testing** : Comprehensive test suite covering all components.
+
+### 5.2 Gaps and Weaknesses
+
+1. **Integration Between NER and Annotation** : While both systems are well-developed, the integration between them is not fully implemented.
+2. **Documentation Inconsistencies** : Some code documentation doesn't match the actual implementation.
+3. **Error Handling** : Some components lack robust error handling, especially for external dependencies.
+4. **Dynamic Entity Persistence** : The persistence mechanism for dynamic entities could be more robust.
+5. **Knowledge Graph Integration** : The Neo4j integration is implemented but not thoroughly tested.
+6. **Training Pipeline** : The training module is sophisticated but lacks clear integration with the main system.
+7. **Performance Optimization** : Some components could benefit from performance optimizations, especially for large texts.
+
+### 5.3 Recommended Improvements
+
+1. **Complete the NER-Annotation Integration** :
+
+```python
+   # Add to api.py
+   @api_router.post("/import_annotations")
+   async def import_annotations(annotations_file: str):
+       """Import annotations for training."""
+       try:
+           from src.utils.converter import convert_annotations_to_ner_format
+           with open(annotations_file, 'r', encoding='utf-8') as f:
+               annotations = json.load(f)
+         
+           # Convert annotations to NER format
+           ner_data = convert_annotations_to_ner_format(annotations, [])
+         
+           # Save for training
+           training_file = os.path.join(DATA_DIR, 'training_data.json')
+           with open(training_file, 'w', encoding='utf-8') as f:
+               json.dump(ner_data, f, indent=2, ensure_ascii=False)
+         
+           return {"status": "success", "file": training_file}
+       except Exception as e:
+           logger.error(f"Error importing annotations: {e}")
+           return {"status": "error", "message": str(e)}
+```
+
+1. **Enhance Error Handling** :
+
+```python
+   # Example of improved error handling in the transformer recognizer
+   def _load_model(self):
+       try:
+           # Existing model loading code
+         
+       except FileNotFoundError as e:
+           logger.error(f"Model file not found: {e}")
+           self.ner_pipeline = None
+           raise FileNotFoundError(f"Model file not found: {e}")
+       except RuntimeError as e:
+           if "CUDA out of memory" in str(e):
+               logger.warning("CUDA out of memory. Falling back to CPU.")
+               self.device = "cpu"
+               # Retry loading with CPU
+               # ...
+           else:
+               logger.error(f"Error loading model: {e}")
+               self.ner_pipeline = None
+               raise
+       except Exception as e:
+           logger.error(f"Unexpected error loading model: {e}")
+           self.ner_pipeline = None
+           raise
+```
+
+1. **Implement Entity Manager Persistence** :
+
+```python
+   # Add to entity_manager.py
+   def save_entities_to_database(self):
+       """Save entities to a database for better persistence."""
+       try:
+           # Implementation for database persistence
+           pass
+       except Exception as e:
+           logger.error(f"Error saving entities to database: {e}")
+           return False
+```
+
+1. **Optimize Performance** :
+
+```python
+   # Example of batched processing in the transformer recognizer
+   def recognize_batch(self, texts: List[str]) -> List[List[Entity]]:
+       """Recognize entities in multiple texts at once."""
+       if self.ner_pipeline is None:
+           return [[] for _ in texts]
+     
+       all_entities = []
+       # Process in batches to optimize GPU usage
+       batch_size = 8
+       for i in range(0, len(texts), batch_size):
+           batch = texts[i:i+batch_size]
+           # Process batch
+           # ...
+     
+       return all_entities
+```
+
+1. **Improve Testing** :
+
+```python
+   # Add to tests/test.py
+   def test_knowledge_graph_integration():
+       """Test the integration with Neo4j knowledge graph."""
+       try:
+           from src.normalizer import EntityNormalizer
+         
+           # Mock Neo4j driver
+           # ...
+         
+           # Test entity enrichment
+           # ...
+       except Exception as e:
+           logger.error(f"Error in knowledge graph integration test: {e}")
+           return False
+```
+
+## 6. Usage Guide
+
+### 6.1 Basic Usage
+
+#### 6.1.1 Entity Recognition
 
 ```python
 from src.ner import NERGiuridico
@@ -282,7 +580,29 @@ for ref in result["references"]["normative"]:
     print(f"Normative Reference: {ref['normalized_text']}")
 ```
 
-For dynamic entity support:
+#### 6.1.2 Batch Processing
+
+```python
+# Process multiple texts
+texts = [
+    "L'articolo 1414 c.c. disciplina la simulazione del contratto.",
+    "La legge 241/1990 regola il procedimento amministrativo."
+]
+results = ner.batch_process(texts)
+```
+
+#### 6.1.3 API Usage
+
+```bash
+# Recognize entities in a text
+curl -X POST http://localhost:8000/api/v1/recognize \
+  -H "Content-Type: application/json" \
+  -d '{"text": "L'\''articolo 1414 c.c. disciplina la simulazione del contratto."}'
+```
+
+### 6.2 Advanced Usage
+
+#### 6.2.1 Dynamic Entity Types
 
 ```python
 from src.ner import DynamicNERGiuridico
@@ -292,196 +612,35 @@ dynamic_ner = DynamicNERGiuridico()
 
 # Add a custom entity type
 dynamic_ner.add_entity_type(
-    name="CUSTOM_ENTITY",
-    display_name="Custom Entity",
+    name="CONTRATTO_SPECIFICO",
+    display_name="Contratto Specifico",
     category="custom",
     color="#FF5733",
-    metadata_schema={"field1": "string", "field2": "string"},
-    patterns=["custom pattern 1", "custom pattern 2"]
+    metadata_schema={"tipo": "string", "parti": "string"},
+    patterns=["contratto di (\w+)", "accordo di (\w+)"]
 )
 
 # Process a text with the custom entity type
-result = dynamic_ner.process(text)
+result = dynamic_ner.process("Il contratto di locazione è regolato dall'articolo 1571 c.c.")
 ```
 
-## Entity Types and Recognition
-
-### Built-in Entity Types
-
-NER-Giuridico comes with several built-in entity types:
-
-1. **Normative References** :
-
-* `ARTICOLO_CODICE`: References to code articles (e.g., "art. 1414 c.c.")
-* `LEGGE`: References to laws (e.g., "legge 241/1990")
-* `DECRETO`: References to decrees (e.g., "d.lgs. 50/2016")
-* `REGOLAMENTO_UE`: References to EU regulations (e.g., "GDPR")
-
-1. **Jurisprudential References** :
-
-* `SENTENZA`: References to court decisions (e.g., "Cassazione civile n. 12345/2023")
-* `ORDINANZA`: References to ordinances (e.g., "ordinanza Tribunale Milano del 15/03/2022")
-
-1. **Legal Concepts** :
-
-* `CONCETTO_GIURIDICO`: Legal concepts (e.g., "simulazione", "buona fede")
-
-### Recognition Methods
-
-The system uses two main methods for entity recognition:
-
-1. **Rule-Based Recognition** :
-
-* Uses regex patterns to identify entities
-* Patterns are defined in JSON files in the `data/patterns` directory
-* Each entity type has its own set of patterns
-* Gazetteers are used for concept recognition
-
-1. **Transformer-Based Recognition** :
-
-* Uses pre-trained or fine-tuned transformer models
-* Supports model quantization for better performance on limited hardware
-* Can be fine-tuned with domain-specific data
-
-### Entity Normalization
-
-After recognition, entities are normalized to canonical forms:
-
-1. **Normative References** :
-
-* Code articles are normalized to "Articolo X Codice Y"
-* Laws are normalized to "Legge n. X/YYYY"
-* Decrees are normalized to their full form (e.g., "Decreto Legislativo n. X/YYYY")
-
-1. **Jurisprudential References** :
-
-* Court decisions are normalized to include the court, section, number, and date
-* Ordinances are normalized similarly
-
-1. **Legal Concepts** :
-
-* Normalized to lowercase canonical forms
-
-### Knowledge Graph Integration
-
-The system can enrich entities with data from a Neo4j knowledge graph:
-
-1. **Configuration** :
-
-```yaml
-   normalization:
-     use_knowledge_graph: true
-     knowledge_graph:
-       url: "bolt://localhost:7687"
-       user: "neo4j"
-       password: "password"
-```
-
-1. **Entity Enrichment** :
-
-* Entities are matched with nodes in the knowledge graph
-* Additional metadata from the knowledge graph is added to the entity
-
-## Customizing the System
-
-### Adding Custom Entity Types
-
-You can add custom entity types to the system using the dynamic entity manager:
-
-1. **Programmatically** :
-
-```python
-   from src.ner import DynamicNERGiuridico
-
-   ner = DynamicNERGiuridico()
-   ner.add_entity_type(
-       name="CONTRATTO_SPECIFICO",
-       display_name="Contratto Specifico",
-       category="custom",
-       color="#FF5733",
-       metadata_schema={"tipo": "string", "parti": "string"},
-       patterns=["contratto di (\w+)", "accordo di (\w+)"]
-   )
-```
-
-1. **Via API** :
-
-```bash
-   curl -X POST http://localhost:8000/api/v1/entities/ \
-     -H "Content-Type: application/json" \
-     -d '{
-       "name": "CONTRATTO_SPECIFICO",
-       "display_name": "Contratto Specifico",
-       "category": "custom",
-       "color": "#FF5733",
-       "metadata_schema": {"tipo": "string", "parti": "string"},
-       "patterns": ["contratto di (\\w+)", "accordo di (\\w+)"]
-     }'
-```
-
-### Customizing Recognition Patterns
-
-You can update the patterns used for entity recognition:
-
-1. **Programmatically** :
-
-```python
-   ner.update_entity_type(
-       name="ARTICOLO_CODICE",
-       patterns=["nuovo pattern 1", "nuovo pattern 2"]
-   )
-```
-
-1. **Via API** :
-
-```bash
-   curl -X POST http://localhost:8000/api/v1/entities/ARTICOLO_CODICE/patterns \
-     -H "Content-Type: application/json" \
-     -d '["nuovo pattern 1", "nuovo pattern 2"]'
-```
-
-1. **By editing the pattern files** :
-   Edit the JSON files in the `data/patterns` directory.
-
-### Customizing Normalization
-
-You can customize the normalization process by:
-
-1. Updating the canonical forms in the `data/canonical_forms.json` file
-2. Updating the abbreviations in the `data/abbreviations.json` file
-3. Implementing custom normalizer functions:
+#### 6.2.2 Custom Normalization
 
 ```python
 from src.normalizer import EntityNormalizer
 
 normalizer = EntityNormalizer()
 
-# Register a custom normalizer
+# Register a custom normalizer for a specific entity type
 def custom_normalizer(entity):
     entity.normalized_text = f"Custom: {entity.text}"
+    entity.metadata["custom_field"] = "custom_value"
     return entity
 
-normalizer.register_normalizer("CUSTOM_ENTITY", custom_normalizer)
+normalizer.register_normalizer("CONTRATTO_SPECIFICO", custom_normalizer)
 ```
 
-## Training and Fine-tuning
-
-### Creating Training Data
-
-To train or fine-tune the models, you need annotated data. You can create this using the annotation interface:
-
-1. Start the annotation interface:
-   ```bash
-   python main.py annotate --tool label-studio
-   ```
-2. Access the interface at `http://localhost:8080`
-3. Upload documents for annotation
-4. Annotate entities in the documents
-5. Export the annotations for training
-
-### Training a New Model
-
-You can train a new model using the `ner_trainer.py` module:
+#### 6.2.3 Training a New Model
 
 ```python
 from src.training.ner_trainer import NERTrainer
@@ -489,348 +648,83 @@ from src.training.ner_trainer import NERTrainer
 # Initialize the trainer
 trainer = NERTrainer()
 
-# Train from spaCy format
-model_path = trainer.train_from_spacy_format(
-    spacy_data=annotations,
-    output_model_name="my_custom_model"
-)
-
-# Or train a transformer model
+# Train a transformer model
 model_path = trainer.train_transformer_model(
     annotations_file="path/to/annotations.json",
     base_model="dbmdz/bert-base-italian-xxl-cased",
-    output_model_name="my_transformer_model"
+    output_model_name="my_custom_model"
 )
 
 # Integrate the model with the NER system
-trainer.integrate_model_with_ner_system(model_path)
+trainer.integrate_model_with_ner_system(model_path, "transformer")
 ```
 
-### Converting Annotation Formats
+## 7. Development Roadmap
 
-The system includes utilities for converting between different annotation formats:
+### 7.1 Immediate Priorities
 
-```python
-from src.utils.converter import convert_annotations_to_spacy_format, save_annotations_for_training
+1. **Complete NER-Annotation Integration** :
 
-# Convert from label-studio format to spaCy format
-spacy_data = convert_annotations_to_spacy_format(annotations, documents)
+* Implement bidirectional data flow between NER system and annotation interface
+* Create unified data formats for seamless exchange
+* Develop utilities for converting between different annotation formats
 
-# Save in multiple formats for training
-output_files = save_annotations_for_training(
-    annotations=annotations,
-    documents=documents,
-    output_dir="path/to/output",
-    formats=["spacy", "ner", "conll"]
-)
-```
+1. **Enhance Error Handling and Logging** :
 
-## Annotation Interface
+* Implement consistent error handling patterns across all components
+* Add detailed logging for better diagnostics
+* Create a centralized error reporting mechanism
 
-The system includes a web-based annotation interface for creating training data:
+1. **Optimize Performance** :
 
-### Starting the Interface
+* Implement batched processing for transformer models
+* Add caching for frequently used patterns and entities
+* Optimize text segmentation for long documents
 
-```bash
-python main.py annotate --tool label-studio
-```
+### 7.2 Medium-Term Goals
 
-Or use the dedicated script:
+1. **Knowledge Graph Integration** :
 
-```bash
-cd src/annotation
-./start_annotation.sh
-```
+* Complete and test Neo4j integration
+* Implement entity linking with external knowledge sources
+* Develop a mechanism for knowledge graph updates
 
-### Interface Features
+1. **Training Pipeline Enhancement** :
 
-* Document list for selecting texts to annotate
-* Entity type selector with color coding
-* Annotation area for selecting text spans
-* List of existing annotations
-* Auto-annotation using the current NER model
-* Export annotations in various formats
-* Integration with the training pipeline
+* Streamline the model training process
+* Add active learning capabilities
+* Implement automatic evaluation and model selection
 
-### Annotation Workflow
+1. **API Extension** :
 
-1. Upload documents to the system
-2. Select a document to annotate
-3. Select an entity type from the sidebar
-4. Highlight text in the document to create annotations
-5. Review and edit annotations as needed
-6. Export annotations for training
-7. Train the model with the annotations
+* Add endpoints for model training and evaluation
+* Implement versioning for API responses
+* Develop client libraries for common programming languages
 
-## API Reference
+### 7.3 Long-Term Vision
 
-### Main API Endpoints
+1. **Multilingual Support** :
 
-#### Entity Recognition
+* Extend the system to support multiple languages
+* Implement cross-lingual entity linking
+* Develop language-agnostic patterns
 
-`POST /api/v1/recognize`
+1. **Integration with MERL-T** :
 
-* **Description** : Recognizes entities in a text
-* **Request Body** :
+* Complete integration with the MoE router
+* Develop feedback mechanisms for continuous improvement
+* Implement specialized entity types for different legal domains
 
-```json
-  {  "text": "Text to analyze",  "options": {} // Optional parameters}
-```
+1. **Advanced Features** :
 
-* **Query Parameters** :
-* `dynamic` (boolean): Use dynamic entity system
+* Entity relationship extraction
+* Temporal analysis of legal entities
+* Semantic similarity between entities
 
-#### Batch Processing
+## 8. Conclusion
 
-`POST /api/v1/batch`
+The NER module for MERL-T represents a sophisticated system for recognizing, normalizing, and structuring legal entities in Italian text. Its modular architecture, dual recognition approach, and extensive configuration options provide a solid foundation for development and extension.
 
-* **Description** : Processes multiple texts
-* **Request Body** :
+While there are some gaps in the current implementation, particularly in the integration between the NER system and the annotation interface, these can be addressed through targeted improvements as outlined in the development roadmap.
 
-```json
-  {  "texts": ["Text 1", "Text 2"],  "options": {} // Optional parameters}
-```
-
-#### Entity Management
-
-`GET /api/v1/entities/`
-
-* **Description** : Lists all entity types
-* **Query Parameters** :
-* `category` (string): Filter by category
-
-`GET /api/v1/entities/{entity_name}`
-
-* **Description** : Gets information about a specific entity type
-
-`POST /api/v1/entities/`
-
-* **Description** : Creates a new entity type
-* **Request Body** :
-
-```json
-  {  "name": "ENTITY_NAME",  "display_name": "Entity Display Name",  "category": "category",  "color": "#RRGGBB",  "metadata_schema": {},  "patterns": [] // Optional}
-```
-
-`PUT /api/v1/entities/{entity_name}`
-
-* **Description** : Updates an existing entity type
-* **Request Body** :
-
-```json
-  {  "display_name": "New Display Name", // Optional  "color": "#RRGGBB", // Optional  "metadata_schema": {}, // Optional  "patterns": [] // Optional}
-```
-
-`DELETE /api/v1/entities/{entity_name}`
-
-* **Description** : Deletes an entity type
-
-### Error Handling
-
-The API returns standard HTTP status codes:
-
-* 200: Success
-* 400: Bad Request (invalid parameters)
-* 404: Not Found (entity not found)
-* 500: Internal Server Error
-
-Error responses include a `detail` field with an error message:
-
-```json
-{
-  "detail": "Error message"
-}
-```
-
-## Deployment Guide
-
-### Docker Deployment
-
-1. Build the Docker image:
-   ```bash
-   docker build -t ner-giuridico .
-   ```
-2. Run the container:
-   ```bash
-   docker run -d -p 8000:8000 --name ner-giuridico ner-giuridico
-   ```
-
-### Docker Compose
-
-1. Create a `docker-compose.yml` file:
-   ```yaml
-   version: '3'
-   services:
-     ner-giuridico:
-       build: .
-       ports:
-         - "8000:8000"
-       volumes:
-         - ./config:/app/config
-         - ./data:/app/data
-         - ./models:/app/models
-       environment:
-         - LOG_LEVEL=INFO
-
-     neo4j:
-       image: neo4j:4.4
-       ports:
-         - "7474:7474"
-         - "7687:7687"
-       environment:
-         - NEO4J_AUTH=neo4j/password
-       volumes:
-         - ./neo4j/data:/data
-         - ./neo4j/logs:/logs
-   ```
-2. Start the services:
-   ```bash
-   docker-compose up -d
-   ```
-
-### Kubernetes Deployment
-
-1. Create a `deployment.yaml` file:
-   ```yaml
-   apiVersion: apps/v1
-   kind: Deployment
-   metadata:
-     name: ner-giuridico
-   spec:
-     replicas: 3
-     selector:
-       matchLabels:
-         app: ner-giuridico
-     template:
-       metadata:
-         labels:
-           app: ner-giuridico
-       spec:
-         containers:
-         - name: ner-giuridico
-           image: ner-giuridico:latest
-           ports:
-           - containerPort: 8000
-           resources:
-             limits:
-               cpu: "1"
-               memory: "2Gi"
-             requests:
-               cpu: "0.5"
-               memory: "1Gi"
-   ```
-2. Create a `service.yaml` file:
-   ```yaml
-   apiVersion: v1
-   kind: Service
-   metadata:
-     name: ner-giuridico
-   spec:
-     selector:
-       app: ner-giuridico
-     ports:
-     - port: 80
-       targetPort: 8000
-     type: LoadBalancer
-   ```
-3. Apply the configuration:
-   ```bash
-   kubectl apply -f deployment.yaml
-   kubectl apply -f service.yaml
-   ```
-
-### Performance Optimization
-
-For better performance in production:
-
-1. Use a GPU for transformer models:
-   ```yaml
-   models:
-     transformer:
-       device: "cuda"
-   ```
-2. Enable model quantization for CPU deployment:
-   ```yaml
-   models:
-     transformer:
-       device: "cpu"
-       quantization: true
-   ```
-3. Adjust batch size and worker count:
-   ```yaml
-   models:
-     transformer:
-       batch_size: 32
-   api:
-     workers: 8
-   ```
-4. Enable Prometheus monitoring:
-   ```yaml
-   monitoring:
-     prometheus:
-       enable: true
-       port: 9090
-   ```
-
-## Troubleshooting
-
-### Common Issues and Solutions
-
-#### API Server Won't Start
-
- **Problem** : The API server doesn't start and returns an error.
-
- **Solution** :
-
-1. Check if the specified port is already in use
-2. Check logs for specific errors
-3. Verify that all dependencies are correctly installed
-
-#### Memory Errors with Transformer Models
-
- **Problem** : The system runs out of memory when using transformer models.
-
- **Solution** :
-
-1. Reduce the batch size in the configuration
-2. Enable model quantization
-3. Use a machine with more RAM or a GPU
-
-#### Connection Issues with Neo4j
-
- **Problem** : The system can't connect to Neo4j database.
-
- **Solution** :
-
-1. Verify that Neo4j is running
-2. Check the credentials in the configuration
-3. Ensure the firewall isn't blocking the connection
-
-#### Entity Recognition Problems
-
- **Problem** : The system doesn't recognize expected entities.
-
- **Solution** :
-
-1. Check the patterns in the `data/patterns` directory
-2. Ensure the transformer model is correctly loaded
-3. Verify the entity types are correctly configured
-
-#### Slow Performance
-
- **Problem** : The system is processing texts slowly.
-
- **Solution** :
-
-1. Use a GPU for transformer models
-2. Enable model quantization
-3. Increase the batch size
-4. Process large texts in parallel using the batch API
-
-### Getting Support
-
-For additional support:
-
-1. Check the complete documentation in the repository
-2. Open an issue on GitHub
-3. Contact the development team at support@merl-t.org
+With these enhancements, the NER module will serve as a robust preprocessing component for the MERL-T system, extracting the legal entities that guide the rules

@@ -11,4 +11,4 @@ raw_txt/*/*
 *.ipynb_checkpoints
 __pycache__
 *.jsonl
-models/transformer/*
+src/data_lab/ner/models/transformer/*

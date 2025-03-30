@@ -448,113 +448,6 @@ The data flow for entity recognition:
 
 ### 5.3 Recommended Improvements
 
-1. **Complete the NER-Annotation Integration** :
-
-```python
-   # Add to api.py
-   @api_router.post("/import_annotations")
-   async def import_annotations(annotations_file: str):
-       """Import annotations for training."""
-       try:
-           from src.utils.converter import convert_annotations_to_ner_format
-           with open(annotations_file, 'r', encoding='utf-8') as f:
-               annotations = json.load(f)
-         
-           # Convert annotations to NER format
-           ner_data = convert_annotations_to_ner_format(annotations, [])
-         
-           # Save for training
-           training_file = os.path.join(DATA_DIR, 'training_data.json')
-           with open(training_file, 'w', encoding='utf-8') as f:
-               json.dump(ner_data, f, indent=2, ensure_ascii=False)
-         
-           return {"status": "success", "file": training_file}
-       except Exception as e:
-           logger.error(f"Error importing annotations: {e}")
-           return {"status": "error", "message": str(e)}
-```
-
-1. **Enhance Error Handling** :
-
-```python
-   # Example of improved error handling in the transformer recognizer
-   def _load_model(self):
-       try:
-           # Existing model loading code
-         
-       except FileNotFoundError as e:
-           logger.error(f"Model file not found: {e}")
-           self.ner_pipeline = None
-           raise FileNotFoundError(f"Model file not found: {e}")
-       except RuntimeError as e:
-           if "CUDA out of memory" in str(e):
-               logger.warning("CUDA out of memory. Falling back to CPU.")
-               self.device = "cpu"
-               # Retry loading with CPU
-               # ...
-           else:
-               logger.error(f"Error loading model: {e}")
-               self.ner_pipeline = None
-               raise
-       except Exception as e:
-           logger.error(f"Unexpected error loading model: {e}")
-           self.ner_pipeline = None
-           raise
-```
-
-1. **Implement Entity Manager Persistence** :
-
-```python
-   # Add to entity_manager.py
-   def save_entities_to_database(self):
-       """Save entities to a database for better persistence."""
-       try:
-           # Implementation for database persistence
-           pass
-       except Exception as e:
-           logger.error(f"Error saving entities to database: {e}")
-           return False
-```
-
-1. **Optimize Performance** :
-
-```python
-   # Example of batched processing in the transformer recognizer
-   def recognize_batch(self, texts: List[str]) -> List[List[Entity]]:
-       """Recognize entities in multiple texts at once."""
-       if self.ner_pipeline is None:
-           return [[] for _ in texts]
-     
-       all_entities = []
-       # Process in batches to optimize GPU usage
-       batch_size = 8
-       for i in range(0, len(texts), batch_size):
-           batch = texts[i:i+batch_size]
-           # Process batch
-           # ...
-     
-       return all_entities
-```
-
-1. **Improve Testing** :
-
-```python
-   # Add to tests/test.py
-   def test_knowledge_graph_integration():
-       """Test the integration with Neo4j knowledge graph."""
-       try:
-           from src.normalizer import EntityNormalizer
-         
-           # Mock Neo4j driver
-           # ...
-         
-           # Test entity enrichment
-           # ...
-       except Exception as e:
-           logger.error(f"Error in knowledge graph integration test: {e}")
-           return False
-```
-
 ## 6. Usage Guide
 
 ### 6.1 Basic Usage
@@ -727,4 +620,4 @@ The NER module for MERL-T represents a sophisticated system for recognizing, nor
 
 While there are some gaps in the current implementation, particularly in the integration between the NER system and the annotation interface, these can be addressed through targeted improvements as outlined in the development roadmap.
 
-With these enhancements, the NER module will serve as a robust preprocessing component for the MERL-T system, extracting the legal entities that guide the rules
+With these enhancements, the NER module will serve as a robust preprocessing component for the MERL-T system, extracting the legal entities that guide the rules module and contributing to the overall goal of democratizing access to legal information.

@@ -497,6 +497,65 @@ def test_ner_training_module():
         logger.error(f"Errore nel test del modulo di addestramento: {e}")
         return False
 
+def test_knowledge_graph_integration():
+    """Test the integration with Neo4j knowledge graph."""
+    try:
+        from src.normalizer import EntityNormalizer
+        from unittest.mock import MagicMock
+        
+        # Mock Neo4j driver
+        class MockGraphDatabase:
+            @staticmethod
+            def driver(*args, **kwargs):
+                driver = MagicMock()
+                session = MagicMock()
+                transaction = MagicMock()
+                result = MagicMock()
+                
+                # Mock query results
+                result.data.return_value = [{
+                    "n": {
+                        "id": "art_1414_cc",
+                        "text": "Articolo 1414 c.c.",
+                        "type": "ARTICOLO_CODICE",
+                        "metadata": {
+                            "codice": "CODICE_CIVILE",
+                            "articolo": "1414"
+                        }
+                    }
+                }]
+                
+                transaction.run.return_value = result
+                session.begin_transaction.return_value = transaction
+                driver.session.return_value = session
+                return driver
+                
+        # Test entity enrichment
+        normalizer = EntityNormalizer(graph_db=MockGraphDatabase())
+        
+        entity = {
+            "text": "art. 1414 c.c.",
+            "type": "ARTICOLO_CODICE"
+        }
+        
+        enriched = normalizer.enrich_entity(entity)
+        
+        # Verify enrichment
+        if not enriched.get("metadata"):
+            logger.error("Entity enrichment failed - no metadata")
+            return False
+            
+        if enriched["metadata"].get("codice") != "CODICE_CIVILE":
+            logger.error("Entity enrichment failed - wrong metadata")
+            return False
+            
+        logger.info("Knowledge graph integration test passed")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error in knowledge graph integration test: {e}")
+        return False
+
 def run_all_tests():
     """
     Esegue tutti i test di integrazione.
@@ -512,7 +571,8 @@ def run_all_tests():
         "entity_manager": test_entity_manager_integration(),
         "ner_system": test_ner_system_integration(),
         "converter": test_converter_module(),
-        "training": test_ner_training_module()
+        "training": test_ner_training_module(),
+        "knowledge_graph": test_knowledge_graph_integration()
     }
     
     # Test dell'interfaccia solo se specificato

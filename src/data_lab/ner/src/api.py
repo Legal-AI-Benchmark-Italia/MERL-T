@@ -121,18 +121,26 @@ def get_ner_dynamic():
     return _ner_dynamic
 
 def get_ner_system(dynamic: bool = False):
-    """
-    Factory method per ottenere il sistema NER appropriato.
-    
-    Args:
-        dynamic: Se True, usa il sistema dinamico, altrimenti usa quello standard
-        
-    Returns:
-        Istanza di NERGiuridico o DynamicNERGiuridico
-    """
-    if dynamic:
-        return get_ner_dynamic()
-    return get_ner_standard()
+    """Factory method for obtaining the appropriate NER system."""
+    try:
+        if dynamic:
+            return get_ner_dynamic()
+        return get_ner_standard()
+    except FileNotFoundError as e:
+        logger.error(f"Model files not found: {e}")
+        raise HTTPException(status_code=503, detail="NER system not available - model files missing")
+    except RuntimeError as e:
+        if "CUDA out of memory" in str(e):
+            logger.warning("CUDA out of memory, attempting CPU fallback")
+            os.environ['CUDA_VISIBLE_DEVICES'] = ''
+            if dynamic:
+                return get_ner_dynamic()
+            return get_ner_standard()
+        logger.error(f"Runtime error initializing NER system: {e}")
+        raise HTTPException(status_code=503, detail="NER system initialization failed")
+    except Exception as e:
+        logger.error(f"Unexpected error getting NER system: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # Middleware per il monitoraggio
 @app.middleware("http")
@@ -665,6 +673,38 @@ async def get_annotation_config(
         }
     except Exception as e:
         logger.error(f"Errore nell'ottenimento della configurazione di annotazione: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/import_annotations")
+async def import_annotations(annotations_file: str = Body(..., description="Path to annotations file")):
+    """Import annotations for training."""
+    try:
+        from src.utils.converter import convert_annotations_to_ner_format
+        
+        # Verify file exists
+        if not os.path.exists(annotations_file):
+            raise HTTPException(status_code=404, detail="Annotations file not found")
+            
+        with open(annotations_file, 'r', encoding='utf-8') as f:
+            annotations = json.load(f)
+        
+        # Convert annotations to NER format
+        ner_data = convert_annotations_to_ner_format(annotations, [])
+        
+        # Save for training
+        training_file = DATA_DIR / 'training_data.json'
+        with open(training_file, 'w', encoding='utf-8') as f:
+            json.dump(ner_data, f, indent=2, ensure_ascii=False)
+        
+        return {
+            "status": "success", 
+            "file": str(training_file),
+            "entities_count": len(ner_data)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error importing annotations: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Endpoint per l'interfaccia di gestione delle entità

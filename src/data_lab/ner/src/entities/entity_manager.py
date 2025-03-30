@@ -8,6 +8,8 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Any, Union, Protocol
+import sqlite3
+from contextlib import contextmanager
 
 
 class EntityObserver(Protocol):
@@ -31,12 +33,13 @@ class DynamicEntityManager:
     e rimozione delle entità durante l'esecuzione.
     """
     
-    def __init__(self, entities_file: Optional[str] = None):
+    def __init__(self, entities_file: Optional[str] = None, db_path: Optional[str] = None):
         """
         Inizializza il gestore delle entità.
         
         Args:
             entities_file: Percorso al file JSON contenente le definizioni delle entità
+            db_path: Percorso al file del database SQLite per la persistenza delle entità
         """
         self.logger = logging.getLogger("NER-Giuridico.DynamicEntityManager")
         
@@ -58,6 +61,11 @@ class DynamicEntityManager:
         # Carica le entità dal file se specificato
         if entities_file:
             self.load_entities(entities_file)
+        
+        # Inizializza il database
+        self.db_path = db_path or str(Path(__file__).parent.parent / "data" / "entities.db")
+        self._init_database()
+        self.load_entities_from_database()
             
     def add_observer(self, observer: EntityObserver) -> None:
         """
@@ -219,6 +227,9 @@ class DynamicEntityManager:
             
             # Notifica gli osservatori
             self._notify_entity_added(name, entity_definition)
+            
+            # Salva le entità nel database
+            self.save_entities_to_database()
             
             return True
             
@@ -549,6 +560,85 @@ class DynamicEntityManager:
             True se l'aggiornamento è avvenuto con successo, False altrimenti
         """
         return self.update_entity_type(entity_type, patterns=patterns)
+    
+    def _init_database(self):
+        """Initialize SQLite database for entity persistence."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS entities (
+                    name TEXT PRIMARY KEY,
+                    display_name TEXT,
+                    category TEXT,
+                    color TEXT,
+                    metadata_schema TEXT,
+                    patterns TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """)
+                conn.commit()
+        except Exception as e:
+            self.logger.error(f"Error initializing database: {e}")
+            
+    @contextmanager
+    def _get_db(self):
+        """Context manager for database connections."""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            yield conn, cursor
+        finally:
+            if conn:
+                conn.close()
+                
+    def save_entities_to_database(self) -> bool:
+        """Save current entities to database."""
+        try:
+            with self._get_db() as (conn, cursor):
+                for name, definition in self.entity_types.items():
+                    cursor.execute("""
+                    INSERT OR REPLACE INTO entities 
+                    (name, display_name, category, color, metadata_schema, patterns, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (
+                        name,
+                        definition.get("display_name"),
+                        definition.get("category"),
+                        definition.get("color"),
+                        json.dumps(definition.get("metadata_schema", {})),
+                        json.dumps(definition.get("patterns", []))
+                    ))
+                conn.commit()
+                self.logger.info("Entities saved to database successfully")
+                return True
+        except Exception as e:
+            self.logger.error(f"Error saving entities to database: {e}")
+            return False
+            
+    def load_entities_from_database(self) -> bool:
+        """Load entities from database."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM entities")
+                rows = cursor.fetchall()
+                
+                for row in rows:
+                    name, display_name, category, color, metadata_schema, patterns, _, _ = row
+                    self.add_entity_type(
+                        name=name,
+                        display_name=display_name,
+                        category=category,
+                        color=color,
+                        metadata_schema=json.loads(metadata_schema),
+                        patterns=json.loads(patterns)
+                    )
+                self.logger.info(f"Loaded {len(rows)} entities from database")
+                return True
+        except Exception as e:
+            self.logger.error(f"Error loading entities from database: {e}")
+            return False
 
 
 # Istanza globale del gestore delle entità

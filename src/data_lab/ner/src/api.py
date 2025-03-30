@@ -691,6 +691,7 @@ async def import_annotations(annotations_file: str = Body(..., description="Path
         # Convert annotations to NER format
         ner_data = convert_annotations_to_ner_format(annotations, [])
         
+        DATA_DIR = Path(__file__) / "training"
         # Save for training
         training_file = DATA_DIR / 'training_data.json'
         with open(training_file, 'w', encoding='utf-8') as f:

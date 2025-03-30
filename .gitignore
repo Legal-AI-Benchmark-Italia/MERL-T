@@ -1,7 +1,7 @@
 *.pdf
 *.jar
-ner_giuridico*
 *.json
+*.zip
 .venv
 *.csv
 chunk_*.txt
@@ -11,4 +11,4 @@ raw_txt/*/*
 *.ipynb_checkpoints
 __pycache__
 *.jsonl
-src/data_lab/ner/models/transformer/*
+models/transformer/*

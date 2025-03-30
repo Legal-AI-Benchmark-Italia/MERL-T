@@ -454,7 +454,7 @@ The data flow for entity recognition:
 #### 6.1.1 Entity Recognition
 
 ```python
-from src.ner import NERGiuridico
+from ner_giuridico.ner import NERGiuridico
 
 # Initialize the NER system
 ner = NERGiuridico()
@@ -497,7 +497,7 @@ curl -X POST http://localhost:8000/api/v1/recognize \
 #### 6.2.1 Dynamic Entity Types
 
 ```python
-from src.ner import DynamicNERGiuridico
+from ner_giuridico.ner import DynamicNERGiuridico
 
 # Initialize the dynamic NER system
 dynamic_ner = DynamicNERGiuridico()
@@ -519,7 +519,7 @@ result = dynamic_ner.process("Il contratto di locazione è regolato dall'articol
 #### 6.2.2 Custom Normalization
 
 ```python
-from src.normalizer import EntityNormalizer
+from ner_giuridico.normalizer import EntityNormalizer
 
 normalizer = EntityNormalizer()
 
@@ -535,7 +535,7 @@ normalizer.register_normalizer("CONTRATTO_SPECIFICO", custom_normalizer)
 #### 6.2.3 Training a New Model
 
 ```python
-from src.training.ner_trainer import NERTrainer
+from ner_giuridico.training.ner_trainer import NERTrainer
 
 # Initialize the trainer
 trainer = NERTrainer()

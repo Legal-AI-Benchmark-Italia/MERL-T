@@ -212,8 +212,8 @@ if str(project_root) not in sys.path:
 
 try:
     # Importa i moduli del sistema NER
-    from src.entities.entity_manager import get_entity_manager
-    from src.ner import DynamicNERGiuridico
+    from ner_giuridico.entities.entity_manager import get_entity_manager
+    from ner_giuridico.ner import DynamicNERGiuridico
     
     # Inizializza il gestore delle entità
     entity_manager = get_entity_manager()

@@ -118,7 +118,7 @@ def test_entity_manager_integration():
         bool: True se il test è passato, False altrimenti
     """
     try:
-        from src.entities.entity_manager import get_entity_manager
+        from ner_giuridico.entities.entity_manager import get_entity_manager
         
         # Ottieni l'istanza del gestore delle entità
         entity_manager = get_entity_manager()
@@ -170,7 +170,7 @@ def test_ner_system_integration():
         bool: True se il test è passato, False altrimenti
     """
     try:
-        from src.ner import DynamicNERGiuridico
+        from ner_giuridico.ner import DynamicNERGiuridico
         
         # Inizializza il sistema NER
         ner = DynamicNERGiuridico()
@@ -344,7 +344,7 @@ def test_converter_module():
     try:
         # Importa il modulo di conversione
         sys.path.append(str(find_project_root()))
-        from src.utils.converter import (
+        from ner_giuridico.utils.converter import (
             convert_annotations_to_spacy_format,
             convert_annotations_to_ner_format,
             save_annotations_for_training
@@ -441,7 +441,7 @@ def test_ner_training_module():
     try:
         # Importa il modulo di addestramento
         sys.path.append(str(find_project_root()))
-        from src.training.ner_trainer import NERTrainer, train_from_annotations
+        from ner_giuridico.training.ner_trainer import NERTrainer, train_from_annotations
         
         # Crea dati di test
         documents_file, annotations_file = create_test_data()
@@ -455,7 +455,7 @@ def test_ner_training_module():
                 annotations = json.load(f)
             
             # Converti in formato spaCy
-            from src.utils.converter import convert_annotations_to_spacy_format
+            from ner_giuridico.utils.converter import convert_annotations_to_spacy_format
             spacy_data = convert_annotations_to_spacy_format(annotations, documents)
             
             # Salva i dati in un file temporaneo
@@ -500,7 +500,7 @@ def test_ner_training_module():
 def test_knowledge_graph_integration():
     """Test the integration with Neo4j knowledge graph."""
     try:
-        from src.normalizer import EntityNormalizer
+        from ner_giuridico.normalizer import EntityNormalizer
         from unittest.mock import MagicMock
         
         # Mock Neo4j driver

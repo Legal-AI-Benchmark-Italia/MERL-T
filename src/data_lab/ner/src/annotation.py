@@ -25,7 +25,7 @@ class AnnotationInterface:
         self.tool = config.get("annotation.tool", "label-studio")
         self.host = config.get("annotation.host", "0.0.0.0")
         self.port = config.get("annotation.port", 8080)
-        self.data_dir = config.get("annotation.data_dir", "./data/annotation")
+        self.data_dir = config.get("annotation.data_dir", "./annotation_data/annotation")
         self.export_format = config.get("annotation.export_format", "spacy")
         self.project_name = config.get("annotation.project_name", "NER-Giuridico")
         
@@ -299,7 +299,7 @@ prodigy db-out {self.project_name} > {self.data_path}/annotated_data.jsonl
             # Crea la struttura delle directory
             templates_dir = self.data_path / "templates"
             static_dir = self.data_path / "static"
-            data_dir = self.data_path / "data"
+            data_dir = self.data_path / "annotator_data"
             
             templates_dir.mkdir(exist_ok=True)
             static_dir.mkdir(exist_ok=True)

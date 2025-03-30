@@ -12,6 +12,7 @@ from .preprocessing import TextPreprocessor
 from .rule_based import RuleBasedRecognizer
 from .transformer import TransformerRecognizer
 from .normalizer import EntityNormalizer
+from .entities.entity_manager import get_entity_manager
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,12 @@ class NERGiuridico:
         """Inizializza il sistema NER-Giuridico."""
         logger.info("Inizializzazione del sistema NER-Giuridico")
         
+        # Inizializza il gestore delle entità dinamiche
+        self.entity_manager = get_entity_manager()
+        
         # Inizializza i componenti della pipeline
         self.preprocessor = TextPreprocessor()
-        self.rule_based_recognizer = RuleBasedRecognizer()
+        self.rule_based_recognizer = RuleBasedRecognizer(self.entity_manager)
         self.transformer_recognizer = TransformerRecognizer()
         self.normalizer = EntityNormalizer()
         

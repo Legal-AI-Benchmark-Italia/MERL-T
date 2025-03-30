@@ -19,9 +19,12 @@ class RuleBasedRecognizer:
     Utilizza pattern regex e gazetteer per identificare entità giuridiche.
     """
     
-    def __init__(self):
+    def __init__(self, entity_manager=None):
         """Inizializza il riconoscitore basato su regole."""
         self.enabled = config.get("models.rule_based.enable", True)
+        
+        # Usa il gestore delle entità dinamiche se fornito
+        self.entity_manager = entity_manager
         
         if not self.enabled:
             logger.info("Riconoscitore basato su regole disabilitato")
@@ -249,6 +252,10 @@ class RuleBasedRecognizer:
         # Riconosci concetti giuridici
         entities.extend(self._recognize_legal_concepts(text))
         
+        # Riconosci entità dinamiche se il manager è disponibile
+        if self.entity_manager:
+            entities.extend(self._recognize_dynamic_entities(text))
+        
         # Ordina le entità per posizione nel testo
         entities.sort(key=lambda e: e.start_char)
         
@@ -396,4 +403,36 @@ class RuleBasedRecognizer:
                 
                 entities.append(entity)
         
+        return entities
+    
+    def _recognize_dynamic_entities(self, text: str) -> List[Entity]:
+        """Riconosce le entità dinamiche definite nel manager."""
+        entities = []
+        
+        if not self.entity_manager:
+            return entities
+            
+        # Per ogni tipo di entità nel manager
+        for entity_type, entity_def in self.entity_manager.get_all_entity_types().items():
+            # Usa i pattern definiti per l'entità
+            patterns = entity_def.get("patterns", [])
+            for pattern in patterns:
+                try:
+                    regex = re.compile(pattern, re.IGNORECASE)
+                    for match in regex.finditer(text):
+                        entity = Entity(
+                            text=match.group(0),
+                            type=entity_type,
+                            start_char=match.start(),
+                            end_char=match.end(),
+                            normalized_text=None,
+                            metadata={
+                                "pattern": pattern,
+                                "groups": match.groups()
+                            }
+                        )
+                        entities.append(entity)
+                except re.error as e:
+                    logger.warning(f"Pattern non valido per {entity_type}: {pattern} - {e}")
+                    
         return entities

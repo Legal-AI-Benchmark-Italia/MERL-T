@@ -1,14 +1,29 @@
 """
 Modulo per la gestione dinamica delle entità nel sistema NER-Giuridico.
-Questo modulo permette di aggiungere, modificare e rimuovere tipi di entità
-durante l'esecuzione dell'applicazione.
+Implementa il pattern Observer per notificare i componenti delle modifiche.
 """
 
 import logging
 import json
-from pathlib import Path
-from typing import Dict, List, Set, Optional, Any, Union
 import os
+from pathlib import Path
+from typing import Dict, List, Set, Optional, Any, Union, Protocol
+
+
+class EntityObserver(Protocol):
+    """Protocollo per gli osservatori delle modifiche alle entità"""
+    def entity_added(self, name: str, definition: Dict[str, Any]) -> None:
+        """Chiamato quando viene aggiunta un'entità"""
+        pass
+        
+    def entity_updated(self, name: str, definition: Dict[str, Any]) -> None:
+        """Chiamato quando viene aggiornata un'entità"""
+        pass
+        
+    def entity_removed(self, name: str) -> None:
+        """Chiamato quando viene rimossa un'entità"""
+        pass
+
 
 class DynamicEntityManager:
     """
@@ -34,6 +49,9 @@ class DynamicEntityManager:
             "custom": set()
         }
         
+        # Lista degli osservatori delle modifiche
+        self.observers: List[EntityObserver] = []
+        
         # Carica le entità predefinite
         self._load_default_entities()
         
@@ -41,7 +59,58 @@ class DynamicEntityManager:
         if entities_file:
             self.load_entities(entities_file)
             
-    def _load_default_entities(self):
+    def add_observer(self, observer: EntityObserver) -> None:
+        """
+        Aggiunge un osservatore delle modifiche alle entità.
+        
+        Args:
+            observer: Oggetto che implementa l'interfaccia EntityObserver
+        """
+        self.observers.append(observer)
+        
+    def remove_observer(self, observer: EntityObserver) -> None:
+        """
+        Rimuove un osservatore.
+        
+        Args:
+            observer: Osservatore da rimuovere
+        """
+        if observer in self.observers:
+            self.observers.remove(observer)
+            
+    def _notify_entity_added(self, name: str, definition: Dict[str, Any]) -> None:
+        """
+        Notifica gli osservatori dell'aggiunta di un'entità.
+        
+        Args:
+            name: Nome dell'entità aggiunta
+            definition: Definizione dell'entità
+        """
+        for observer in self.observers:
+            observer.entity_added(name, definition)
+            
+    def _notify_entity_updated(self, name: str, definition: Dict[str, Any]) -> None:
+        """
+        Notifica gli osservatori dell'aggiornamento di un'entità.
+        
+        Args:
+            name: Nome dell'entità aggiornata
+            definition: Nuova definizione dell'entità
+        """
+        for observer in self.observers:
+            observer.entity_updated(name, definition)
+            
+    def _notify_entity_removed(self, name: str) -> None:
+        """
+        Notifica gli osservatori della rimozione di un'entità.
+        
+        Args:
+            name: Nome dell'entità rimossa
+        """
+        for observer in self.observers:
+            observer.entity_removed(name)
+            
+    def _load_default_entities(self) -> None:
         """Carica le entità predefinite nel sistema."""
         # Entità normative
         self.add_entity_type(
@@ -99,7 +168,7 @@ class DynamicEntityManager:
         )
         
     def add_entity_type(self, name: str, display_name: str, category: str, 
-                        color: str, metadata_schema: Dict[str, str]) -> bool:
+                        color: str, metadata_schema: Dict[str, str], patterns: List[str] = None) -> bool:
         """
         Aggiunge un nuovo tipo di entità al sistema.
         
@@ -109,6 +178,7 @@ class DynamicEntityManager:
             category: Categoria dell'entità ("normative", "jurisprudence", "concepts" o "custom")
             color: Colore dell'entità in formato esadecimale (#RRGGBB)
             metadata_schema: Schema dei metadati dell'entità
+            patterns: Lista di pattern regex per il riconoscimento (opzionale)
             
         Returns:
             True se l'aggiunta è avvenuta con successo, False altrimenti
@@ -129,17 +199,27 @@ class DynamicEntityManager:
                 self.logger.warning(f"L'entità {name} esiste già. Aggiornamento in corso...")
             
             # Aggiungi l'entità
-            self.entity_types[name] = {
+            entity_definition = {
                 "display_name": display_name,
                 "category": category,
                 "color": color,
                 "metadata_schema": metadata_schema
             }
             
+            # Aggiungi i pattern se specificati
+            if patterns:
+                entity_definition["patterns"] = patterns
+                
+            self.entity_types[name] = entity_definition
+            
             # Aggiungi alle categorie
             self.entity_categories[category].add(name)
             
             self.logger.info(f"Entità {name} aggiunta con successo nella categoria {category}")
+            
+            # Notifica gli osservatori
+            self._notify_entity_added(name, entity_definition)
+            
             return True
             
         except Exception as e:
@@ -170,6 +250,10 @@ class DynamicEntityManager:
             del self.entity_types[name]
             
             self.logger.info(f"Entità {name} rimossa con successo")
+            
+            # Notifica gli osservatori
+            self._notify_entity_removed(name)
+            
             return True
             
         except Exception as e:
@@ -177,8 +261,9 @@ class DynamicEntityManager:
             return False
     
     def update_entity_type(self, name: str, display_name: Optional[str] = None, 
-                           color: Optional[str] = None, 
-                           metadata_schema: Optional[Dict[str, str]] = None) -> bool:
+                          color: Optional[str] = None, 
+                          metadata_schema: Optional[Dict[str, str]] = None,
+                          patterns: Optional[List[str]] = None) -> bool:
         """
         Aggiorna un tipo di entità esistente.
         
@@ -187,6 +272,7 @@ class DynamicEntityManager:
             display_name: Nuovo nome visualizzato (opzionale)
             color: Nuovo colore (opzionale)
             metadata_schema: Nuovo schema dei metadati (opzionale)
+            patterns: Nuovi pattern regex (opzionale)
             
         Returns:
             True se l'aggiornamento è avvenuto con successo, False altrimenti
@@ -196,17 +282,30 @@ class DynamicEntityManager:
                 self.logger.error(f"L'entità {name} non esiste.")
                 return False
                 
+            # Crea una copia dell'entità esistente
+            updated_definition = self.entity_types[name].copy()
+                
             # Aggiorna i campi specificati
             if display_name:
-                self.entity_types[name]["display_name"] = display_name
+                updated_definition["display_name"] = display_name
                 
             if color:
-                self.entity_types[name]["color"] = color
+                updated_definition["color"] = color
                 
             if metadata_schema:
-                self.entity_types[name]["metadata_schema"] = metadata_schema
+                updated_definition["metadata_schema"] = metadata_schema
+                
+            if patterns:
+                updated_definition["patterns"] = patterns
+                
+            # Aggiorna l'entità
+            self.entity_types[name] = updated_definition
                 
             self.logger.info(f"Entità {name} aggiornata con successo")
+            
+            # Notifica gli osservatori
+            self._notify_entity_updated(name, updated_definition)
+            
             return True
             
         except Exception as e:
@@ -297,20 +396,44 @@ class DynamicEntityManager:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                
-            # Aggiorna i tipi di entità
-            self.entity_types.update(data.get("entity_types", {}))
             
-            # Aggiorna le categorie (converte le liste in set)
-            for category, entities in data.get("entity_categories", {}).items():
-                if category in self.entity_categories:
-                    self.entity_categories[category].update(entities)
-                else:
-                    self.entity_categories[category] = set(entities)
+            # Mantieni delle copie per il ripristino in caso di errore
+            old_entity_types = self.entity_types.copy()
+            old_entity_categories = {k: v.copy() for k, v in self.entity_categories.items()}
+            
+            try:
+                # Aggiorna i tipi di entità
+                for name, definition in data.get("entity_types", {}).items():
+                    category = definition.get("category", "custom")
                     
-            self.logger.info(f"Definizioni delle entità caricate con successo da {file_path}")
-            return True
-            
+                    # Aggiorna o aggiungi l'entità
+                    if name in self.entity_types:
+                        self.update_entity_type(
+                            name=name, 
+                            display_name=definition.get("display_name"),
+                            color=definition.get("color"),
+                            metadata_schema=definition.get("metadata_schema"),
+                            patterns=definition.get("patterns")
+                        )
+                    else:
+                        self.add_entity_type(
+                            name=name,
+                            display_name=definition.get("display_name", name),
+                            category=category,
+                            color=definition.get("color", "#CCCCCC"),
+                            metadata_schema=definition.get("metadata_schema", {}),
+                            patterns=definition.get("patterns")
+                        )
+                        
+                self.logger.info(f"Definizioni delle entità caricate con successo da {file_path}")
+                return True
+                
+            except Exception as e:
+                # Ripristina lo stato precedente in caso di errore
+                self.entity_types = old_entity_types
+                self.entity_categories = old_entity_categories
+                raise e
+                
         except FileNotFoundError:
             self.logger.warning(f"File {file_path} non trovato. Utilizzo delle entità predefinite.")
             return False
@@ -399,121 +522,37 @@ class DynamicEntityManager:
             
         return self.entity_types[entity_type].get("metadata_schema", {})
         
-    def export_entity_types_enum(self, output_file: Optional[str] = None) -> str:
+    def get_patterns(self, entity_type: str) -> List[str]:
         """
-        Genera ed eventualmente salva un file Python contenente un'enumerazione
-        Enum con tutti i tipi di entità correnti.
+        Ottiene i pattern regex per un tipo di entità.
         
         Args:
-            output_file: Percorso dove salvare il file (opzionale)
+            entity_type: Nome del tipo di entità
             
         Returns:
-            Contenuto del file generato
+            Lista di pattern regex per il riconoscimento
         """
-        enum_code = [
-            "from enum import Enum, auto",
-            "",
-            "class EntityType(Enum):",
-            "    \"\"\"Enumerazione dei tipi di entità giuridiche riconosciute dal sistema.\"\"\"",
-            ""
-        ]
-        
-        # Aggiungi commenti per le sezioni
-        sections = {
-            "normative": "# Riferimenti normativi",
-            "jurisprudence": "# Riferimenti giurisprudenziali",
-            "concepts": "# Concetti giuridici",
-            "custom": "# Entità personalizzate"
-        }
-        
-        # Genera il codice con le sezioni
-        for category, comment in sections.items():
-            entity_types = self.get_entity_types_by_category(category)
-            if entity_types:
-                enum_code.append(f"    {comment}")
-                for entity_type in entity_types:
-                    enum_code.append(f"    {entity_type} = auto()")
-                enum_code.append("")
-        
-        # Aggiungi metodi di classe per ottenere i tipi per categoria
-        enum_code.extend([
-            "    @classmethod",
-            "    def get_normative_types(cls) -> set[\"EntityType\"]:",
-            "        \"\"\"Restituisce l'insieme dei tipi di entità normative.\"\"\"",
-            "        return {",
-        ])
-        
-        # Aggiungi i tipi normativi
-        for entity_type in self.get_entity_types_by_category("normative"):
-            enum_code.append(f"            cls.{entity_type},")
-        enum_code.extend([
-            "        }",
-            "",
-        ])
-        
-        # Aggiungi metodo per i tipi giurisprudenziali
-        enum_code.extend([
-            "    @classmethod",
-            "    def get_jurisprudence_types(cls) -> set[\"EntityType\"]:",
-            "        \"\"\"Restituisce l'insieme dei tipi di entità giurisprudenziali.\"\"\"",
-            "        return {",
-        ])
-        
-        for entity_type in self.get_entity_types_by_category("jurisprudence"):
-            enum_code.append(f"            cls.{entity_type},")
-        enum_code.extend([
-            "        }",
-            "",
-        ])
-        
-        # Aggiungi metodo per i tipi concettuali
-        enum_code.extend([
-            "    @classmethod",
-            "    def get_concept_types(cls) -> set[\"EntityType\"]:",
-            "        \"\"\"Restituisce l'insieme dei tipi di entità concettuali.\"\"\"",
-            "        return {",
-        ])
-        
-        for entity_type in self.get_entity_types_by_category("concepts"):
-            enum_code.append(f"            cls.{entity_type},")
-        enum_code.extend([
-            "        }",
-            "",
-        ])
-        
-        # Aggiungi metodo per i tipi personalizzati se presenti
-        custom_types = self.get_entity_types_by_category("custom")
-        if custom_types:
-            enum_code.extend([
-                "    @classmethod",
-                "    def get_custom_types(cls) -> set[\"EntityType\"]:",
-                "        \"\"\"Restituisce l'insieme dei tipi di entità personalizzate.\"\"\"",
-                "        return {",
-            ])
+        if entity_type not in self.entity_types:
+            return []
             
-            for entity_type in custom_types:
-                enum_code.append(f"            cls.{entity_type},")
-            enum_code.extend([
-                "        }",
-                "",
-            ])
+        return self.entity_types[entity_type].get("patterns", [])
         
-        enum_content = "\n".join(enum_code)
+    def update_patterns(self, entity_type: str, patterns: List[str]) -> bool:
+        """
+        Aggiorna i pattern regex per un tipo di entità.
         
-        # Salva il file se specificato
-        if output_file:
-            try:
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
-                with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write(enum_content)
-                self.logger.info(f"Enumerazione delle entità salvata in {output_file}")
-            except Exception as e:
-                self.logger.error(f"Errore nel salvataggio dell'enumerazione delle entità: {str(e)}")
-        
-        return enum_content
-        
+        Args:
+            entity_type: Nome del tipo di entità
+            patterns: Nuovi pattern regex
+            
+        Returns:
+            True se l'aggiornamento è avvenuto con successo, False altrimenti
+        """
+        return self.update_entity_type(entity_type, patterns=patterns)
+
+
 # Istanza globale del gestore delle entità
-entity_manager = None
+_entity_manager = None
 
 def get_entity_manager(entities_file: Optional[str] = None) -> DynamicEntityManager:
     """
@@ -525,7 +564,18 @@ def get_entity_manager(entities_file: Optional[str] = None) -> DynamicEntityMana
     Returns:
         Istanza del gestore delle entità
     """
-    global entity_manager
-    if entity_manager is None:
-        entity_manager = DynamicEntityManager(entities_file)
-    return entity_manager
+    global _entity_manager
+    if _entity_manager is None:
+        _entity_manager = DynamicEntityManager(entities_file)
+    return _entity_manager
+
+def set_entity_manager(manager: DynamicEntityManager) -> None:
+    """
+    Imposta l'istanza globale del gestore delle entità.
+    Utile per i test con mock.
+    
+    Args:
+        manager: Istanza del gestore delle entità
+    """
+    global _entity_manager
+    _entity_manager = manager

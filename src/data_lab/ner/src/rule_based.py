@@ -1,15 +1,17 @@
 """
 Modulo per il riconoscimento di entità basato su regole per il sistema NER-Giuridico.
+Supporta configurazione dinamica e gestione delle entità.
 """
 
 import re
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Set, Pattern, Tuple
+from typing import List, Dict, Any, Optional, Set, Pattern, Tuple, Union
 
 from .config import config
 from .entities.entities import Entity, EntityType
+from .entities.entity_manager import get_entity_manager
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +19,16 @@ class RuleBasedRecognizer:
     """
     Riconoscitore di entità basato su regole per il sistema NER-Giuridico.
     Utilizza pattern regex e gazetteer per identificare entità giuridiche.
+    Supporta l'aggiornamento dinamico dei pattern.
     """
     
     def __init__(self, entity_manager=None):
-        """Inizializza il riconoscitore basato su regole."""
+        """
+        Inizializza il riconoscitore basato su regole.
+        
+        Args:
+            entity_manager: Gestore delle entità dinamiche (opzionale)
+        """
         self.enabled = config.get("models.rule_based.enable", True)
         
         # Usa il gestore delle entità dinamiche se fornito
@@ -39,7 +47,32 @@ class RuleBasedRecognizer:
         # Carica il gazetteer per i concetti giuridici
         self.concepts_gazetteer = self._load_gazetteer("concetti_giuridici")
         
+        # Pattern compilati per entità dinamiche
+        self.dynamic_patterns = {}
+        
+        # Compila i pattern delle entità dinamiche se disponibili
+        if self.entity_manager:
+            self._compile_dynamic_patterns()
+        
         logger.info("Riconoscitore basato su regole inizializzato con successo")
+    
+    def _compile_dynamic_patterns(self):
+        """Compila i pattern regex delle entità dinamiche."""
+        if not self.entity_manager:
+            return
+            
+        for name, entity_info in self.entity_manager.get_all_entity_types().items():
+            patterns = entity_info.get("patterns", [])
+            if patterns:
+                compiled_patterns = []
+                for pattern in patterns:
+                    try:
+                        compiled_patterns.append(re.compile(pattern, re.IGNORECASE))
+                    except re.error as e:
+                        logger.warning(f"Pattern non valido per {name}: {pattern} - {e}")
+                
+                if compiled_patterns:
+                    self.dynamic_patterns[name] = compiled_patterns
     
     def _load_patterns(self, entity_type: str) -> Dict[str, List[Pattern]]:
         """
@@ -228,6 +261,35 @@ class RuleBasedRecognizer:
         
         return concepts
     
+    def update_patterns(self, entity_type: str, patterns: List[str]) -> bool:
+        """
+        Aggiorna i pattern regex per un tipo di entità.
+        
+        Args:
+            entity_type: Nome del tipo di entità
+            patterns: Lista di pattern regex
+            
+        Returns:
+            True se l'aggiornamento è avvenuto con successo, False altrimenti
+        """
+        try:
+            # Compila i nuovi pattern
+            compiled_patterns = []
+            for pattern in patterns:
+                try:
+                    compiled_patterns.append(re.compile(pattern, re.IGNORECASE))
+                except re.error as e:
+                    logger.warning(f"Pattern non valido per {entity_type}: {pattern} - {e}")
+            
+            # Aggiorna i pattern
+            self.dynamic_patterns[entity_type] = compiled_patterns
+            
+            logger.info(f"Pattern per {entity_type} aggiornati con successo")
+            return True
+        except Exception as e:
+            logger.error(f"Errore nell'aggiornamento dei pattern per {entity_type}: {e}")
+            return False
+    
     def recognize(self, text: str) -> List[Entity]:
         """
         Riconosce le entità giuridiche nel testo utilizzando regole.
@@ -252,9 +314,8 @@ class RuleBasedRecognizer:
         # Riconosci concetti giuridici
         entities.extend(self._recognize_legal_concepts(text))
         
-        # Riconosci entità dinamiche se il manager è disponibile
-        if self.entity_manager:
-            entities.extend(self._recognize_dynamic_entities(text))
+        # Riconosci entità dinamiche
+        entities.extend(self._recognize_dynamic_entities(text))
         
         # Ordina le entità per posizione nel testo
         entities.sort(key=lambda e: e.start_char)
@@ -299,7 +360,7 @@ class RuleBasedRecognizer:
         
         return entities
     
-    def _get_entity_type_from_normative_subtype(self, subtype: str) -> EntityType:
+    def _get_entity_type_from_normative_subtype(self, subtype: str) -> Union[EntityType, str]:
         """
         Converte un sottotipo di riferimento normativo in un tipo di entità.
         
@@ -309,14 +370,27 @@ class RuleBasedRecognizer:
         Returns:
             Tipo di entità corrispondente.
         """
+        # Mappa dei sottotipi ai tipi di entità
         subtype_to_entity_type = {
-            "articoli_codice": EntityType.ARTICOLO_CODICE,
-            "leggi": EntityType.LEGGE,
-            "decreti": EntityType.DECRETO,
-            "regolamenti_ue": EntityType.REGOLAMENTO_UE
+            "articoli_codice": "ARTICOLO_CODICE",
+            "leggi": "LEGGE",
+            "decreti": "DECRETO",
+            "regolamenti_ue": "REGOLAMENTO_UE"
         }
         
-        return subtype_to_entity_type.get(subtype, EntityType.ARTICOLO_CODICE)
+        # Ottieni il nome del tipo di entità
+        entity_type_name = subtype_to_entity_type.get(subtype, "ARTICOLO_CODICE")
+        
+        # Se c'è un entity manager, usa il nome direttamente
+        if self.entity_manager and self.entity_manager.entity_type_exists(entity_type_name):
+            return entity_type_name
+        
+        # Altrimenti, usa l'enumerazione statica se disponibile
+        if hasattr(EntityType, entity_type_name):
+            return getattr(EntityType, entity_type_name)
+        
+        # In caso di fallimento, restituisci il nome come stringa
+        return entity_type_name
     
     def _recognize_jurisprudence_references(self, text: str) -> List[Entity]:
         """
@@ -356,7 +430,7 @@ class RuleBasedRecognizer:
         
         return entities
     
-    def _get_entity_type_from_jurisprudence_subtype(self, subtype: str) -> EntityType:
+    def _get_entity_type_from_jurisprudence_subtype(self, subtype: str) -> Union[EntityType, str]:
         """
         Converte un sottotipo di riferimento giurisprudenziale in un tipo di entità.
         
@@ -366,12 +440,25 @@ class RuleBasedRecognizer:
         Returns:
             Tipo di entità corrispondente.
         """
+        # Mappa dei sottotipi ai tipi di entità
         subtype_to_entity_type = {
-            "sentenze": EntityType.SENTENZA,
-            "ordinanze": EntityType.ORDINANZA
+            "sentenze": "SENTENZA",
+            "ordinanze": "ORDINANZA"
         }
         
-        return subtype_to_entity_type.get(subtype, EntityType.SENTENZA)
+        # Ottieni il nome del tipo di entità
+        entity_type_name = subtype_to_entity_type.get(subtype, "SENTENZA")
+        
+        # Se c'è un entity manager, usa il nome direttamente
+        if self.entity_manager and self.entity_manager.entity_type_exists(entity_type_name):
+            return entity_type_name
+        
+        # Altrimenti, usa l'enumerazione statica se disponibile
+        if hasattr(EntityType, entity_type_name):
+            return getattr(EntityType, entity_type_name)
+        
+        # In caso di fallimento, restituisci il nome come stringa
+        return entity_type_name
     
     def _recognize_legal_concepts(self, text: str) -> List[Entity]:
         """
@@ -385,6 +472,9 @@ class RuleBasedRecognizer:
         """
         entities = []
         
+        # Determina il tipo di entità
+        entity_type = self._get_entity_type("CONCETTO_GIURIDICO")
+        
         # Per ogni concetto nel gazetteer
         for concept in self.concepts_gazetteer:
             # Cerca tutte le occorrenze del concetto nel testo (case insensitive)
@@ -392,7 +482,7 @@ class RuleBasedRecognizer:
                 # Crea l'entità
                 entity = Entity(
                     text=match.group(0),
-                    type=EntityType.CONCETTO_GIURIDICO,
+                    type=entity_type,
                     start_char=match.start(),
                     end_char=match.end(),
                     normalized_text=concept.lower(),  # Normalizza al concetto originale in minuscolo
@@ -405,34 +495,62 @@ class RuleBasedRecognizer:
         
         return entities
     
+    def _get_entity_type(self, entity_type_name: str) -> Union[EntityType, str]:
+        """
+        Ottiene il tipo di entità dal nome.
+        
+        Args:
+            entity_type_name: Nome del tipo di entità
+            
+        Returns:
+            Tipo di entità corrispondente
+        """
+        # Se c'è un entity manager, usa il nome direttamente
+        if self.entity_manager and self.entity_manager.entity_type_exists(entity_type_name):
+            return entity_type_name
+        
+        # Altrimenti, usa l'enumerazione statica se disponibile
+        if hasattr(EntityType, entity_type_name):
+            return getattr(EntityType, entity_type_name)
+        
+        # In caso di fallimento, restituisci il nome come stringa
+        return entity_type_name
+    
     def _recognize_dynamic_entities(self, text: str) -> List[Entity]:
-        """Riconosce le entità dinamiche definite nel manager."""
+        """
+        Riconosce le entità dinamiche utilizzando i pattern definiti.
+        
+        Args:
+            text: Testo in cui cercare le entità.
+            
+        Returns:
+            Lista di entità dinamiche riconosciute
+        """
         entities = []
         
-        if not self.entity_manager:
+        # Se non ci sono pattern dinamici, restituisci una lista vuota
+        if not self.dynamic_patterns:
             return entities
-            
-        # Per ogni tipo di entità nel manager
-        for entity_type, entity_def in self.entity_manager.get_all_entity_types().items():
-            # Usa i pattern definiti per l'entità
-            patterns = entity_def.get("patterns", [])
+        
+        # Per ogni tipo di entità dinamica
+        for entity_type, patterns in self.dynamic_patterns.items():
+            # Per ogni pattern
             for pattern in patterns:
-                try:
-                    regex = re.compile(pattern, re.IGNORECASE)
-                    for match in regex.finditer(text):
-                        entity = Entity(
-                            text=match.group(0),
-                            type=entity_type,
-                            start_char=match.start(),
-                            end_char=match.end(),
-                            normalized_text=None,
-                            metadata={
-                                "pattern": pattern,
-                                "groups": match.groups()
-                            }
-                        )
-                        entities.append(entity)
-                except re.error as e:
-                    logger.warning(f"Pattern non valido per {entity_type}: {pattern} - {e}")
+                # Cerca tutte le occorrenze del pattern nel testo
+                for match in pattern.finditer(text):
+                    # Crea l'entità
+                    entity = Entity(
+                        text=match.group(0),
+                        type=entity_type,
+                        start_char=match.start(),
+                        end_char=match.end(),
+                        normalized_text=None,  # Sarà normalizzato in seguito
+                        metadata={
+                            "pattern": pattern.pattern,
+                            "groups": match.groups()
+                        }
+                    )
                     
+                    entities.append(entity)
+        
         return entities

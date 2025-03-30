@@ -1,18 +1,20 @@
 """
 Modulo per la normalizzazione delle entità giuridiche riconosciute dal sistema NER-Giuridico.
+Supporta sia entità statiche che dinamiche.
 """
 
 import re
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 
 from .config import config
 from .entities.entities import (
     Entity, EntityType, NormativeReference, 
     JurisprudenceReference, LegalConcept
 )
+from .entities.entity_manager import get_entity_manager
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +22,18 @@ class EntityNormalizer:
     """
     Classe per la normalizzazione delle entità giuridiche riconosciute.
     Converte le entità in forme canoniche e arricchisce i metadati.
+    Supporta la gestione dinamica delle entità.
     """
     
-    def __init__(self):
-        """Inizializza il normalizzatore di entità."""
+    def __init__(self, entity_manager=None):
+        """
+        Inizializza il normalizzatore di entità.
+        
+        Args:
+            entity_manager: Gestore delle entità dinamiche (opzionale)
+        """
         self.enable = config.get("normalization.enable", True)
+        self.entity_manager = entity_manager
         
         if not self.enable:
             logger.info("Normalizzazione delle entità disabilitata")
@@ -37,11 +46,43 @@ class EntityNormalizer:
         self.abbreviations = self._load_abbreviations()
         
         # Configura l'integrazione con il knowledge graph
-        self.use_knowledge_graph = config.get("normalization.use_knowledge_graph", True)
+        self.use_knowledge_graph = config.get("normalization.use_knowledge_graph", False)
         if self.use_knowledge_graph:
             self._setup_knowledge_graph()
+            
+        # Registro dei normalizzatori per tipo di entità
+        self.normalizers = {}
+        
+        # Registra i normalizzatori predefiniti
+        self._register_default_normalizers()
         
         logger.info("Normalizzatore di entità inizializzato con successo")
+    
+    def _register_default_normalizers(self):
+        """Registra i normalizzatori predefiniti per i tipi di entità standard."""
+        # Riferimenti normativi
+        self.register_normalizer("ARTICOLO_CODICE", self._normalize_article_reference)
+        self.register_normalizer("LEGGE", self._normalize_law_reference)
+        self.register_normalizer("DECRETO", self._normalize_decree_reference)
+        self.register_normalizer("REGOLAMENTO_UE", self._normalize_eu_regulation_reference)
+        
+        # Riferimenti giurisprudenziali
+        self.register_normalizer("SENTENZA", self._normalize_sentence_reference)
+        self.register_normalizer("ORDINANZA", self._normalize_ordinance_reference)
+        
+        # Concetti giuridici
+        self.register_normalizer("CONCETTO_GIURIDICO", self._normalize_legal_concept)
+    
+    def register_normalizer(self, entity_type: str, normalizer_func: Callable[[Entity], Entity]):
+        """
+        Registra una funzione di normalizzazione per un tipo di entità.
+        
+        Args:
+            entity_type: Nome del tipo di entità
+            normalizer_func: Funzione di normalizzazione
+        """
+        self.normalizers[entity_type] = normalizer_func
+        logger.debug(f"Registrato normalizzatore per {entity_type}")
     
     def _load_canonical_forms(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -248,19 +289,99 @@ class EntityNormalizer:
         normalized_entities = []
         
         for entity in entities:
-            # Normalizza l'entità in base al tipo
-            if entity.type in EntityType.get_normative_types():
-                normalized_entity = self._normalize_normative_reference(entity)
-            elif entity.type in EntityType.get_jurisprudence_types():
-                normalized_entity = self._normalize_jurisprudence_reference(entity)
-            elif entity.type in EntityType.get_concept_types():
-                normalized_entity = self._normalize_legal_concept(entity)
+            # Ottieni il tipo di entità come stringa
+            entity_type = self._get_entity_type_name(entity.type)
+            
+            # Cerca un normalizzatore registrato per questo tipo di entità
+            if entity_type in self.normalizers:
+                normalizer = self.normalizers[entity_type]
+                normalized_entity = normalizer(entity)
             else:
-                normalized_entity = entity
+                # Se non c'è un normalizzatore specifico, usa uno generico
+                if hasattr(entity.type, "name"):
+                    # Per i tipi di entità statici (enum)
+                    normalized_entity = self._normalize_entity_by_type(entity)
+                else:
+                    # Per i tipi di entità dinamici (stringa)
+                    normalized_entity = self._normalize_generic_entity(entity)
+            
+            # Arricchisci con dati dal knowledge graph se disponibile
+            if self.use_knowledge_graph:
+                self._enrich_from_knowledge_graph(normalized_entity)
             
             normalized_entities.append(normalized_entity)
         
         return normalized_entities
+    
+    def _get_entity_type_name(self, entity_type) -> str:
+        """
+        Ottiene il nome del tipo di entità come stringa.
+        
+        Args:
+            entity_type: Tipo di entità (enum o stringa)
+        
+        Returns:
+            Nome del tipo di entità
+        """
+        if isinstance(entity_type, str):
+            return entity_type
+        if hasattr(entity_type, "name"):
+            return entity_type.name
+        return str(entity_type)
+    
+    def _normalize_entity_by_type(self, entity: Entity) -> Entity:
+        """
+        Normalizza un'entità in base al suo tipo (per entità statiche).
+        
+        Args:
+            entity: Entità da normalizzare
+        
+        Returns:
+            Entità normalizzata
+        """
+        if entity.type in EntityType.get_normative_types():
+            return self._normalize_normative_reference(entity)
+        elif entity.type in EntityType.get_jurisprudence_types():
+            return self._normalize_jurisprudence_reference(entity)
+        elif entity.type in EntityType.get_concept_types():
+            return self._normalize_legal_concept(entity)
+        else:
+            # Se non riconosciamo il tipo, restituisci l'entità così com'è
+            return entity
+    
+    def _normalize_generic_entity(self, entity: Entity) -> Entity:
+        """
+        Normalizza un'entità in base al suo tipo (per entità dinamiche).
+        
+        Args:
+            entity: Entità da normalizzare
+        
+        Returns:
+            Entità normalizzata
+        """
+        # Se non c'è un entity manager, restituisci l'entità così com'è
+        if not self.entity_manager:
+            return entity
+        
+        # Ottieni informazioni sul tipo di entità
+        entity_info = self.entity_manager.get_entity_type(entity.type)
+        if not entity_info:
+            return entity
+        
+        # Determina la categoria dell'entità
+        category = entity_info.get("category", "custom")
+        
+        # Normalizza in base alla categoria
+        if category == "normative":
+            return self._normalize_normative_reference(entity)
+        elif category == "jurisprudence":
+            return self._normalize_jurisprudence_reference(entity)
+        elif category == "concepts":
+            return self._normalize_legal_concept(entity)
+        else:
+            # Se la categoria non è riconosciuta, restituisci l'entità così com'è
+            entity.normalized_text = entity.text.lower()
+            return entity
     
     def _normalize_normative_reference(self, entity: Entity) -> Entity:
         """
@@ -282,29 +403,56 @@ class EntityNormalizer:
         )
         
         # Normalizza in base al tipo specifico
-        if entity.type == EntityType.ARTICOLO_CODICE:
-            normalized_text, metadata = self._normalize_article_reference(entity.text, entity.metadata)
-        elif entity.type == EntityType.LEGGE:
-            normalized_text, metadata = self._normalize_law_reference(entity.text, entity.metadata)
-        elif entity.type == EntityType.DECRETO:
-            normalized_text, metadata = self._normalize_decree_reference(entity.text, entity.metadata)
-        elif entity.type == EntityType.REGOLAMENTO_UE:
-            normalized_text, metadata = self._normalize_eu_regulation_reference(entity.text, entity.metadata)
+        entity_type_name = self._get_entity_type_name(entity.type)
+        
+        if entity_type_name == "ARTICOLO_CODICE":
+            normalized_text, metadata = self._normalize_article_reference_data(entity.text, entity.metadata)
+        elif entity_type_name == "LEGGE":
+            normalized_text, metadata = self._normalize_law_reference_data(entity.text, entity.metadata)
+        elif entity_type_name == "DECRETO":
+            normalized_text, metadata = self._normalize_decree_reference_data(entity.text, entity.metadata)
+        elif entity_type_name == "REGOLAMENTO_UE":
+            normalized_text, metadata = self._normalize_eu_regulation_reference_data(entity.text, entity.metadata)
         else:
             normalized_text = entity.text
             metadata = entity.metadata
         
         # Aggiorna l'entità normalizzata
         normalized_entity.normalized_text = normalized_text
-        normalized_entity.metadata.update(metadata)
-        
-        # Arricchisci con dati dal knowledge graph se disponibile
-        if self.use_knowledge_graph:
-            self._enrich_from_knowledge_graph(normalized_entity)
+        if metadata:
+            normalized_entity.metadata.update(metadata)
         
         return normalized_entity
     
-    def _normalize_article_reference(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _normalize_article_reference(self, entity: Entity) -> Entity:
+        """
+        Normalizza un riferimento a un articolo di codice.
+        
+        Args:
+            entity: Entità da normalizzare
+            
+        Returns:
+            Entità normalizzata
+        """
+        normalized_text, metadata = self._normalize_article_reference_data(entity.text, entity.metadata)
+        
+        # Copia l'entità originale
+        normalized_entity = Entity(
+            text=entity.text,
+            type=entity.type,
+            start_char=entity.start_char,
+            end_char=entity.end_char,
+            normalized_text=normalized_text,
+            metadata=entity.metadata.copy() if entity.metadata else {}
+        )
+        
+        # Aggiorna i metadati
+        if metadata:
+            normalized_entity.metadata.update(metadata)
+            
+        return normalized_entity
+    
+    def _normalize_article_reference_data(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
         """
         Normalizza un riferimento a un articolo di codice.
         
@@ -355,7 +503,35 @@ class EntityNormalizer:
         
         return normalized_text, metadata
     
-    def _normalize_law_reference(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _normalize_law_reference(self, entity: Entity) -> Entity:
+        """
+        Normalizza un riferimento a una legge.
+        
+        Args:
+            entity: Entità da normalizzare
+            
+        Returns:
+            Entità normalizzata
+        """
+        normalized_text, metadata = self._normalize_law_reference_data(entity.text, entity.metadata)
+        
+        # Copia l'entità originale
+        normalized_entity = Entity(
+            text=entity.text,
+            type=entity.type,
+            start_char=entity.start_char,
+            end_char=entity.end_char,
+            normalized_text=normalized_text,
+            metadata=entity.metadata.copy() if entity.metadata else {}
+        )
+        
+        # Aggiorna i metadati
+        if metadata:
+            normalized_entity.metadata.update(metadata)
+            
+        return normalized_entity
+    
+    def _normalize_law_reference_data(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
         """
         Normalizza un riferimento a una legge.
         
@@ -416,7 +592,35 @@ class EntityNormalizer:
         
         return normalized_text, metadata
     
-    def _normalize_decree_reference(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _normalize_decree_reference(self, entity: Entity) -> Entity:
+        """
+        Normalizza un riferimento a un decreto.
+        
+        Args:
+            entity: Entità da normalizzare
+            
+        Returns:
+            Entità normalizzata
+        """
+        normalized_text, metadata = self._normalize_decree_reference_data(entity.text, entity.metadata)
+        
+        # Copia l'entità originale
+        normalized_entity = Entity(
+            text=entity.text,
+            type=entity.type,
+            start_char=entity.start_char,
+            end_char=entity.end_char,
+            normalized_text=normalized_text,
+            metadata=entity.metadata.copy() if entity.metadata else {}
+        )
+        
+        # Aggiorna i metadati
+        if metadata:
+            normalized_entity.metadata.update(metadata)
+            
+        return normalized_entity
+    
+    def _normalize_decree_reference_data(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
         """
         Normalizza un riferimento a un decreto.
         
@@ -496,7 +700,35 @@ class EntityNormalizer:
         
         return normalized_text, metadata
     
-    def _normalize_eu_regulation_reference(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _normalize_eu_regulation_reference(self, entity: Entity) -> Entity:
+        """
+        Normalizza un riferimento a un regolamento UE.
+        
+        Args:
+            entity: Entità da normalizzare
+            
+        Returns:
+            Entità normalizzata
+        """
+        normalized_text, metadata = self._normalize_eu_regulation_reference_data(entity.text, entity.metadata)
+        
+        # Copia l'entità originale
+        normalized_entity = Entity(
+            text=entity.text,
+            type=entity.type,
+            start_char=entity.start_char,
+            end_char=entity.end_char,
+            normalized_text=normalized_text,
+            metadata=entity.metadata.copy() if entity.metadata else {}
+        )
+        
+        # Aggiorna i metadati
+        if metadata:
+            normalized_entity.metadata.update(metadata)
+            
+        return normalized_entity
+    
+    def _normalize_eu_regulation_reference_data(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
         """
         Normalizza un riferimento a un regolamento UE.
         
@@ -594,25 +826,52 @@ class EntityNormalizer:
         )
         
         # Normalizza in base al tipo specifico
-        if entity.type == EntityType.SENTENZA:
-            normalized_text, metadata = self._normalize_sentence_reference(entity.text, entity.metadata)
-        elif entity.type == EntityType.ORDINANZA:
-            normalized_text, metadata = self._normalize_ordinance_reference(entity.text, entity.metadata)
+        entity_type_name = self._get_entity_type_name(entity.type)
+        
+        if entity_type_name == "SENTENZA":
+            normalized_text, metadata = self._normalize_sentence_reference_data(entity.text, entity.metadata)
+        elif entity_type_name == "ORDINANZA":
+            normalized_text, metadata = self._normalize_ordinance_reference_data(entity.text, entity.metadata)
         else:
             normalized_text = entity.text
             metadata = entity.metadata
         
         # Aggiorna l'entità normalizzata
         normalized_entity.normalized_text = normalized_text
-        normalized_entity.metadata.update(metadata)
-        
-        # Arricchisci con dati dal knowledge graph se disponibile
-        if self.use_knowledge_graph:
-            self._enrich_from_knowledge_graph(normalized_entity)
+        if metadata:
+            normalized_entity.metadata.update(metadata)
         
         return normalized_entity
     
-    def _normalize_sentence_reference(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _normalize_sentence_reference(self, entity: Entity) -> Entity:
+        """
+        Normalizza un riferimento a una sentenza.
+        
+        Args:
+            entity: Entità da normalizzare
+            
+        Returns:
+            Entità normalizzata
+        """
+        normalized_text, metadata = self._normalize_sentence_reference_data(entity.text, entity.metadata)
+        
+        # Copia l'entità originale
+        normalized_entity = Entity(
+            text=entity.text,
+            type=entity.type,
+            start_char=entity.start_char,
+            end_char=entity.end_char,
+            normalized_text=normalized_text,
+            metadata=entity.metadata.copy() if entity.metadata else {}
+        )
+        
+        # Aggiorna i metadati
+        if metadata:
+            normalized_entity.metadata.update(metadata)
+            
+        return normalized_entity
+    
+    def _normalize_sentence_reference_data(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
         """
         Normalizza un riferimento a una sentenza.
         
@@ -712,7 +971,35 @@ class EntityNormalizer:
         
         return normalized_text, metadata
     
-    def _normalize_ordinance_reference(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+    def _normalize_ordinance_reference(self, entity: Entity) -> Entity:
+        """
+        Normalizza un riferimento a un'ordinanza.
+        
+        Args:
+            entity: Entità da normalizzare
+            
+        Returns:
+            Entità normalizzata
+        """
+        normalized_text, metadata = self._normalize_ordinance_reference_data(entity.text, entity.metadata)
+        
+        # Copia l'entità originale
+        normalized_entity = Entity(
+            text=entity.text,
+            type=entity.type,
+            start_char=entity.start_char,
+            end_char=entity.end_char,
+            normalized_text=normalized_text,
+            metadata=entity.metadata.copy() if entity.metadata else {}
+        )
+        
+        # Aggiorna i metadati
+        if metadata:
+            normalized_entity.metadata.update(metadata)
+            
+        return normalized_entity
+    
+    def _normalize_ordinance_reference_data(self, text: str, metadata: Optional[Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
         """
         Normalizza un riferimento a un'ordinanza.
         
@@ -724,7 +1011,7 @@ class EntityNormalizer:
             Tupla con il testo normalizzato e i metadati aggiornati.
         """
         # La normalizzazione delle ordinanze è simile a quella delle sentenze
-        normalized_text, metadata = self._normalize_sentence_reference(text, metadata)
+        normalized_text, metadata = self._normalize_sentence_reference_data(text, metadata)
         
         # Sostituisci "Sentenza" con "Ordinanza"
         normalized_text = normalized_text.replace("Sentenza", "Ordinanza")
@@ -736,10 +1023,10 @@ class EntityNormalizer:
         Normalizza un concetto giuridico.
         
         Args:
-            entity: Entità di tipo concetto giuridico.
-        
+            entity: Entità da normalizzare
+            
         Returns:
-            Entità normalizzata.
+            Entità normalizzata
         """
         # Copia l'entità originale
         normalized_entity = Entity(
@@ -747,19 +1034,9 @@ class EntityNormalizer:
             type=entity.type,
             start_char=entity.start_char,
             end_char=entity.end_char,
+            normalized_text=entity.text.lower().strip(),
             metadata=entity.metadata.copy() if entity.metadata else {}
         )
-        
-        # Per i concetti giuridici, la normalizzazione è più semplice
-        # Converti in minuscolo e rimuovi spazi extra
-        normalized_text = entity.text.lower().strip()
-        
-        # Aggiorna l'entità normalizzata
-        normalized_entity.normalized_text = normalized_text
-        
-        # Arricchisci con dati dal knowledge graph se disponibile
-        if self.use_knowledge_graph:
-            self._enrich_from_knowledge_graph(normalized_entity)
         
         return normalized_entity
     
@@ -774,28 +1051,42 @@ class EntityNormalizer:
             return
         
         try:
+            # Ottieni il tipo di entità
+            entity_type_name = self._get_entity_type_name(entity.type)
+            normalized_text = entity.normalized_text or entity.text
+            
             # Costruisci la query in base al tipo di entità
-            if entity.type in EntityType.get_normative_types():
+            entity_type_category = self._get_entity_category(entity_type_name)
+            
+            if entity_type_category == "normative":
                 query = """
                 MATCH (n:NormativeReference {normalized_text: $normalized_text})
                 RETURN n
                 """
-            elif entity.type in EntityType.get_jurisprudence_types():
+            elif entity_type_category == "jurisprudence":
                 query = """
                 MATCH (j:JurisprudenceReference {normalized_text: $normalized_text})
                 RETURN j
                 """
-            elif entity.type in EntityType.get_concept_types():
+            elif entity_type_category == "concepts":
                 query = """
                 MATCH (c:LegalConcept {name: $normalized_text})
                 RETURN c
                 """
             else:
-                return
+                # Per tipi di entità personalizzati
+                query = """
+                MATCH (e:Entity {type: $entity_type, normalized_text: $normalized_text})
+                RETURN e
+                """
             
             # Esegui la query
             with self.neo4j_driver.session() as session:
-                result = session.run(query, normalized_text=entity.normalized_text)
+                result = session.run(
+                    query, 
+                    normalized_text=normalized_text, 
+                    entity_type=entity_type_name
+                )
                 record = result.single()
                 
                 if record:
@@ -804,15 +1095,41 @@ class EntityNormalizer:
                     
                     # Aggiorna i metadati dell'entità con i dati dal knowledge graph
                     for key, value in node.items():
-                        if key != "normalized_text" and key != "name":
+                        if key != "normalized_text" and key != "name" and key != "type":
                             entity.metadata[f"kg_{key}"] = value
                     
-                    logger.debug(f"Entità arricchita con dati dal knowledge graph: {entity.normalized_text}")
+                    logger.debug(f"Entità arricchita con dati dal knowledge graph: {normalized_text}")
         
         except Exception as e:
             logger.error(f"Errore nell'arricchimento dell'entità dal knowledge graph: {e}")
     
-    def create_structured_references(self, entities: List[Entity]) -> Dict[str, List[Union[NormativeReference, JurisprudenceReference, LegalConcept]]]:
+    def _get_entity_category(self, entity_type_name: str) -> str:
+        """
+        Determina la categoria di un tipo di entità.
+        
+        Args:
+            entity_type_name: Nome del tipo di entità
+            
+        Returns:
+            Categoria dell'entità
+        """
+        # Se c'è un entity manager, usa quello per determinare la categoria
+        if self.entity_manager:
+            entity_type = self.entity_manager.get_entity_type(entity_type_name)
+            if entity_type:
+                return entity_type.get("category", "custom")
+        
+        # Altrimenti, cerca di determinare la categoria dal nome
+        if "ARTICOLO" in entity_type_name or "LEGGE" in entity_type_name or "DECRETO" in entity_type_name or "REGOLAMENTO" in entity_type_name:
+            return "normative"
+        elif "SENTENZA" in entity_type_name or "ORDINANZA" in entity_type_name:
+            return "jurisprudence"
+        elif "CONCETTO" in entity_type_name:
+            return "concepts"
+        else:
+            return "custom"
+    
+    def create_structured_references(self, entities: List[Entity]) -> Dict[str, List[Any]]:
         """
         Crea riferimenti strutturati dalle entità normalizzate.
         
@@ -820,30 +1137,38 @@ class EntityNormalizer:
             entities: Lista di entità normalizzate.
         
         Returns:
-            Dizionario di riferimenti strutturati per tipo.
+            Dizionario di riferimenti strutturati per categoria.
         """
         structured_references = {
             "normative": [],
             "jurisprudence": [],
-            "concepts": []
+            "concepts": [],
+            "custom": []
         }
         
         for entity in entities:
-            if entity.type in EntityType.get_normative_types():
-                normative_ref = self._create_normative_reference(entity)
-                structured_references["normative"].append(normative_ref)
+            # Ottieni il tipo di entità e la sua categoria
+            entity_type_name = self._get_entity_type_name(entity.type)
+            entity_category = self._get_entity_category(entity_type_name)
             
-            elif entity.type in EntityType.get_jurisprudence_types():
-                jurisprudence_ref = self._create_jurisprudence_reference(entity)
-                structured_references["jurisprudence"].append(jurisprudence_ref)
-            
-            elif entity.type in EntityType.get_concept_types():
-                concept = self._create_legal_concept(entity)
-                structured_references["concepts"].append(concept)
+            # Crea il riferimento strutturato in base alla categoria
+            if entity_category == "normative":
+                reference = self._create_normative_reference(entity)
+                structured_references["normative"].append(reference)
+            elif entity_category == "jurisprudence":
+                reference = self._create_jurisprudence_reference(entity)
+                structured_references["jurisprudence"].append(reference)
+            elif entity_category == "concepts":
+                reference = self._create_legal_concept(entity)
+                structured_references["concepts"].append(reference)
+            else:
+                # Per tipi di entità personalizzati
+                reference = entity.to_dict()
+                structured_references["custom"].append(reference)
         
         return structured_references
     
-    def _create_normative_reference(self, entity: Entity) -> NormativeReference:
+    def _create_normative_reference(self, entity: Entity) -> Union[NormativeReference, Dict[str, Any]]:
         """
         Crea un riferimento normativo strutturato da un'entità.
         
@@ -854,23 +1179,34 @@ class EntityNormalizer:
             Riferimento normativo strutturato.
         """
         metadata = entity.metadata or {}
+        entity_type = entity.type
         
-        # Crea il riferimento normativo
-        normative_ref = NormativeReference(
-            type=entity.type,
-            original_text=entity.text,
-            normalized_text=entity.normalized_text or entity.text,
-            codice=metadata.get("codice"),
-            articolo=metadata.get("articolo"),
-            numero=metadata.get("numero"),
-            anno=metadata.get("anno"),
-            data=metadata.get("data"),
-            nome_comune=metadata.get("nome_comune")
-        )
-        
-        return normative_ref
+        # Se NormativeReference è disponibile, usalo
+        if 'NormativeReference' in globals():
+            # Crea il riferimento normativo
+            normative_ref = NormativeReference(
+                type=entity_type,
+                original_text=entity.text,
+                normalized_text=entity.normalized_text or entity.text,
+                codice=metadata.get("codice"),
+                articolo=metadata.get("articolo"),
+                numero=metadata.get("numero"),
+                anno=metadata.get("anno"),
+                data=metadata.get("data"),
+                nome_comune=metadata.get("nome_comune")
+            )
+            
+            return normative_ref
+        else:
+            # Altrimenti, crea un dizionario
+            return {
+                "type": self._get_entity_type_name(entity_type),
+                "original_text": entity.text,
+                "normalized_text": entity.normalized_text or entity.text,
+                **{k: v for k, v in metadata.items() if k not in ["subtype", "groups", "pattern"]}
+            }
     
-    def _create_jurisprudence_reference(self, entity: Entity) -> JurisprudenceReference:
+    def _create_jurisprudence_reference(self, entity: Entity) -> Union[JurisprudenceReference, Dict[str, Any]]:
         """
         Crea un riferimento giurisprudenziale strutturato da un'entità.
         
@@ -881,22 +1217,33 @@ class EntityNormalizer:
             Riferimento giurisprudenziale strutturato.
         """
         metadata = entity.metadata or {}
+        entity_type = entity.type
         
-        # Crea il riferimento giurisprudenziale
-        jurisprudence_ref = JurisprudenceReference(
-            type=entity.type,
-            original_text=entity.text,
-            normalized_text=entity.normalized_text or entity.text,
-            autorità=metadata.get("autorità"),
-            sezione=metadata.get("sezione"),
-            numero=metadata.get("numero"),
-            anno=metadata.get("anno"),
-            data=metadata.get("data")
-        )
-        
-        return jurisprudence_ref
+        # Se JurisprudenceReference è disponibile, usalo
+        if 'JurisprudenceReference' in globals():
+            # Crea il riferimento giurisprudenziale
+            jurisprudence_ref = JurisprudenceReference(
+                type=entity_type,
+                original_text=entity.text,
+                normalized_text=entity.normalized_text or entity.text,
+                autorità=metadata.get("autorità"),
+                sezione=metadata.get("sezione"),
+                numero=metadata.get("numero"),
+                anno=metadata.get("anno"),
+                data=metadata.get("data")
+            )
+            
+            return jurisprudence_ref
+        else:
+            # Altrimenti, crea un dizionario
+            return {
+                "type": self._get_entity_type_name(entity_type),
+                "original_text": entity.text,
+                "normalized_text": entity.normalized_text or entity.text,
+                **{k: v for k, v in metadata.items() if k not in ["subtype", "groups", "pattern"]}
+            }
     
-    def _create_legal_concept(self, entity: Entity) -> LegalConcept:
+    def _create_legal_concept(self, entity: Entity) -> Union[LegalConcept, Dict[str, Any]]:
         """
         Crea un concetto giuridico strutturato da un'entità.
         
@@ -908,13 +1255,25 @@ class EntityNormalizer:
         """
         metadata = entity.metadata or {}
         
-        # Crea il concetto giuridico
-        concept = LegalConcept(
-            original_text=entity.text,
-            normalized_text=entity.normalized_text or entity.text,
-            categoria=metadata.get("kg_categoria"),
-            definizione=metadata.get("kg_definizione"),
-            riferimenti_correlati=metadata.get("kg_riferimenti_correlati", [])
-        )
-        
-        return concept
+        # Se LegalConcept è disponibile, usalo
+        if 'LegalConcept' in globals():
+            # Crea il concetto giuridico
+            concept = LegalConcept(
+                original_text=entity.text,
+                normalized_text=entity.normalized_text or entity.text,
+                categoria=metadata.get("kg_categoria") or metadata.get("categoria"),
+                definizione=metadata.get("kg_definizione") or metadata.get("definizione"),
+                riferimenti_correlati=metadata.get("kg_riferimenti_correlati") or metadata.get("riferimenti_correlati", [])
+            )
+            
+            return concept
+        else:
+            # Altrimenti, crea un dizionario
+            return {
+                "type": self._get_entity_type_name(entity.type),
+                "original_text": entity.text,
+                "normalized_text": entity.normalized_text or entity.text,
+                "categoria": metadata.get("kg_categoria") or metadata.get("categoria"),
+                "definizione": metadata.get("kg_definizione") or metadata.get("definizione"),
+                "riferimenti_correlati": metadata.get("kg_riferimenti_correlati") or metadata.get("riferimenti_correlati", [])
+            }

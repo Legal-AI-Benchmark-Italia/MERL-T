@@ -1,4 +1,6 @@
 *.pdf
+*.jar
+ner_giuridico*
 *.json
 .venv
 *.csv

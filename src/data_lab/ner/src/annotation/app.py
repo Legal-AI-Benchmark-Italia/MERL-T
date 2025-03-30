@@ -2,24 +2,145 @@
 import os
 import json
 import sys
+import importlib
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from werkzeug.utils import secure_filename
 
-# Aggiungi il percorso del progetto al path di Python
-project_root = Path(__file__).resolve().parent.parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# Print current Python path for debugging
+print("\nCurrent sys.path:")
+for p in sys.path:
+    print(f"  - {p}")
 
-try:
-    # Importa i moduli del sistema NER
-    from src.entities.entity_manager import get_entity_manager
-    from src.ner import DynamicNERGiuridico
+# Find the project structure by trying to locate key files
+def find_module_paths():
+    # Start with the current file's directory
+    current_dir = Path(__file__).resolve().parent
     
-    # Inizializza il gestore delle entità
+    # Print debug info
+    print(f"\nCurrent directory: {current_dir}")
+    
+    # Try to find project structure by looking for key directories
+    possible_project_roots = []
+    
+    # Walk up the directory tree looking for possible project roots
+    dir_to_check = current_dir
+    for _ in range(10):  # Limit to 10 levels up to avoid infinite loops
+        # Check if this could be a project root
+        if (dir_to_check / "src").exists() or (dir_to_check / "ner").exists():
+            possible_project_roots.append(dir_to_check)
+        
+        # Move up one directory
+        parent = dir_to_check.parent
+        if parent == dir_to_check:  # Reached the filesystem root
+            break
+        dir_to_check = parent
+    
+    # Print possible project roots for debugging
+    print("\nPossible project roots found:")
+    for root in possible_project_roots:
+        print(f"  - {root}")
+    
+    return possible_project_roots
+
+# Try to import the NER components dynamically
+def import_ner_modules():
+    possible_paths = find_module_paths()
+    
+    # Add each possible path to sys.path
+    for path in possible_paths:
+        sys.path.insert(0, str(path))
+    
+    # Try importing from various possible module paths
+    possible_import_paths = [
+        # Direct imports
+        ("ner", "DynamicNERGiuridico"),
+        ("entities.entity_manager", "get_entity_manager"),
+        
+        # With src prefix
+        ("src.ner", "DynamicNERGiuridico"),
+        ("src.entities.entity_manager", "get_entity_manager"),
+        
+        # With data_lab prefix
+        ("data_lab.ner.src.ner", "DynamicNERGiuridico"),
+        ("data_lab.ner.src.entities.entity_manager", "get_entity_manager"),
+        
+        # Other possibilities
+        ("src.data_lab.ner.src.ner", "DynamicNERGiuridico"),
+        ("src.data_lab.ner.src.entities.entity_manager", "get_entity_manager"),
+    ]
+    
+    # Try each import path
+    imported_modules = {}
+    
+    for module_path, obj_name in possible_import_paths:
+        try:
+            module = importlib.import_module(module_path)
+            if hasattr(module, obj_name):
+                imported_modules[obj_name] = getattr(module, obj_name)
+                print(f"Successfully imported {obj_name} from {module_path}")
+        except ImportError as e:
+            print(f"Could not import {obj_name} from {module_path}: {e}")
+        except Exception as e:
+            print(f"Error importing {obj_name} from {module_path}: {e}")
+    
+    return imported_modules
+
+# Try to import the NER components
+imported_modules = import_ner_modules()
+
+# Extract the imported modules
+DynamicNERGiuridico = imported_modules.get("DynamicNERGiuridico")
+get_entity_manager = imported_modules.get("get_entity_manager")
+
+# Check if we have successfully imported the modules
+if DynamicNERGiuridico is None or get_entity_manager is None:
+    print("\nCould not import NER components, using default entity types")
+    
+    # Define fallback entity types
+    ENTITY_TYPES = [
+        {"id": "ARTICOLO_CODICE", "name": "Articolo di Codice", "color": "#FFA39E"},
+        {"id": "LEGGE", "name": "Legge", "color": "#D4380D"},
+        {"id": "DECRETO", "name": "Decreto", "color": "#FFC069"},
+        {"id": "REGOLAMENTO_UE", "name": "Regolamento UE", "color": "#AD8B00"},
+        {"id": "SENTENZA", "name": "Sentenza", "color": "#D3F261"},
+        {"id": "ORDINANZA", "name": "Ordinanza", "color": "#389E0D"},
+        {"id": "CONCETTO_GIURIDICO", "name": "Concetto Giuridico", "color": "#5CDBD3"}
+    ]
+    
+    # Define dummy classes for graceful degradation
+    class DummyEntityManager:
+        def get_entity_type(self, name):
+            for entity in ENTITY_TYPES:
+                if entity["id"] == name:
+                    return entity
+            return None
+            
+        def get_all_entity_types(self):
+            return {entity["id"]: {"display_name": entity["name"], "color": entity["color"]} 
+                    for entity in ENTITY_TYPES}
+            
+        def entity_type_exists(self, name):
+            return any(entity["id"] == name for entity in ENTITY_TYPES)
+    
+    class DummyNER:
+        def process(self, text):
+            return {"entities": []}
+    
+    # Replace with dummy implementations
+    if DynamicNERGiuridico is None:
+        DynamicNERGiuridico = DummyNER
+    if get_entity_manager is None:
+        _dummy_entity_manager = DummyEntityManager()
+        get_entity_manager = lambda: _dummy_entity_manager
+else:
+    print("\nSuccessfully imported NER components")
+
+# Try to initialize the entity manager
+try:
     entity_manager = get_entity_manager()
     
-    # Ottieni i tipi di entità dal gestore dinamico
+    # Get entity types from the manager
     ENTITY_TYPES = []
     for name, info in entity_manager.get_all_entity_types().items():
         ENTITY_TYPES.append({
@@ -28,10 +149,11 @@ try:
             "color": info.get("color", "#CCCCCC")
         })
     
-    print("Integrazione con il sistema NER completata con successo")
+    print(f"\nLoaded {len(ENTITY_TYPES)} entity types from the entity manager")
 except Exception as e:
-    print(f"Errore nell'integrazione con il sistema NER: {e}")
-    # Fallback ai tipi di entità predefiniti
+    print(f"\nError initializing entity manager: {e}")
+    print("Using default entity types")
+    # Fallback to default entity types
     ENTITY_TYPES = [
         {"id": "ARTICOLO_CODICE", "name": "Articolo di Codice", "color": "#FFA39E"},
         {"id": "LEGGE", "name": "Legge", "color": "#D4380D"},
@@ -46,8 +168,9 @@ app = Flask(__name__,
             template_folder='templates',
             static_folder='static')
 
-# Configurazione
+# Configuration
 DATA_DIR = 'data'
+os.makedirs(DATA_DIR, exist_ok=True)
 
 def load_documents():
     documents = []
@@ -57,7 +180,7 @@ def load_documents():
             with open(documents_file, 'r', encoding='utf-8') as f:
                 documents = json.load(f)
     except Exception as e:
-        print(f"Errore nel caricamento dei documenti: {e}")
+        print(f"Error loading documents: {e}")
     return documents
 
 def save_documents(documents):
@@ -66,7 +189,7 @@ def save_documents(documents):
         with open(documents_file, 'w', encoding='utf-8') as f:
             json.dump(documents, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"Errore nel salvataggio dei documenti: {e}")
+        print(f"Error saving documents: {e}")
 
 def load_annotations():
     annotations = {}
@@ -76,7 +199,7 @@ def load_annotations():
             with open(annotations_file, 'r', encoding='utf-8') as f:
                 annotations = json.load(f)
     except Exception as e:
-        print(f"Errore nel caricamento delle annotazioni: {e}")
+        print(f"Error loading annotations: {e}")
     return annotations
 
 def save_annotations(annotations):
@@ -85,47 +208,7 @@ def save_annotations(annotations):
         with open(annotations_file, 'w', encoding='utf-8') as f:
             json.dump(annotations, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"Errore nel salvataggio delle annotazioni: {e}")
-
-def convert_annotations_to_ner_format(annotations, documents):
-    """
-    Converte le annotazioni dal formato del labeler al formato utilizzato dal sistema NER.
-    
-    Args:
-        annotations: Annotazioni nel formato del labeler.
-        documents: Documenti annotati.
-        
-    Returns:
-        Dati nel formato utilizzato dal sistema NER.
-    """
-    ner_data = []
-    
-    for doc_id, doc_annotations in annotations.items():
-        # Trova il documento corrispondente
-        document = None
-        for doc in documents:
-            if doc['id'] == doc_id:
-                document = doc
-                break
-        
-        if document:
-            text = document['text']
-            entities = []
-            
-            for ann in doc_annotations:
-                entities.append({
-                    "text": ann['text'],
-                    "type": ann['type'],
-                    "start_char": ann['start'],
-                    "end_char": ann['end']
-                })
-            
-            ner_data.append({
-                "text": text,
-                "entities": entities
-            })
-    
-    return ner_data
+        print(f"Error saving annotations: {e}")
 
 @app.route('/')
 def index():
@@ -160,23 +243,23 @@ def save_annotation():
     annotation = data.get('annotation')
     
     if not doc_id or not annotation:
-        return jsonify({"status": "error", "message": "Dati mancanti"}), 400
+        return jsonify({"status": "error", "message": "Missing data"}), 400
     
     annotations = load_annotations()
     
     if doc_id not in annotations:
         annotations[doc_id] = []
     
-    # Aggiungi o aggiorna l'annotazione
+    # Add or update the annotation
     annotation_id = annotation.get('id')
     if annotation_id:
-        # Aggiorna un'annotazione esistente
+        # Update an existing annotation
         for i, ann in enumerate(annotations[doc_id]):
             if ann.get('id') == annotation_id:
                 annotations[doc_id][i] = annotation
                 break
     else:
-        # Aggiungi una nuova annotazione
+        # Add a new annotation
         annotation['id'] = f"ann_{len(annotations[doc_id]) + 1}"
         annotations[doc_id].append(annotation)
     
@@ -191,7 +274,7 @@ def delete_annotation():
     annotation_id = data.get('annotation_id')
     
     if not doc_id or not annotation_id:
-        return jsonify({"status": "error", "message": "Dati mancanti"}), 400
+        return jsonify({"status": "error", "message": "Missing data"}), 400
     
     annotations = load_annotations()
     
@@ -204,12 +287,12 @@ def delete_annotation():
 @app.route('/api/upload_document', methods=['POST'])
 def upload_document():
     if 'file' not in request.files:
-        return jsonify({"status": "error", "message": "Nessun file caricato"}), 400
+        return jsonify({"status": "error", "message": "No file uploaded"}), 400
     
     file = request.files['file']
     
     if file.filename == '':
-        return jsonify({"status": "error", "message": "Nessun file selezionato"}), 400
+        return jsonify({"status": "error", "message": "No file selected"}), 400
     
     if file:
         filename = secure_filename(file.filename)
@@ -217,7 +300,7 @@ def upload_document():
         
         documents = load_documents()
         
-        # Crea un nuovo documento
+        # Create a new document
         doc_id = f"doc_{len(documents) + 1}"
         document = {
             "id": doc_id,
@@ -238,10 +321,10 @@ def export_annotations():
     documents = load_documents()
     
     if format_type == 'spacy':
-        # Converti in formato spaCy
+        # Convert to spaCy format
         spacy_data = []
         for doc_id, doc_annotations in annotations.items():
-            # Trova il documento corrispondente
+            # Find the corresponding document
             document = None
             for doc in documents:
                 if doc['id'] == doc_id:
@@ -263,35 +346,32 @@ def export_annotations():
                     "entities": entities
                 })
         
-        # Salva i dati in un file
+        # Save the data to a file
         output_file = os.path.join(DATA_DIR, 'spacy_annotations.json')
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(spacy_data, f, indent=2, ensure_ascii=False)
             
         return jsonify({"status": "success", "file": output_file, "data": spacy_data})
     else:
-        # Formato JSON predefinito
+        # Default JSON format
         return jsonify(annotations)
 
 @app.route('/api/recognize', methods=['POST'])
 def recognize_entities():
-    """
-    Endpoint per riconoscere entità in un testo utilizzando il sistema NER-Giuridico.
-    """
     data = request.json
     text = data.get('text')
     
     if not text:
-        return jsonify({"status": "error", "message": "Testo mancante"}), 400
+        return jsonify({"status": "error", "message": "Missing text"}), 400
     
     try:
-        # Inizializza il sistema NER
+        # Initialize NER system
         ner = DynamicNERGiuridico()
         
-        # Riconosci le entità
+        # Recognize entities
         result = ner.process(text)
         
-        # Converti le entità nel formato del labeler
+        # Convert entities to labeler format
         entities = []
         for entity in result.get("entities", []):
             entities.append({
@@ -303,43 +383,65 @@ def recognize_entities():
         
         return jsonify({"status": "success", "entities": entities})
     except Exception as e:
-        print(f"Errore nel riconoscimento delle entità: {e}")
-        return jsonify({"status": "error", "message": f"Errore nel riconoscimento delle entità: {str(e)}"}), 500
+        print(f"Error recognizing entities: {e}")
+        return jsonify({"status": "error", "message": f"Error recognizing entities: {str(e)}"}), 500
 
 @app.route('/api/train_model', methods=['POST'])
 def train_model():
-    """
-    Endpoint per addestrare il modello NER con le annotazioni correnti.
-    """
     try:
-        # Esporta le annotazioni in formato compatibile con il sistema NER
+        # Export annotations in a format compatible with the NER system
         annotations = load_annotations()
         documents = load_documents()
         
-        ner_data = convert_annotations_to_ner_format(annotations, documents)
+        # Create spaCy format data
+        ner_data = []
+        for doc_id, doc_annotations in annotations.items():
+            # Find the corresponding document
+            document = None
+            for doc in documents:
+                if doc['id'] == doc_id:
+                    document = doc
+                    break
+            
+            if document:
+                text = document['text']
+                entities = []
+                
+                for ann in doc_annotations:
+                    entities.append({
+                        "text": ann['text'],
+                        "type": ann['type'],
+                        "start_char": ann['start'],
+                        "end_char": ann['end']
+                    })
+                
+                ner_data.append({
+                    "text": text,
+                    "entities": entities
+                })
         
-        # Salva i dati in un file
+        # Save the data to a file
         output_file = os.path.join(DATA_DIR, 'ner_training_data.json')
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(ner_data, f, indent=2, ensure_ascii=False)
         
-        # Qui dovrebbe essere implementata la chiamata al metodo di addestramento
-        # del sistema NER con i dati salvati
+        # Here you would implement a call to the training method
+        # of the NER system with the saved data
         
         return jsonify({
             "status": "success", 
-            "message": "Dati di addestramento esportati con successo",
+            "message": "Training data exported successfully",
             "file": output_file
         })
     except Exception as e:
-        print(f"Errore nell'esportazione dei dati di addestramento: {e}")
-        return jsonify({"status": "error", "message": f"Errore: {str(e)}"}), 500
+        print(f"Error exporting training data: {e}")
+        return jsonify({"status": "error", "message": f"Error: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    # Assicurati che la directory dei dati esista
+    # Make sure the data directory exists
     os.makedirs(DATA_DIR, exist_ok=True)
     
-    # Crea file vuoti se non esistono
+    # Create empty files if they don't exist
     if not os.path.exists(os.path.join(DATA_DIR, 'documents.json')):
         with open(os.path.join(DATA_DIR, 'documents.json'), 'w', encoding='utf-8') as f:
             json.dump([], f)
@@ -347,5 +449,9 @@ if __name__ == '__main__':
     if not os.path.exists(os.path.join(DATA_DIR, 'annotations.json')):
         with open(os.path.join(DATA_DIR, 'annotations.json'), 'w', encoding='utf-8') as f:
             json.dump({}, f)
+    
+    # Print a confirmation that we're ready to start
+    print("\nAnnotation interface initialized and ready to start")
+    print(f"Using entity types: {', '.join(entity['id'] for entity in ENTITY_TYPES)}")
     
     app.run(host='0.0.0.0', port=8080, debug=True)

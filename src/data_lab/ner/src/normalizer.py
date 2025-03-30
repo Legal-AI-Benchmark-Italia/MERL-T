@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Union, Tuple
 
 from .config import config
-from .entities import (
+from .entities.entities import (
     Entity, EntityType, NormativeReference, 
     JurisprudenceReference, LegalConcept
 )

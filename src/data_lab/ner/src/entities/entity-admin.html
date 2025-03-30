@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MERL-T NER - Gestione Entità</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+  <style>
+    .entity-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      color: white;
+      margin-right: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .color-preview {
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 0.25rem;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+    
+    .modal {
+      transition: opacity 0.25s ease;
+    }
+    
+    .modal-backdrop {
+      background-color: rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div class="container mx-auto px-4 py-8">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold text-gray-800">MERL-T NER - Gestione Entità</h1>
+      <p class="text-gray-600">Aggiungi, modifica e gestisci le entità utilizzate nel sistema NER</p>
+    </header>
+    
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold">Entità Disponibili</h2>
+        <div class="flex items-center">
+          <label for="category-filter" class="mr-2">Filtra per categoria:</label>
+          <select id="category-filter" class="border rounded px-2 py-1">
+            <option value="all">Tutte le categorie</option>
+            <option value="normative">Riferimenti normativi</option>
+            <option value="jurisprudence">Riferimenti giurisprudenziali</option>
+            <option value="concepts">Concetti giuridici</option>
+            <option value="custom">Entità personalizzate</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead>
+            <tr>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nome Visualizzato</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Colore</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campi Metadati</th>
+              <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Azioni</th>
+            </tr>
+          </thead>
+          <tbody id="entities-list" class="divide-y divide-gray-200">
+            <!-- I dati verranno caricati dinamicamente qui -->
+            <tr>
+              <td colspan="6" class="px-4 py-4 text-center text-gray-500">Caricamento entità...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow p-6 mb-8">
+      <h2 class="text-xl font-semibold mb-4">Crea Nuova Entità</h2>
+      
+      <form id="create-entity-form" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="entity-name" class="block text-sm font-medium text-gray-700">Nome (maiuscolo, senza spazi)</label>
+            <input type="text" id="entity-name" name="name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="ES: NUOVO_TIPO_ENTITA" required>
+            <p class="mt-1 text-xs text-gray-500">Il nome deve essere in maiuscolo e può contenere solo lettere, numeri e underscore.</p>
+          </div>
+          
+          <div>
+            <label for="entity-display-name" class="block text-sm font-medium text-gray-700">Nome Visualizzato</label>
+            <input type="text" id="entity-display-name" name="display_name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Es: Nuovo Tipo Entità" required>
+          </div>
+          
+          <div>
+            <label for="entity-category" class="block text-sm font-medium text-gray-700">Categoria</label>
+            <select id="entity-category" name="category" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+              <option value="normative">Riferimenti normativi</option>
+              <option value="jurisprudence">Riferimenti giurisprudenziali</option>
+              <option value="concepts">Concetti giuridici</option>
+              <option value="custom" selected>Entità personalizzate</option>
+            </select>
+          </div>
+          
+          <div>
+            <label for="entity-color" class="block text-sm font-medium text-gray-700">Colore</label>
+            <div class="mt-1 flex items-center">
+              <input type="color" id="entity-color" name="color" value="#CCCCCC" class="h-8 w-8 border border-gray-300 rounded">
+              <span id="color-hex" class="ml-2 text-sm text-gray-500">#CCCCCC</span>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h3 class="text-lg font-medium text-gray-700 mb-2">Campi Metadati</h3>
+          <p class="text-sm text-gray-500 mb-2">Definisci i campi metadati associati a questa entità.</p>
+          
+          <div id="metadata-fields" class="space-y-2">
+            <!-- I campi metadati verranno aggiunti qui dinamicamente -->
+          </div>
+          
+          <button type="button" id="add-metadata-field" class="mt-2 inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+            + Aggiungi Campo
+          </button>
+        </div>
+        
+        <div>
+          <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            Crea Entità
+          </button>
+        </div>
+      </form>
+    </div>
+    
+    <div class="bg-white rounded-lg shadow p-6">
+      <h2 class="text-xl font-semibold mb-4">Test Entità</h2>
+      
+      <form id="test-entity-form" class="space-y-4">
+        <div>
+          <label for="test-entity-type" class="block text-sm font-medium text-gray-700">Tipo di Entità da Testare</label>
+          <select id="test-entity-type" name="entity_type" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            <!-- Le opzioni verranno caricate dinamicamente -->
+            <option value="" disabled selected>Seleziona un tipo di entità</option>
+          </select>
+        </div>
+        
+        <div>
+          <label for="test-text" class="block text-sm font-medium text-gray-700">Testo di Prova</label>
+          <textarea id="test-text" name="text" rows="5" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="Inserisci un testo per testare il riconoscimento dell'entità selezionata"></textarea>
+        </div>
+        
+        <div>
+          <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            Testa Riconoscimento
+          </button>
+        </div>
+      </form>
+      
+      <div id="test-results" class="mt-4 hidden">
+        <h3 class="text-lg font-medium text-gray-700 mb-2">Risultati</h3>
+        <div id="test-results-content" class="border rounded-md p-4 bg-gray-50"></div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Modal di modifica -->
+  <div id="edit-modal" class="modal fixed inset-0 z-50 hidden">
+    <div class="modal-backdrop fixed inset-0"></div>
+    <div class="fixed inset-0 flex items-center justify-center">
+      <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-screen overflow-y-auto">
+        <div class="px-6 py-4 border-b border-gray-200">
+          <h3 class="text-lg font-medium text-gray-900" id="edit-modal-title">Modifica Entità</h3>
+        </div>
+        
+        <form id="edit-entity-form">
+          <input type="hidden" id="edit-entity-name">
+          
+          <div class="px-6 py-4 space-y-4">
+            <div>
+              <label for="edit-entity-display-name" class="block text-sm font-medium text-gray-700">Nome Visualizzato</label>
+              <input type="text" id="edit-entity-display-name" name="display_name" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" required>
+            </div>
+            
+            <div>
+              <label for="edit-entity-color" class="block text-sm font-medium text-gray-700">Colore</label>
+              <div class="mt-1 flex items-center">
+                <input type="color" id="edit-entity-color" name="color" class="h-8 w-8 border border-gray-300 rounded">
+                <span id="edit-color-hex" class="ml-2 text-sm text-gray-500"></span>
+              </div>
+            </div>
+            
+            <div>
+              <h3 class="text-lg font-medium text-gray-700 mb-2">Campi Metadati</h3>
+              
+              <div id="edit-metadata-fields" class="space-y-2">
+                <!-- I campi metadati verranno aggiunti qui dinamicamente -->
+              </div>
+              
+              <button type="button" id="edit-add-metadata-field" class="mt-2 inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                + Aggiungi Campo
+              </button>
+            </div>
+          </div>
+          
+          <div class="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+            <button type="button" id="edit-modal-cancel" class="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
+              Annulla
+            </button>
+            <button type="submit" class="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+              Aggiorna
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Toast di notifica -->
+  <div id="toast" class="fixed bottom-4 right-4 px-4 py-2 rounded-md font-medium text-white transform translate-y-full opacity-0 transition-all duration-300"></div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Elementi del DOM
+      const entitiesList = document.getElementById('entities-list');
+      const categoryFilter = document.getElementById('category-filter');
+      const createEntityForm = document.getElementById('create-entity-form');
+      const entityColor = document.getElementById('entity-color');
+      const colorHex = document.getElementById('color-hex');
+      const addMetadataFieldBtn = document.getElementById('add-metadata-field');
+      const metadataFields = document.getElementById('metadata-fields');
+      
+      const editModal = document.getElementById('edit-modal');
+      const editEntityForm = document.getElementById('edit-entity-form');
+      const editEntityName = document.getElementById('edit-entity-name');
+      const editEntityDisplayName = document.getElementById('edit-entity-display-name');
+      const editEntityColor = document.getElementById('edit-entity-color');
+      const editColorHex = document.getElementById('edit-color-hex');
+      const editMetadataFields = document.getElementById('edit-metadata-fields');
+      const editAddMetadataFieldBtn = document.getElementById('edit-add-metadata-field');
+      const editModalCancel = document.getElementById('edit-modal-cancel');
+      
+      const testEntityForm = document.getElementById('test-entity-form');
+      const testEntityType = document.getElementById('test-entity-type');
+      const testResults = document.getElementById('test-results');
+      const testResultsContent = document.getElementById('test-results-content');
+      
+      const toast = document.getElementById('toast');
+      
+      // Funzioni di utilità
+      function showToast(message, type = 'success') {
+        toast.textContent = message;
+        toast.className = 'fixed bottom-4 right-4 px-4 py-2 rounded-md font-medium text-white transform transition-all duration-300';
+        
+        if (type === 'success') {
+          toast.classList.add('bg-green-500');
+        } else if (type === 'error') {
+          toast.classList.add('bg-red-500');
+        } else if (type === 'info') {
+          toast.classList.add('bg-blue-500');
+        }
+        
+        // Mostra il toast
+        toast.classList.remove('translate-y-full', 'opacity-0');
+        
+        // Nascondi il toast dopo 3 secondi
+        setTimeout(() => {
+          toast.classList.add('translate-y-full', 'opacity-0');
+        }, 3000);
+      }
+      
+      function createMetadataFieldHTML(fieldData = {}, isEdit = false) {
+        const fieldId = Date.now() + Math.floor(Math.random() * 1000);
+        const prefix = isEdit ? 'edit-' : '';
+        
+        return `
+          <div class="metadata-field flex flex-wrap items-center space-x-2" data-id="${fieldId}">
+            <input type="text" name="${prefix}metadata-name-${fieldId}" placeholder="Nome campo" value="${fieldData.name || ''}" class="flex-1 min-w-0 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            
+            <select name="${prefix}metadata-type-${fieldId}" class="border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+              <option value="string" ${fieldData.field_type === 'string' ? 'selected' : ''}>Testo</option>
+              <option value="number" ${fieldData.field_type === 'number' ? 'selected' : ''}>Numero</option>
+              <option value="boolean" ${fieldData.field_type === 'boolean' ? 'selected' : ''}>Booleano</option>
+              <option value="date" ${fieldData.field_type === 'date' ? 'selected' : ''}>Data</option>
+            </select>
+            
+            <input type="text" name="${prefix}metadata-description-${fieldId}" placeholder="Descrizione" value="${fieldData.description || ''}" class="flex-1 min-w-0 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            
+            <label class="inline-flex items-center">
+              <input type="checkbox" name="${prefix}metadata-required-${fieldId}" ${fieldData.required ? 'checked' : ''} class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
+              <span class="ml-2 text-sm text-gray-700">Obbligatorio</span>
+            </label>
+            
+            <button type="button" class="remove-metadata-field inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+              Rimuovi
+            </button>
+          </div>
+        `;
+      }
+      
+      function getMetadataFieldsFromForm(isEdit = false) {
+        const prefix = isEdit ? 'edit-' : '';
+        const container = isEdit ? editMetadataFields : metadataFields;
+        const fields = [];
+        
+        // Per ogni campo metadati nel form
+        container.querySelectorAll('.metadata-field').forEach(field => {
+          const fieldId = field.dataset.id;
+          
+          const name = document.querySelector(`[name="${prefix}metadata-name-${fieldId}"]`).value;
+          const fieldType = document.querySelector(`[name="${prefix}metadata-type-${fieldId}"]`).value;
+          const description = document.querySelector(`[name="${prefix}metadata-description-${fieldId}"]`).value;
+          const required = document.querySelector(`[name="${prefix}metadata-required-${fieldId}"]`).checked;
+          
+          if (name) {
+            fields.push({
+              name,
+              field_type: fieldType,
+              description,
+              required
+            });
+          }
+        });
+        
+        return fields;
+      }
+      
+      // Carica le entità dal server
+      async function loadEntities() {
+        try {
+          const categoryValue = categoryFilter.value;
+          const url = categoryValue === 'all' ? '/api/v1/entities/' : `/api/v1/entities/?category=${categoryValue}`;
+          
+          const response = await fetch(url);
+          
+          if (!response.ok) {
+            throw new Error(`Errore nel caricamento delle entità: ${response.statusText}`);
+          }
+          
+          const entities = await response.json();
+          
+          // Aggiorna la tabella
+          updateEntitiesTable(entities);
+          
+          // Aggiorna il dropdown di test
+          updateTestEntityDropdown(entities);
+          
+          return entities;
+        } catch (error) {
+          console.error('Errore nel caricamento delle entità:', error);
+          showToast(`Errore nel caricamento delle entità: ${error.message}`, 'error');
+          
+          // Aggiorna la tabella con un messaggio di errore
+          entitiesList.innerHTML = `
+            <tr>
+              <td colspan="6" class="px-4 py-4 text-center text-red-500">
+                Errore nel caricamento delle entità: ${error.message}
+              </td>
+            </tr>
+          `;
+          
+          return [];
+        }
+      }
+      
+      // Aggiorna la tabella delle entità
+      function updateEntitiesTable(entities) {
+        if (!entities || entities.length === 0) {
+          entitiesList.innerHTML = `
+            <tr>
+              <td colspan="6" class="px-4 py-4 text-center text-gray-500">
+                Nessuna entità trovata.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+        
+        entitiesList.innerHTML = entities.map(entity => `
+          <tr>
+            <td class="px-4 py-4 whitespace-nowrap">
+              <span class="font-mono">${entity.name}</span>
+            </td>
+            <td class="px-4 py-4 whitespace-nowrap">${entity.display_name}</td>
+            <td class="px-4 py-4 whitespace-nowrap">${entity.category}</td>
+            <td class="px-4 py-4 whitespace-nowrap">
+              <div class="flex items-center">
+                <div class="color-preview" style="background-color: ${entity.color}"></div>
+                <span class="text-xs font-mono">${entity.color}</span>
+              </div>
+            </td>
+            <td class="px-4 py-4 whitespace-nowrap">${entity.metadata_fields.length} campi</td>
+            <td class="px-4 py-4 whitespace-nowrap text-right">
+              <button
+                data-entity="${entity.name}"
+                class="edit-entity-btn inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Modifica
+              </button>
+              ${entity.category === 'custom' ? `
+                <button
+                  data-entity="${entity.name}"
+                  class="delete-entity-btn ml-2 inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                  Elimina
+                </button>
+              ` : ''}
+            </td>
+          </tr>
+        `).join('');
+        
+        // Aggiungi gli event listener per i pulsanti di modifica ed eliminazione
+        document.querySelectorAll('.edit-entity-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const entityName = btn.dataset.entity;
+            openEditModal(entityName);
+          });
+        });
+        
+        document.querySelectorAll('.delete-entity-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const entityName = btn.dataset.entity;
+            confirmDeleteEntity(entityName);
+          });
+        });
+      }
+      
+      // Aggiorna il dropdown dei tipi di entità per il test
+      function updateTestEntityDropdown(entities) {
+        testEntityType.innerHTML = `
+          <option value="" disabled selected>Seleziona un tipo di entità</option>
+          ${entities.map(entity => `
+            <option value="${entity.name}">${entity.display_name} (${entity.name})</option>
+          `).join('')}
+        `;
+      }
+      
+      // Apre il modal di modifica per un'entità
+      async function openEditModal(entityName) {
+        try {
+          // Ottieni i dettagli dell'entità
+          const response = await fetch(`/api/v1/entities/${entityName}`);
+          
+          if (!response.ok) {
+            throw new Error(`Errore nel caricamento dell'entità: ${response.statusText}`);
+          }
+          
+          const entity = await response.json();
+          
+          // Popola il form di modifica
+          editEntityName.value = entity.name;
+          editEntityDisplayName.value = entity.display_name;
+          editEntityColor.value = entity.color;
+          editColorHex.textContent = entity.color;
+          
+          // Popola i campi metadati
+          editMetadataFields.innerHTML = '';
+          entity.metadata_fields.forEach(field => {
+            editMetadataFields.insertAdjacentHTML('beforeend', createMetadataFieldHTML(field, true));
+          });
+          
+          // Aggiungi gli event listener per i pulsanti di rimozione
+          editMetadataFields.querySelectorAll('.remove-metadata-field').forEach(btn => {
+            btn.addEventListener('click', function() {
+              this.closest('.metadata-field').remove();
+            });
+          });
+          
+          // Aggiorna il titolo del modal
+          document.getElementById('edit-modal-title').textContent = `Modifica Entità: ${entity.name}`;
+          
+          // Mostra il modal
+          editModal.classList.remove('hidden');
+        } catch (error) {
+          console.error('Errore nell\'apertura del modal di modifica:', error);
+          showToast(`Errore nell'apertura del modal di modifica: ${error.message}`, 'error');
+        }
+      }
+      
+      // Conferma l'eliminazione di un'entità
+      function confirmDeleteEntity(entityName) {
+        if (confirm(`Sei sicuro di voler eliminare l'entità "${entityName}"? Questa azione non può essere annullata.`)) {
+          deleteEntity(entityName);
+        }
+      }
+      
+      // Elimina un'entità
+      async function deleteEntity(entityName) {
+        try {
+          const response = await fetch(`/api/v1/entities/${entityName}`, {
+            method: 'DELETE'
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Errore nell'eliminazione dell'entità: ${response.statusText}`);
+          }
+          
+          // Ricarica le entità
+          await loadEntities();
+          
+          showToast(`Entità "${entityName}" eliminata con successo`, 'success');
+        } catch (error) {
+          console.error('Errore nell\'eliminazione dell\'entità:', error);
+          showToast(`Errore nell'eliminazione dell'entità: ${error.message}`, 'error');
+        }
+      }
+      
+      // Event listeners
+      
+      // Cambio del filtro categoria
+      categoryFilter.addEventListener('change', loadEntities);
+      
+      // Cambio del colore
+      entityColor.addEventListener('input', function() {
+        colorHex.textContent = this.value;
+      });
+      
+      editEntityColor.addEventListener('input', function() {
+        editColorHex.textContent = this.value;
+      });
+      
+      // Aggiungi campo metadati
+      addMetadataFieldBtn.addEventListener('click', function() {
+        metadataFields.insertAdjacentHTML('beforeend', createMetadataFieldHTML());
+        
+        // Aggiungi event listener al pulsante di rimozione
+        metadataFields.querySelector('.metadata-field:last-child .remove-metadata-field').addEventListener('click', function() {
+          this.closest('.metadata-field').remove();
+        });
+      });
+      
+      // Aggiungi campo metadati (edit)
+      editAddMetadataFieldBtn.addEventListener('click', function() {
+        editMetadataFields.insertAdjacentHTML('beforeend', createMetadataFieldHTML({}, true));
+        
+        // Aggiungi event listener al pulsante di rimozione
+        editMetadataFields.querySelector('.metadata-field:last-child .remove-metadata-field').addEventListener('click', function() {
+          this.closest('.metadata-field').remove();
+        });
+      });
+      
+      // Chiudi modal
+      editModalCancel.addEventListener('click', function() {
+        editModal.classList.add('hidden');
+      });
+      
+      // Click fuori dal modal per chiuderlo
+      editModal.querySelector('.modal-backdrop').addEventListener('click', function() {
+        editModal.classList.add('hidden');
+      });
+      
+      // Creazione di una nuova entità
+      createEntityForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        try {
+          // Raccogli i dati dal form
+          const formData = {
+            name: document.getElementById('entity-name').value,
+            display_name: document.getElementById('entity-display-name').value,
+            category: document.getElementById('entity-category').value,
+            color: document.getElementById('entity-color').value,
+            metadata_fields: getMetadataFieldsFromForm()
+          };
+          
+          // Invia la richiesta
+          const response = await fetch('/api/v1/entities/', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || `Errore nella creazione dell'entità: ${response.statusText}`);
+          }
+          
+          // Ricarica le entità
+          await loadEntities();
+          
+          // Resetta il form
+          createEntityForm.reset();
+          metadataFields.innerHTML = '';
+          colorHex.textContent = '#CCCCCC';
+          
+          showToast(`Entità "${formData.name}" creata con successo`, 'success');
+        } catch (error) {
+          console.error('Errore nella creazione dell\'entità:', error);
+          showToast(`Errore nella creazione dell'entità: ${error.message}`, 'error');
+        }
+      });
+      
+      // Aggiornamento di un'entità
+      editEntityForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const entityName = editEntityName.value;
+        
+        try {
+          // Raccogli i dati dal form
+          const formData = {
+            display_name: editEntityDisplayName.value,
+            color: editEntityColor.value,
+            metadata_fields: getMetadataFieldsFromForm(true)
+          };
+          
+          // Invia la richiesta
+          const response = await fetch(`/api/v1/entities/${entityName}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || `Errore nell'aggiornamento dell'entità: ${response.statusText}`);
+          }
+          
+          // Chiudi il modal
+          editModal.classList.add('hidden');
+          
+          // Ricarica le entità
+          await loadEntities();
+          
+          showToast(`Entità "${entityName}" aggiornata con successo`, 'success');
+        } catch (error) {
+          console.error('Errore nell\'aggiornamento dell\'entità:', error);
+          showToast(`Errore nell'aggiornamento dell'entità: ${error.message}`, 'error');
+        }
+      });
+      
+      // Test del riconoscimento di un'entità
+      testEntityForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const entityType = testEntityType.value;
+        const text = document.getElementById('test-text').value;
+        
+        if (!entityType) {
+          showToast('Seleziona un tipo di entità da testare', 'error');
+          return;
+        }
+        
+        if (!text) {
+          showToast('Inserisci un testo da analizzare', 'error');
+          return;
+        }
+        
+        try {
+          // Invia la richiesta
+          const response = await fetch('/api/v1/test-entity-recognition', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              entity_type: entityType,
+              text: text
+            })
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || `Errore nel test del riconoscimento: ${response.statusText}`);
+          }
+          
+          const result = await response.json();
+          
+          // Mostra i risultati
+          testResults.classList.remove('hidden');
+          
+          if (result.entities.length === 0) {
+            testResultsContent.innerHTML = `
+              <div class="text-yellow-600">
+                <p>Nessuna entità di tipo "${entityType}" trovata nel testo.</p>
+              </div>
+            `;
+          } else {
+            // Formatta i risultati
+            testResultsContent.innerHTML = `
+              <div class="text-green-600 mb-2">
+                <p>Trovate ${result.entities.length} entità di tipo "${entityType}":</p>
+              </div>
+              
+              <ul class="list-disc pl-5 space-y-2">
+                ${result.entities.map(entity => `
+                  <li>
+                    <strong>${entity.text}</strong>
+                    ${entity.normalized_text && entity.normalized_text !== entity.text ? 
+                      `<span class="text-gray-500"> (normalizzato: "${entity.normalized_text}")</span>` : 
+                      ''}
+                    <br>
+                    <span class="text-xs text-gray-500">
+                      Posizione: caratteri ${entity.start_char}-${entity.end_char}
+                    </span>
+                    ${entity.metadata && Object.keys(entity.metadata).length > 0 ? `
+                      <div class="mt-1 text-xs text-gray-600">
+                        <strong>Metadati:</strong>
+                        <ul class="list-disc pl-5">
+                          ${Object.entries(entity.metadata).map(([key, value]) => `
+                            <li>${key}: ${JSON.stringify(value)}</li>
+                          `).join('')}
+                        </ul>
+                      </div>
+                    ` : ''}
+                  </li>
+                `).join('')}
+              </ul>
+            `;
+          }
+        } catch (error) {
+          console.error('Errore nel test del riconoscimento:', error);
+          showToast(`Errore nel test del riconoscimento: ${error.message}`, 'error');
+          
+          // Mostra un messaggio di errore nei risultati
+          testResults.classList.remove('hidden');
+          testResultsContent.innerHTML = `
+            <div class="text-red-600">
+              <p>Errore nel test del riconoscimento: ${error.message}</p>
+            </div>
+          `;
+        }
+      });
+      
+      // Carica le entità all'avvio
+      loadEntities();
+    });

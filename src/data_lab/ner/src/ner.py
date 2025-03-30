@@ -7,7 +7,7 @@ import logging
 from typing import List, Dict, Any, Optional, Union, Tuple
 
 from .config import config
-from .entities import Entity, EntityType, NormativeReference, JurisprudenceReference, LegalConcept
+from .entities.entities import Entity, EntityType, NormativeReference, JurisprudenceReference, LegalConcept
 from .preprocessing import TextPreprocessor
 from .rule_based import RuleBasedRecognizer
 from .transformer import TransformerRecognizer

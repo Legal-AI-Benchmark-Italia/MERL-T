@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Pattern, Tuple
 
 from .config import config
-from .entities import Entity, EntityType
+from .entities.entities import Entity, EntityType
 
 logger = logging.getLogger(__name__)
 

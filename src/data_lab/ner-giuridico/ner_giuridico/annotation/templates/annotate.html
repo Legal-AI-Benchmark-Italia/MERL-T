@@ -17,6 +17,10 @@
     <main>
         <section class="document-info">
             <h2>{{ document.title }}</h2>
+            <div class="document-metadata">
+                <span>Parole: {{ document.word_count }}</span>
+                <span>Creato: {{ document.date_created.split('T')[0] if document.date_created else 'N/A' }}</span>
+            </div>
         </section>
         
         <section class="annotation-area">
@@ -34,21 +38,38 @@
                 <div class="annotation-controls">
                     <button id="clear-selection">Annulla selezione</button>
                     <button id="auto-annotate">Riconoscimento automatico</button>
+                    <div class="annotation-status" id="annotation-status"></div>
+                </div>
+                <div class="keyboard-shortcuts">
+                    <h4>Scorciatoie da tastiera</h4>
+                    <ul>
+                        <li><strong>Esc</strong>: Annulla selezione</li>
+                        <li><strong>Alt+A</strong>: Riconoscimento automatico</li>
+                    </ul>
                 </div>
             </div>
             
             <div class="text-container">
+                <div class="text-controls">
+                    <button id="zoom-in">+</button>
+                    <button id="zoom-out">-</button>
+                    <button id="reset-zoom">Reset</button>
+                </div>
                 <div id="text-content" data-doc-id="{{ document.id }}">{{ document.text }}</div>
             </div>
             
             <div class="annotations-list">
-                <h3>Annotazioni</h3>
+                <h3>Annotazioni <span id="annotation-count">({{ annotations|length }})</span></h3>
+                <div class="search-box">
+                    <input type="text" id="search-annotations" placeholder="Cerca nelle annotazioni...">
+                </div>
                 <div id="annotations-container">
                     {% for annotation in annotations %}
                         <div class="annotation-item" 
                              data-id="{{ annotation.id }}"
                              data-start="{{ annotation.start }}"
-                             data-end="{{ annotation.end }}">
+                             data-end="{{ annotation.end }}"
+                             data-type="{{ annotation.type }}">
                             <span class="annotation-text">{{ annotation.text }}</span>
                             {% for entity_type in entity_types %}
                                 {% if entity_type.id == annotation.type %}
@@ -57,7 +78,10 @@
                                     </span>
                                 {% endif %}
                             {% endfor %}
-                            <button class="delete-annotation" data-id="{{ annotation.id }}">Elimina</button>
+                            <div class="annotation-actions">
+                                <button class="jump-to-annotation" data-id="{{ annotation.id }}" title="Vai al testo">🔍</button>
+                                <button class="delete-annotation" data-id="{{ annotation.id }}" title="Elimina">🗑️</button>
+                            </div>
                         </div>
                     {% endfor %}
                 </div>
@@ -68,6 +92,8 @@
     <footer>
         <p>&copy; 2025 NER-Giuridico</p>
     </footer>
+    
+    <div id="notification" class="notification"></div>
     
     <script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
 </body>

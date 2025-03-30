@@ -9,15 +9,22 @@
 <body>
     <header>
         <h1>NER-Giuridico - Interfaccia di Annotazione</h1>
+        <nav>
+            <a href="{{ url_for('index') }}">Home</a>
+        </nav>
     </header>
     
     <main>
         <section class="upload-section">
             <h2>Carica un nuovo documento</h2>
             <form id="upload-form" enctype="multipart/form-data">
-                <input type="file" id="document-file" accept=".txt">
-                <button type="submit">Carica</button>
+                <input type="file" id="document-file" accept=".txt, .md, .html, .xml, .json, .csv">
+                <button type="submit">Carica Documento</button>
             </form>
+            <div class="file-formats">
+                <span>Formati supportati: .txt, .md, .html, .xml, .json, .csv</span>
+                <span>Dimensione massima: 10MB</span>
+            </div>
         </section>
         
         <section class="documents-section">
@@ -26,8 +33,14 @@
                 {% if documents %}
                     {% for doc in documents %}
                         <div class="document-item">
-                            <h3>{{ doc.title }}</h3>
-                            <p>{{ doc.text[:100] }}...</p>
+                            <h3 class="document-title">{{ doc.title }}</h3>
+                            <p class="document-preview">{{ doc.text[:100] }}...</p>
+                            <div class="document-metadata">
+                                <span>Parole: {{ doc.word_count }}</span>
+                                {% if doc.date_created %}
+                                <span>Creato: {{ doc.date_created.split('T')[0] }}</span>
+                                {% endif %}
+                            </div>
                             <a href="{{ url_for('annotate', doc_id=doc.id) }}" class="annotate-btn">Annota</a>
                         </div>
                     {% endfor %}
@@ -42,6 +55,16 @@
             <div class="export-buttons">
                 <button id="export-json">Esporta in JSON</button>
                 <button id="export-spacy">Esporta in formato spaCy</button>
+            </div>
+            <div class="export-info">
+                <p>
+                    <strong>Formato JSON</strong>: esporta tutte le annotazioni nel formato nativo dell'applicazione, 
+                    utile per backup e ripristino.
+                </p>
+                <p>
+                    <strong>Formato spaCy</strong>: esporta le annotazioni in un formato compatibile 
+                    con spaCy per l'addestramento di modelli NER.
+                </p>
             </div>
         </section>
     </main>

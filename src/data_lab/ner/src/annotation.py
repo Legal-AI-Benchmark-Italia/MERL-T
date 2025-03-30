@@ -25,12 +25,12 @@ class AnnotationInterface:
         self.tool = config.get("annotation.tool", "label-studio")
         self.host = config.get("annotation.host", "0.0.0.0")
         self.port = config.get("annotation.port", 8080)
-        self.data_dir = config.get("annotation.data_dir", "../data/annotation")
+        self.data_dir = config.get("annotation.data_dir", "./data/annotation")
         self.export_format = config.get("annotation.export_format", "spacy")
         self.project_name = config.get("annotation.project_name", "NER-Giuridico")
         
         # Crea la directory dei dati se non esiste
-        base_dir = Path(__file__).parent.parent
+        base_dir = Path(__file__).parent
         self.data_path = base_dir / self.data_dir
         self.data_path.mkdir(parents=True, exist_ok=True)
         
@@ -308,7 +308,8 @@ prodigy db-out {self.project_name} > {self.data_path}/annotated_data.jsonl
             # Crea il file app.py per l'interfaccia Flask
             app_path = self.data_path / "app.py"
             with open(app_path, 'w', encoding='utf-8') as f:
-                f.write("""#!/usr/bin/env python3
+                f.write(
+                    """#!/usr/bin/env python3
 import os
 import json
 from flask import Flask, render_template, request, jsonify, redirect, url_for
@@ -321,7 +322,7 @@ app = Flask(__name__,
 # Configurazione
 DATA_DIR = 'data'
 ENTITY_TYPES = [
-    {"id": "ARTICOLO_CODICE", "name": "Articolo di Codice", "color": "#FFA39E"},
+    {"id": "CODICE", "name": "Codice", "color": "#FFA39E"},
     {"id": "LEGGE", "name": "Legge", "color": "#D4380D"},
     {"id": "DECRETO", "name": "Decreto", "color": "#FFC069"},
     {"id": "REGOLAMENTO_UE", "name": "Regolamento UE", "color": "#AD8B00"},
@@ -331,7 +332,6 @@ ENTITY_TYPES = [
 ]
 
 def load_documents():
-    """Carica i documenti da annotare."""
     documents = []
     try:
         documents_file = os.path.join(DATA_DIR, 'documents.json')
@@ -343,7 +343,6 @@ def load_documents():
     return documents
 
 def save_documents(documents):
-    """Salva i documenti."""
     try:
         documents_file = os.path.join(DATA_DIR, 'documents.json')
         with open(documents_file, 'w', encoding='utf-8') as f:
@@ -352,7 +351,6 @@ def save_documents(documents):
         print(f"Errore nel salvataggio dei documenti: {e}")
 
 def load_annotations():
-    """Carica le annotazioni."""
     annotations = {}
     try:
         annotations_file = os.path.join(DATA_DIR, 'annotations.json')
@@ -364,7 +362,6 @@ def load_annotations():
     return annotations
 
 def save_annotations(annotations):
-    """Salva le annotazioni."""
     try:
         annotations_file = os.path.join(DATA_DIR, 'annotations.json')
         with open(annotations_file, 'w', encoding='utf-8') as f:
@@ -374,13 +371,11 @@ def save_annotations(annotations):
 
 @app.route('/')
 def index():
-    """Pagina principale."""
     documents = load_documents()
     return render_template('index.html', documents=documents)
 
 @app.route('/annotate/<doc_id>')
 def annotate(doc_id):
-    """Pagina di annotazione per un documento specifico."""
     documents = load_documents()
     annotations = load_annotations()
     
@@ -402,7 +397,6 @@ def annotate(doc_id):
 
 @app.route('/api/save_annotation', methods=['POST'])
 def save_annotation():
-    """API per salvare un'annotazione."""
     data = request.json
     doc_id = data.get('doc_id')
     annotation = data.get('annotation')
@@ -434,7 +428,6 @@ def save_annotation():
 
 @app.route('/api/delete_annotation', methods=['POST'])
 def delete_annotation():
-    """API per eliminare un'annotazione."""
     data = request.json
     doc_id = data.get('doc_id')
     annotation_id = data.get('annotation_id')
@@ -452,7 +445,6 @@ def delete_annotation():
 
 @app.route('/api/upload_document', methods=['POST'])
 def upload_document():
-    """API per caricare un nuovo documento."""
     if 'file' not in request.files:
         return jsonify({"status": "error", "message": "Nessun file caricato"}), 400
     
@@ -482,7 +474,6 @@ def upload_document():
 
 @app.route('/api/export_annotations', methods=['GET'])
 def export_annotations():
-    """API per esportare le annotazioni."""
     format_type = request.args.get('format', 'json')
     
     annotations = load_annotations()
@@ -533,7 +524,8 @@ if __name__ == '__main__':
             json.dump({}, f)
     
     app.run(host='0.0.0.0', port=8080, debug=True)
-""")
+    """)
+                
             
             # Crea i template HTML
             index_template = templates_dir / "index.html"

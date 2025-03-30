@@ -1,4 +1,4 @@
-# NER-Giuridico: Guida al Deployment e all'Operatività
+# MERLT-NER: Guida al Deployment e all'Operatività
 
 Questa guida fornisce istruzioni dettagliate per il deployment, la configurazione e l'utilizzo del sistema NER-Giuridico, un modulo di Named Entity Recognition specializzato per il riconoscimento di entità giuridiche in testi italiani.
 
@@ -34,23 +34,24 @@ Questa guida fornisce istruzioni dettagliate per il deployment, la configurazion
 ### Installazione da Sorgente
 
 1. Clona il repository:
+
    ```bash
    git clone https://github.com/merl-t/ner-giuridico.git
    cd ner-giuridico
    ```
-
 2. Crea un ambiente virtuale Python:
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # Su Windows: venv\Scripts\activate
    ```
-
 3. Installa le dipendenze:
+
    ```bash
    pip install -r requirements.txt
    ```
-
 4. Installa i modelli linguistici:
+
    ```bash
    python -m spacy download it_core_news_lg
    ```
@@ -58,12 +59,13 @@ Questa guida fornisce istruzioni dettagliate per il deployment, la configurazion
 ### Installazione con Docker
 
 1. Clona il repository:
+
    ```bash
    git clone https://github.com/merl-t/ner-giuridico.git
    cd ner-giuridico
    ```
-
 2. Costruisci l'immagine Docker:
+
    ```bash
    docker build -t ner-giuridico .
    ```
@@ -77,13 +79,13 @@ Il sistema NER-Giuridico utilizza un file di configurazione YAML per gestire tut
 Per modificare la configurazione di base:
 
 1. Copia il file di configurazione predefinito:
+
    ```bash
    cp config/config.yaml config/config_custom.yaml
    ```
-
 2. Modifica il file `config/config_custom.yaml` secondo le tue esigenze.
-
 3. Specifica il file di configurazione personalizzato all'avvio:
+
    ```bash
    python main.py --config config/config_custom.yaml server
    ```
@@ -192,11 +194,12 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
 ### Deployment con Docker
 
 1. Costruisci l'immagine Docker:
+
    ```bash
    docker build -t ner-giuridico .
    ```
-
 2. Avvia il container:
+
    ```bash
    docker run -d -p 8000:8000 --name ner-giuridico ner-giuridico
    ```
@@ -204,6 +207,7 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
 ### Deployment con Docker Compose
 
 1. Crea un file `docker-compose.yml`:
+
    ```yaml
    version: '3'
    services:
@@ -217,7 +221,7 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
          - ./models:/app/models
        environment:
          - LOG_LEVEL=INFO
-     
+
      neo4j:
        image: neo4j:4.4
        ports:
@@ -229,8 +233,8 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
          - ./neo4j/data:/data
          - ./neo4j/logs:/logs
    ```
-
 2. Avvia i servizi:
+
    ```bash
    docker-compose up -d
    ```
@@ -238,6 +242,7 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
 ### Deployment con Kubernetes
 
 1. Crea un file `deployment.yaml`:
+
    ```yaml
    apiVersion: apps/v1
    kind: Deployment
@@ -273,8 +278,8 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
            configMap:
              name: ner-giuridico-config
    ```
-
 2. Crea un file `service.yaml`:
+
    ```yaml
    apiVersion: v1
    kind: Service
@@ -288,8 +293,8 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
        targetPort: 8000
      type: LoadBalancer
    ```
-
 3. Applica le configurazioni:
+
    ```bash
    kubectl apply -f deployment.yaml
    kubectl apply -f service.yaml
@@ -302,6 +307,7 @@ python main.py convert --input annotations.json --output annotations.spacy --inp
 Il sistema NER-Giuridico espone metriche Prometheus sulla porta 9090 (configurabile). Per visualizzare queste metriche, puoi utilizzare Prometheus e Grafana.
 
 1. Configura Prometheus per raccogliere le metriche:
+
    ```yaml
    scrape_configs:
      - job_name: 'ner-giuridico'
@@ -309,7 +315,6 @@ Il sistema NER-Giuridico espone metriche Prometheus sulla porta 9090 (configurab
        static_configs:
          - targets: ['ner-giuridico:9090']
    ```
-
 2. Configura Grafana per visualizzare le metriche.
 
 ### Logging
@@ -452,6 +457,7 @@ Esempio di risposta:
 **Problema**: Il server API non si avvia e restituisce un errore.
 
 **Soluzione**:
+
 1. Verifica che la porta specificata non sia già in uso
 2. Controlla i log per errori specifici
 3. Verifica che tutte le dipendenze siano installate correttamente
@@ -461,6 +467,7 @@ Esempio di risposta:
 **Problema**: Il sistema va in errore di memoria quando si utilizzano modelli transformer.
 
 **Soluzione**:
+
 1. Riduci il batch size nel file di configurazione
 2. Abilita la quantizzazione del modello
 3. Utilizza un hardware con più RAM o una GPU
@@ -470,6 +477,7 @@ Esempio di risposta:
 **Problema**: Il sistema non riesce a connettersi al database Neo4j.
 
 **Soluzione**:
+
 1. Verifica che Neo4j sia in esecuzione
 2. Controlla le credenziali nel file di configurazione
 3. Verifica che il firewall non blocchi la connessione

@@ -5,7 +5,7 @@ general:
   language: "it"
   debug: false
   log_level: "INFO"
-  cache_dir: "/path/to/cache"
+  cache_dir: "/Users/guglielmo/Desktop/CODE/MERL-T/src/data/ner/cache"
 
 # Configurazione dei modelli
 models:
@@ -14,8 +14,8 @@ models:
     model_name: "dbmdz/bert-base-italian-xxl-cased"
     max_length: 512
     batch_size: 16
-    device: "cuda" # oppure "cpu"
-    quantization: false # impostare a true per ottimizzare le prestazioni su hardware limitato
+    device: "cpu" # oppure "cpu"
+    quantization: true # impostare a true per ottimizzare le prestazioni su hardware limitato
   
   # Modello SpaCy per supporto linguistico
   spacy:
@@ -24,7 +24,7 @@ models:
   
   # Modello rule-based per pattern matching
   rule_based:
-    enable: true
+    enable: false
     patterns_dir: "../data/patterns"
     use_regex: true
     use_gazetteer: true
@@ -35,10 +35,15 @@ entities:
   riferimenti_normativi:
     enabled: true
     subtypes:
-      - articoli_codice
+      - codici
       - leggi
-      - decreti
+      - decreti_legge
+      - decreti_legislativi
       - regolamenti_ue
+      - direttive_ue
+      - trattati
+      - convenzioni
+      - accordi
     patterns_file: "patterns_normativi.json"
     
   # Riferimenti giurisprudenziali
@@ -47,6 +52,8 @@ entities:
     subtypes:
       - sentenze
       - ordinanze
+      - provvedimenti
+      - decreti
     patterns_file: "patterns_giurisprudenziali.json"
     
   # Concetti giuridici
@@ -73,7 +80,7 @@ normalization:
   enable: true
   canonical_forms_file: "../data/canonical_forms.json"
   abbreviations_file: "../data/abbreviations.json"
-  use_knowledge_graph: true
+  use_knowledge_graph: false
   knowledge_graph:
     url: "bolt://localhost:7687"
     user: "neo4j"
@@ -97,7 +104,7 @@ api:
 
 # Configurazione dell'integrazione con MoE
 moe_integration:
-  enable: true
+  enable: false
   router_url: "http://localhost:8001/api/v1/route"
   authentication:
     type: "api_key"
@@ -125,4 +132,4 @@ annotation:
   port: 8080
   data_dir: "../data/annotation"
   export_format: "spacy"
-  project_name: "NER-Giuridico"
+  project_name: "MERLT-NER"

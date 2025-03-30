@@ -25,6 +25,6 @@ werkzeug>=2.3.4
 
 # Dipendenze opzionali per l'ottimizzazione
 # Decommentare se necessario
-# accelerate>=0.18.0
-# bitsandbytes>=0.38.0
-# optimum>=1.7.1
+accelerate>=0.18.0
+bitsandbytes>=0.38.0
+optimum>=1.7.1

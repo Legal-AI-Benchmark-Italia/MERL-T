@@ -33,6 +33,42 @@
                 </div>
                 <div class="annotation-controls">
                     <button id="clear-selection">Annulla selezione</button>
+                    <button id="auto-annotate">Riconoscimento automatico</button>
                 </div>
             </div>
-                <div class="annotation
+            
+            <div class="text-container">
+                <div id="text-content" data-doc-id="{{ document.id }}">{{ document.text }}</div>
+            </div>
+            
+            <div class="annotations-list">
+                <h3>Annotazioni</h3>
+                <div id="annotations-container">
+                    {% for annotation in annotations %}
+                        <div class="annotation-item" 
+                             data-id="{{ annotation.id }}"
+                             data-start="{{ annotation.start }}"
+                             data-end="{{ annotation.end }}">
+                            <span class="annotation-text">{{ annotation.text }}</span>
+                            {% for entity_type in entity_types %}
+                                {% if entity_type.id == annotation.type %}
+                                    <span class="annotation-type" style="background-color: '{{ entity_type.color }}'">
+                                        {{ entity_type.name }}
+                                    </span>
+                                {% endif %}
+                            {% endfor %}
+                            <button class="delete-annotation" data-id="{{ annotation.id }}">Elimina</button>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+    </main>
+    
+    <footer>
+        <p>&copy; 2025 NER-Giuridico</p>
+    </footer>
+    
+    <script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
+</body>
+</html>

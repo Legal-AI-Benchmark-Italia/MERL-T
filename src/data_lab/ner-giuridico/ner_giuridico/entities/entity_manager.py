@@ -129,7 +129,7 @@ class DynamicEntityManager:
             observer.entity_removed(name)
             
     def _load_default_entities(self) -> None:
-        """Carica le entità predefinite nel sistema."""
+        """Carica le entità predefinite nel sistema e le salva nel database."""
         # Entità normative
         self.add_entity_type(
             name="ARTICOLO_CODICE",
@@ -185,6 +185,9 @@ class DynamicEntityManager:
             metadata_schema={"categoria": "string", "definizione": "string"}
         )
         
+        # Force database save
+        self.save_entities_to_database()
+
     def add_entity_type(self, name: str, display_name: str, category: str, 
                         color: str, metadata_schema: Dict[str, str], patterns: List[str] = None) -> bool:
         """
@@ -572,8 +575,18 @@ class DynamicEntityManager:
         return self.update_entity_type(entity_type, patterns=patterns)
     
     def _init_database(self):
-        """Initialize SQLite database for entity persistence."""
+        """Initialize SQLite database for entity persistence and ensure tables exist."""
         try:
+            # Ensure database directory exists
+            db_dir = os.path.dirname(self.db_path)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+                self.logger.info(f"Creata directory per il database: {db_dir}")
+            
+            # Check if database exists
+            db_exists = os.path.exists(self.db_path)
+            
+            # Create/connect to database
             with self._get_db() as (conn, cursor):
                 cursor.execute("""
                 CREATE TABLE IF NOT EXISTS entities (
@@ -588,8 +601,21 @@ class DynamicEntityManager:
                 )
                 """)
                 conn.commit()
+                
+                # Check if table is empty
+                cursor.execute("SELECT COUNT(*) FROM entities")
+                count = cursor.fetchone()[0]
+                
+                if count == 0:
+                    self.logger.info("Database delle entità vuoto, caricamento delle entità predefinite...")
+                    self._load_default_entities()
+                    self.save_entities_to_database()
+                else:
+                    self.logger.info(f"Database delle entità esistente con {count} entità.")
+                    self.load_entities_from_database()
         except Exception as e:
-            self.logger.error(f"Error initializing database: {e}")
+            self.logger.error(f"Errore nell'inizializzazione del database: {e}")
+            self.logger.exception(e)
             
     @contextmanager
     def _get_db(self):
@@ -665,7 +691,7 @@ def get_entity_manager(entities_file: Optional[str] = None) -> DynamicEntityMana
         Istanza del gestore delle entità
     """
     global _entity_manager
-    if _entity_manager is None:
+    if (_entity_manager is None):
         _entity_manager = DynamicEntityManager(entities_file)
     return _entity_manager
 

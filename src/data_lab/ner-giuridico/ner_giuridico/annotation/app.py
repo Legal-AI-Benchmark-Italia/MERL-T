@@ -3,6 +3,7 @@ import importlib
 import os
 import json
 import sys
+import logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from werkzeug.utils import secure_filename
@@ -10,6 +11,13 @@ from werkzeug.utils import secure_filename
 # Import from the package
 from ner_giuridico.entities.entity_manager import get_entity_manager
 from ner_giuridico.ner import DynamicNERGiuridico
+
+# Configure specific logger
+annotation_logger = logging.getLogger("annotator")
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+annotation_logger.addHandler(handler)
+annotation_logger.setLevel(logging.DEBUG)
 
 # Print current Python path for debugging
 print("\nCurrent sys.path:")
@@ -144,6 +152,24 @@ else:
 try:
     entity_manager = get_entity_manager()
     
+    # Debug entity manager state
+    annotation_logger.debug("Entity manager inizializzato")
+    annotation_logger.debug(f"Database path: {entity_manager.db_path}")
+    
+    # Check if database exists
+    if os.path.exists(entity_manager.db_path):
+        annotation_logger.debug(f"Il database delle entità esiste: {entity_manager.db_path}")
+        # Count entities in database
+        with entity_manager._get_db() as (conn, cursor):
+            cursor.execute("SELECT COUNT(*) FROM entities")
+            count = cursor.fetchone()[0]
+            annotation_logger.debug(f"Numero di entità nel database: {count}")
+    else:
+        annotation_logger.debug(f"Il database delle entità non esiste: {entity_manager.db_path}")
+    
+    # Print default entities
+    annotation_logger.debug(f"Entità gestite: {entity_manager.entity_types.keys()}")
+    
     # Get entity types from the manager
     ENTITY_TYPES = []
     for name, info in entity_manager.get_all_entity_types().items():
@@ -153,9 +179,11 @@ try:
             "color": info.get("color", "#CCCCCC")
         })
     
-    print(f"\nLoaded {len(ENTITY_TYPES)} entity types from the entity manager")
+    annotation_logger.debug(f"Caricati {len(ENTITY_TYPES)} tipi di entità dall'entity manager")
+    
 except Exception as e:
-    print(f"\nError initializing entity manager: {e}")
+    annotation_logger.error(f"Errore nell'inizializzazione dell'entity manager: {e}")
+    annotation_logger.exception(e)
     print("Using default entity types")
     # Fallback to default entity types
     ENTITY_TYPES = [

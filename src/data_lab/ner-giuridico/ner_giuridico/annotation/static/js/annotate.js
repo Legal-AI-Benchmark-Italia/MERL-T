@@ -1,3 +1,6 @@
+// Modifica nel file ner_giuridico/annotation/static/js/annotate.js
+// Migliora la gestione della selezione del tipo di entità
+
 document.addEventListener('DOMContentLoaded', function() {
     const textContent = document.getElementById('text-content');
     const docId = textContent.dataset.docId;
@@ -8,6 +11,12 @@ document.addEventListener('DOMContentLoaded', function() {
     let selectedType = null;
     let selection = null;
     
+    // Debug
+    console.log(`Tipi di entità disponibili: ${entityTypes.length}`);
+    entityTypes.forEach(et => {
+        console.log(`Entità: ${et.textContent.trim()}, tipo: ${et.dataset.type}, colore: ${et.style.backgroundColor}`);
+    });
+    
     // Carica le annotazioni esistenti
     const existingAnnotations = [];
     document.querySelectorAll('.annotation-item').forEach(item => {
@@ -16,11 +25,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const type = item.querySelector('.annotation-type').textContent;
         existingAnnotations.push({ id, text, type });
     });
-    
-    // Evidenzia le annotazioni esistenti nel testo
-    function highlightExistingAnnotations() {
-        // Implementazione dell'evidenziazione delle annotazioni esistenti
-    }
     
     // Gestione della selezione del tipo di entità
     entityTypes.forEach(entityType => {
@@ -31,6 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Seleziona il nuovo tipo
             this.classList.add('selected');
             selectedType = this.dataset.type;
+            console.log(`Selezionato tipo: ${selectedType}`);
         });
     });
     
@@ -46,21 +51,43 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Ottieni l'intervallo di selezione
-        const range = selObj.getRangeAt(0);
-        const startOffset = range.startOffset;
-        const endOffset = range.endOffset;
-        
-        // Crea l'annotazione
-        const annotation = {
-            start: startOffset,
-            end: endOffset,
-            text: selObj.toString(),
-            type: selectedType
-        };
-        
-        // Salva l'annotazione
-        saveAnnotation(annotation);
+        try {
+            // Ottieni l'intervallo di selezione
+            const range = selObj.getRangeAt(0);
+            
+            // Calcola l'offset rispetto al testo completo
+            // Questo è più affidabile che usare range.startOffset e range.endOffset
+            // che sono relativi al nodo del DOM
+            const textNode = textContent.firstChild;
+            const fullText = textNode.textContent;
+            
+            // Ottieni il testo selezionato
+            const selectedText = selObj.toString();
+            
+            // Trova l'indice di inizio della selezione nel testo completo
+            const startOffset = fullText.indexOf(selectedText);
+            const endOffset = startOffset + selectedText.length;
+            
+            if (startOffset === -1) {
+                console.error("Non è possibile determinare la posizione della selezione nel testo");
+                return;
+            }
+            
+            // Crea l'annotazione
+            const annotation = {
+                start: startOffset,
+                end: endOffset,
+                text: selectedText,
+                type: selectedType
+            };
+            
+            console.log(`Creata annotazione: ${JSON.stringify(annotation)}`);
+            
+            // Salva l'annotazione
+            saveAnnotation(annotation);
+        } catch (e) {
+            console.error("Errore nella selezione del testo:", e);
+        }
     });
     
     // Funzione per salvare un'annotazione
@@ -114,7 +141,7 @@ document.addEventListener('DOMContentLoaded', function() {
         annotationItem.innerHTML = `
             <span class="annotation-text">${annotation.text}</span>
             <span class="annotation-type" style="background-color: ${entityColor}">
-                ${entityName}
+                ${entityName || annotation.type}
             </span>
             <button class="delete-annotation" data-id="${annotation.id}">Elimina</button>
         `;
@@ -173,4 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {
             deleteAnnotation(annotationId);
         });
     });
+    
+    // Inizializzazione: evidenzia le annotazioni esistenti
+    highlightExistingAnnotations();
 });

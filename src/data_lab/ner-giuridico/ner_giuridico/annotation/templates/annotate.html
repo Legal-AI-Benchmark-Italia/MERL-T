@@ -24,7 +24,9 @@
                 <h3>Tipi di entità</h3>
                 <div class="entity-type-list">
                     {% for entity_type in entity_types %}
-                        <div class="entity-type" data-type="{{ entity_type.id }}" style="background-color: '{{ entity_type.color }}'">
+                        <div class="entity-type" 
+                             data-type="{{ entity_type.id }}" 
+                             style="background-color: '{{ entity_type.color }}'">
                             {{ entity_type.name }}
                         </div>
                     {% endfor %}
@@ -33,36 +35,4 @@
                     <button id="clear-selection">Annulla selezione</button>
                 </div>
             </div>
-            
-            <div class="text-container">
-                <div id="text-content" data-doc-id="{{ document.id }}">{{ document.text }}</div>
-            </div>
-            
-            <div class="annotations-list">
-                <h3>Annotazioni</h3>
-                <div id="annotations-container">
-                    {% if annotations %}
-                        {% for annotation in annotations %}
-                            <div class="annotation-item" data-id="{{ annotation.id }}">
-                                <span class="annotation-text">{{ annotation.text }}</span>
-                                <span class="annotation-type" style="background-color: '{{ entity_types|selectattr('id', 'equalto', annotation.type)|map(attribute='color')|first }}'">
-                                    {{ entity_types|selectattr('id', 'equalto', annotation.type)|map(attribute='name')|first }}
-                                </span>
-                                <button class="delete-annotation" data-id="{{ annotation.id }}">Elimina</button>
-                            </div>
-                        {% endfor %}
-                    {% else %}
-                        <p>Nessuna annotazione presente.</p>
-                    {% endif %}
-                </div>
-            </div>
-        </section>
-    </main>
-    
-    <footer>
-        <p>&copy; 2025 NER-Giuridico</p>
-    </footer>
-    
-    <script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
-</body>
-</html>
+                <div class="annotation

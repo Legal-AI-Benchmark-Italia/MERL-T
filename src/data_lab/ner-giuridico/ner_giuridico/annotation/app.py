@@ -31,7 +31,7 @@ def find_module_paths():
     dir_to_check = current_dir
     for _ in range(10):  # Limit to 10 levels up to avoid infinite loops
         # Check if this could be a project root
-        if (dir_to_check / "src").exists() or (dir_to_check / "ner").exists():
+        if (dir_to_check / "ner_giuridico").exists() or (dir_to_check / "ner-giuridico").exists():
             possible_project_roots.append(dir_to_check)
         
         # Move up one directory
@@ -61,17 +61,17 @@ def import_ner_modules():
         ("ner", "DynamicNERGiuridico"),
         ("entities.entity_manager", "get_entity_manager"),
         
-        # With src prefix
-        ("src.ner", "DynamicNERGiuridico"),
-        ("src.entities.entity_manager", "get_entity_manager"),
+        # With ner_giuridico.prefix
+        ("ner_giuridico.ner", "DynamicNERGiuridico"),
+        ("ner_giuridico.entities.entity_manager", "get_entity_manager"),
         
         # With data_lab prefix
-        ("data_lab.ner.src.ner", "DynamicNERGiuridico"),
-        ("data_lab.ner.src.entities.entity_manager", "get_entity_manager"),
+        ("data_lab.ner.ner_giuridico.ner", "DynamicNERGiuridico"),
+        ("data_lab.ner.ner_giuridico.entities.entity_manager", "get_entity_manager"),
         
         # Other possibilities
-        ("src.data_lab.ner.src.ner", "DynamicNERGiuridico"),
-        ("src.data_lab.ner.src.entities.entity_manager", "get_entity_manager"),
+        ("ner_giuridico.data_lab.ner.ner_giuridico.ner", "DynamicNERGiuridico"),
+        ("ner_giuridico.data_lab.ner.ner_giuridico.entities.entity_manager", "get_entity_manager"),
     ]
     
     # Try each import path

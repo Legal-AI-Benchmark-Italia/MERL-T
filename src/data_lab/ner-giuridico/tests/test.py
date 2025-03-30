@@ -25,13 +25,13 @@ def find_project_root():
     """Trova la directory root del progetto."""
     current_dir = Path(__file__).resolve().parent
     
-    # Se siamo già nella directory src, il parent è la root
-    if current_dir.name == 'src':
+    # Se siamo già nella directory ner_giuridico. il parent è la root
+    if current_dir.name == 'ner_giuridico.:
         return current_dir.parent
     
-    # Altrimenti, cerchiamo la directory che contiene sia 'src' che 'config'
+    # Altrimenti, cerchiamo la directory che contiene sia 'ner_giuridico. che 'config'
     while current_dir != current_dir.parent:
-        if (current_dir / 'src').exists() and (current_dir / 'config').exists():
+        if (current_dir / 'ner_giuridico.).exists() and (current_dir / 'config').exists():
             return current_dir
         current_dir = current_dir.parent
     

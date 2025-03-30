@@ -12,3 +12,4 @@ raw_txt/*/*
 __pycache__
 *.jsonl
 models/transformer/*
+cache/*

@@ -5,7 +5,7 @@ general:
   language: "it"
   debug: false
   log_level: "INFO"
-  cache_dir: "/Users/guglielmo/Desktop/CODE/MERL-T/src/data/ner/cache"
+  cache_dir: "/Users/guglielmo/Desktop/CODE/MERL-T/ner_giuridico.data/ner/cache"
 
 # Configurazione dei modelli
 models:

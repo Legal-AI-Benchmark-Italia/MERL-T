@@ -679,7 +679,7 @@ async def get_annotation_config(
 async def import_annotations(annotations_file: str = Body(..., description="Path to annotations file")):
     """Import annotations for training."""
     try:
-        from src.utils.converter import convert_annotations_to_ner_format
+        from ner_giuridico.utils.converter import convert_annotations_to_ner_format
         
         # Verify file exists
         if not os.path.exists(annotations_file):
@@ -770,7 +770,7 @@ def start_server():
         logger.info(f"Server Prometheus avviato sulla porta {prometheus_port}")
     
     logger.info(f"Avvio del server API su {host}:{port} con {workers} workers")
-    uvicorn.run("src.api:app", host=host, port=port, workers=workers)
+    uvicorn.run("ner_giuridico.api:app", host=host, port=port, workers=workers)
 
 if __name__ == "__main__":
     start_server()

@@ -44,7 +44,7 @@ class DynamicEntityManager:
         self.logger = logging.getLogger("NER-Giuridico.DynamicEntityManager")
         
         # Inizializza le strutture dati
-        self.entity_types = {}  # nome -> attributi
+        self.entity_types = {}  
         self.entity_categories = {
             "normative": set(),
             "jurisprudence": set(),
@@ -55,16 +55,26 @@ class DynamicEntityManager:
         # Lista degli osservatori delle modifiche
         self.observers: List[EntityObserver] = []
         
+        # Imposta il percorso del database
+        if db_path:
+            self.db_path = db_path
+        else:
+            default_db_path = str(Path(__file__).parent.parent / "data" / "entities.db")
+            self.db_path = default_db_path
+            # Crea la directory se non esiste
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        
         # Carica le entità predefinite
         self._load_default_entities()
+        
+        # Inizializza il database
+        self._init_database()
         
         # Carica le entità dal file se specificato
         if entities_file:
             self.load_entities(entities_file)
-        
-        # Inizializza il database
-        self.db_path = db_path or str(Path(__file__).parent.parent / "data" / "entities.db")
-        self._init_database()
+            
+        # Carica le entità dal database
         self.load_entities_from_database()
             
     def add_observer(self, observer: EntityObserver) -> None:

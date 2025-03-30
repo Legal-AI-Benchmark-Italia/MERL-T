@@ -11,18 +11,33 @@
         <h1>NER-Giuridico - Gestione Tipi di Entità</h1>
         <nav>
             <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('entity_types') }}" class="active">Tipi di Entità</a>
         </nav>
     </header>
     
     <main>
         <section class="entity-types-manager">
-            <h2>Tipi di Entità</h2>
+            <div class="section-header">
+                <h2>Tipi di Entità</h2>
+                <div class="search-filter">
+                    <input type="text" id="entity-search" placeholder="Cerca tipi di entità...">
+                    <select id="category-filter">
+                        <option value="">Tutte le categorie</option>
+                        <option value="normative">Normativa</option>
+                        <option value="jurisprudence">Giurisprudenziale</option>
+                        <option value="concepts">Concetto</option>
+                        <option value="custom">Personalizzata</option>
+                    </select>
+                </div>
+            </div>
             
             <div class="entity-types-container">
                 <div class="entity-types-list">
                     <div class="entity-types-header">
                         <h3>Tipi di Entità Esistenti</h3>
-                        <button id="add-entity-type-btn" class="primary-btn">Nuovo Tipo di Entità</button>
+                        <button id="add-entity-type-btn" class="primary-btn">
+                            <span class="icon">+</span> Nuovo Tipo di Entità
+                        </button>
                     </div>
                     <div class="entity-types-table-container">
                         <table id="entity-types-table" class="data-table">
@@ -39,11 +54,23 @@
                                 <!-- I tipi di entità saranno inseriti qui dinamicamente -->
                             </tbody>
                         </table>
+                        <div id="loading-indicator" class="loading-spinner">
+                            <div class="spinner"></div>
+                            <p>Caricamento tipi di entità...</p>
+                        </div>
+                        <div id="empty-state" class="empty-state hidden">
+                            <p>Nessun tipo di entità trovato</p>
+                            <button id="add-first-entity" class="primary-btn">Aggiungi il primo tipo di entità</button>
+                        </div>
                     </div>
                 </div>
                 
                 <div id="entity-type-form-container" class="entity-type-form-container hidden">
-                    <h3 id="form-title">Nuovo Tipo di Entità</h3>
+                    <div class="form-header">
+                        <h3 id="form-title">Nuovo Tipo di Entità</h3>
+                        <button id="close-form-btn" class="close-btn" aria-label="Chiudi form">×</button>
+                    </div>
+                    
                     <form id="entity-type-form">
                         <input type="hidden" id="edit-mode" value="create">
                         <input type="hidden" id="original-name" value="">
@@ -52,11 +79,13 @@
                             <label for="entity-name">Nome Identificativo*</label>
                             <input type="text" id="entity-name" placeholder="NOME_ENTITA" required>
                             <small>Il nome deve essere in maiuscolo e senza spazi (es. NOME_ENTITA)</small>
+                            <div id="name-validation" class="validation-message"></div>
                         </div>
                         
                         <div class="form-group">
                             <label for="display-name">Nome Visualizzato*</label>
                             <input type="text" id="display-name" placeholder="Nome Entità" required>
+                            <small>Nome descrittivo mostrato nell'interfaccia</small>
                         </div>
                         
                         <div class="form-group">
@@ -67,6 +96,7 @@
                                 <option value="jurisprudence">Giurisprudenziale</option>
                                 <option value="concepts">Concetto</option>
                             </select>
+                            <small>Raggruppa tipi di entità con scopi simili</small>
                         </div>
                         
                         <div class="form-group">
@@ -74,6 +104,10 @@
                             <div class="color-picker-container">
                                 <input type="color" id="color" value="#CCCCCC" required>
                                 <span id="color-preview">#CCCCCC</span>
+                                <div class="color-sample-container">
+                                    <div class="color-sample" id="color-sample">Esempio</div>
+                                    <small>Anteprima del colore per l'evidenziazione</small>
+                                </div>
                             </div>
                         </div>
                         
@@ -81,12 +115,24 @@
                             <label for="metadata-schema">Schema dei Metadati (JSON)</label>
                             <textarea id="metadata-schema" placeholder='{"chiave1": "string", "chiave2": "number"}'></textarea>
                             <small>Schema dei metadati in formato JSON. Lasciare vuoto per nessun metadato.</small>
+                            <div id="metadata-validation" class="validation-message"></div>
                         </div>
                         
                         <div class="form-group">
                             <label for="patterns">Pattern Regex (uno per riga)</label>
                             <textarea id="patterns" placeholder="pattern regex 1&#10;pattern regex 2"></textarea>
                             <small>Un pattern regex per riga. Lasciare vuoto per nessun pattern.</small>
+                            <div id="patterns-validation" class="validation-message"></div>
+                        </div>
+                        
+                        <div class="pattern-tester">
+                            <h4>Tester Pattern</h4>
+                            <textarea id="test-text" placeholder="Inserisci testo di esempio per testare i pattern..."></textarea>
+                            <button type="button" id="test-patterns-btn" class="secondary-btn">Testa i Pattern</button>
+                            <div id="test-results" class="test-results hidden">
+                                <h5>Risultati:</h5>
+                                <pre id="test-output"></pre>
+                            </div>
                         </div>
                         
                         <div class="form-actions">
@@ -116,6 +162,6 @@
         <p>&copy; 2025 NER-Giuridico</p>
     </footer>
     
-    <script src="{{ url_for('static', filename='js/entity_types.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/entity_manager.js') }}"></script>
 </body>
 </html>

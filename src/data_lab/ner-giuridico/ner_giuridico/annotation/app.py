@@ -932,38 +932,117 @@ def update_entity_type(name: str):
 
 @api_endpoint
 def delete_entity_type(name: str):
-    from ner_giuridico.entities.entity_manager import get_entity_manager
-    entity_manager = get_entity_manager()
-    if not entity_manager.entity_type_exists(name):
-        return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
-    entity_type = entity_manager.get_entity_type(name)
-    if entity_type.get("category") != "custom":
-        raise ValueError(f"Non è possibile eliminare il tipo di entità predefinito '{name}'")
-    has_annotations = check_entity_type_in_use(name)
-    if has_annotations:
-        raise ValueError(f"Impossibile eliminare il tipo di entità '{name}' perché è in uso in alcune annotazioni")
-    success = entity_manager.remove_entity_type(name)
-    if not success:
-        raise ValueError(f"Impossibile eliminare il tipo di entità '{name}'")
-    return jsonify({"status": "success", "message": f"Tipo di entità '{name}' eliminato con successo"})
+    """
+    Elimina un tipo di entità.
+    
+    Args:
+        name: Nome del tipo di entità da eliminare.
+    
+    Returns:
+        Risultato dell'eliminazione.
+    """
+    logger.info(f"Ricevuta richiesta di eliminazione per l'entità: {name}")
+    
+    try:
+        from ner_giuridico.entities.entity_manager import get_entity_manager
+        entity_manager = get_entity_manager()
+        
+        # Verifica che l'entità esista
+        if not entity_manager.entity_type_exists(name):
+            logger.warning(f"Tentativo di eliminare l'entità inesistente: {name}")
+            return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
+        
+        # Ottieni informazioni sull'entità
+        entity_type = entity_manager.get_entity_type(name)
+        logger.debug(f"Informazioni entità: {entity_type}")
+        
+        # Verifica che l'entità non sia predefinita
+        if entity_type.get("category") != "custom":
+            logger.warning(f"Tentativo di eliminare l'entità predefinita: {name}")
+            return jsonify({
+                "status": "error", 
+                "message": f"Non è possibile eliminare il tipo di entità predefinito '{name}'",
+                "error_type": "ProtectedEntityError"
+            }), 403
+        
+        # Verifica che l'entità non sia in uso
+        has_annotations = check_entity_type_in_use(name)
+        if has_annotations:
+            logger.warning(f"Impossibile eliminare l'entità {name} perché è in uso in alcune annotazioni")
+            return jsonify({
+                "status": "error", 
+                "message": f"Impossibile eliminare il tipo di entità '{name}' perché è in uso in alcune annotazioni",
+                "error_type": "EntityInUseError"
+            }), 409  # Conflict
+        
+        # Elimina l'entità
+        success = entity_manager.remove_entity_type(name)
+        
+        if not success:
+            logger.error(f"Errore interno durante l'eliminazione dell'entità {name}")
+            return jsonify({
+                "status": "error", 
+                "message": f"Impossibile eliminare il tipo di entità '{name}' a causa di un errore interno"
+            }), 500
+        
+        # Salva le modifiche nel database
+        try:
+            entity_manager.save_entities_to_database()
+            logger.info(f"Entità {name} eliminata con successo e database aggiornato")
+        except Exception as e:
+            logger.warning(f"Entità {name} eliminata ma errore nel salvataggio del database: {e}")
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Tipo di entità '{name}' eliminato con successo"
+        })
+    except Exception as e:
+        logger.error(f"Errore non gestito nell'eliminazione dell'entità {name}: {e}")
+        logger.exception(e)
+        return jsonify({
+            "status": "error", 
+            "message": f"Errore durante l'eliminazione: {str(e)}",
+            "error_type": type(e).__name__
+        }), 500
 
 def check_entity_type_in_use(entity_type_name: str) -> bool:
+    """
+    Verifica se un tipo di entità è in uso in annotazioni esistenti.
+    
+    Args:
+        entity_type_name: Nome del tipo di entità da verificare
+        
+    Returns:
+        True se l'entità è in uso, False altrimenti
+    """
     try:
         DATA_DIR_PATH = Path(__file__).resolve().parent / 'data'
         annotations_file = os.path.join(DATA_DIR_PATH, 'annotations.json')
+        
+        # Verifica se il file delle annotazioni esiste
         if not os.path.exists(annotations_file):
+            logger.debug(f"File delle annotazioni non trovato: {annotations_file}")
             return False
+        
+        # Carica le annotazioni
         with open(annotations_file, 'r', encoding='utf-8') as f:
             annotations = json.load(f)
+        
+        # Cerca l'entità nelle annotazioni
         for doc_id, doc_annotations in annotations.items():
             for annotation in doc_annotations:
                 if annotation.get('type') == entity_type_name:
+                    logger.debug(f"Entità {entity_type_name} in uso nell'annotazione {annotation.get('id')} del documento {doc_id}")
                     return True
+        
+        logger.debug(f"Entità {entity_type_name} non in uso in nessuna annotazione")
         return False
     except Exception as e:
         logger.error(f"Errore nella verifica dell'uso del tipo di entità '{entity_type_name}': {e}")
+        logger.exception(e)
+        # In caso di errore, è più sicuro assumere che l'entità sia in uso
         return True
-
+    
 @api_endpoint
 def test_entity_pattern():
     data = request.json
@@ -997,6 +1076,7 @@ def register_entity_api_endpoints(app):
     app.route('/api/entity_types/<name>', methods=['DELETE'])(delete_entity_type)
     app.route('/api/test_pattern', methods=['POST'])(test_entity_pattern)
     logger.info("Endpoint API per la gestione dei tipi di entità registrati con successo")
+
 
 register_entity_api_endpoints(app)
 

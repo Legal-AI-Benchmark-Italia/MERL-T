@@ -584,34 +584,67 @@ async def delete_entity(
         Risultato dell'eliminazione.
     """
     try:
-        ner = get_ner_system(dynamic=True)
+        logger.info(f"API - Ricevuta richiesta di eliminazione per l'entità: {entity_name}")
+        
+        # Ottieni il gestore delle entità
+        entity_manager = get_entity_manager()
         
         # Verifica che l'entità esista
-        entity_manager = get_entity_manager()
         if not entity_manager.entity_type_exists(entity_name):
+            logger.warning(f"API - Tentativo di eliminare l'entità inesistente: {entity_name}")
             raise HTTPException(status_code=404, detail=f"Entità {entity_name} non trovata")
-            
-        # Verifica che l'entità non sia tra quelle predefinite
+        
+        # Ottieni informazioni sull'entità
         entity_info = entity_manager.get_entity_type(entity_name)
+        logger.debug(f"API - Informazioni entità: {entity_info}")
+        
+        # Verifica che l'entità non sia predefinita
         if entity_info.get("category") != "custom":
-            raise HTTPException(status_code=400, detail=f"Non è possibile eliminare l'entità predefinita {entity_name}")
+            logger.warning(f"API - Tentativo di eliminare l'entità predefinita: {entity_name}")
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Non è possibile eliminare l'entità predefinita {entity_name}"
+            )
+        
+        # Verifica se l'entità è in uso nelle annotazioni
+        try:
+            from ner_giuridico.annotation.app import check_entity_type_in_use
+            has_annotations = check_entity_type_in_use(entity_name)
             
+            if has_annotations:
+                logger.warning(f"API - Impossibile eliminare l'entità {entity_name} perché è in uso in alcune annotazioni")
+                raise HTTPException(
+                    status_code=409,  # Conflict
+                    detail=f"Impossibile eliminare l'entità {entity_name} perché è in uso in alcune annotazioni"
+                )
+        except ImportError:
+            # Se non possiamo importare la funzione, continuiamo senza verificare
+            logger.warning("API - Impossibile verificare se l'entità è in uso nelle annotazioni")
+        
         # Elimina l'entità
+        ner = get_ner_system(dynamic=True)
         success = ner.remove_entity_type(entity_name)
         
         if not success:
-            raise HTTPException(status_code=400, detail=f"Impossibile eliminare l'entità {entity_name}")
-            
+            logger.error(f"API - Errore interno durante l'eliminazione dell'entità {entity_name}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Impossibile eliminare l'entità {entity_name} a causa di un errore interno"
+            )
+        
+        logger.info(f"API - Entità {entity_name} eliminata con successo")
+        
         return {
             "status": "success",
             "message": f"Entità {entity_name} eliminata con successo"
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Errore nell'eliminazione dell'entità {entity_name}: {e}")
-        if isinstance(e, HTTPException):
-            raise
+        logger.error(f"API - Errore non gestito nell'eliminazione dell'entità {entity_name}: {e}")
+        logger.exception(e)
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 @entity_router.post("/{entity_name}/patterns")
 async def update_entity_patterns(
     entity_name: str,

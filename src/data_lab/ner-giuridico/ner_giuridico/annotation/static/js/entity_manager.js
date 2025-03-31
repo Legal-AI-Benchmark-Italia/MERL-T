@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tbody.appendChild(tr);
             return;
         }
-
+    
         // Aggiungi i tipi di entità alla tabella
         entityTypes.forEach(entityType => {
             const tr = document.createElement('tr');
@@ -252,16 +252,29 @@ document.addEventListener('DOMContentLoaded', function() {
             
             actionButtons.appendChild(editBtn);
             
-            // Aggiungi il pulsante di eliminazione solo per i tipi di entità personalizzati
+            // Aggiungi sempre il pulsante di eliminazione, ma con styling diverso per tipi predefiniti
+            const deleteBtn = document.createElement('button');
+            
             if (entityType.category === 'custom') {
-                const deleteBtn = document.createElement('button');
                 deleteBtn.className = 'delete-btn';
                 deleteBtn.innerHTML = '<span class="icon">🗑️</span> Elimina';
                 deleteBtn.title = 'Elimina il tipo di entità';
-                deleteBtn.addEventListener('click', () => showDeleteConfirmation(entityType));
-                
-                actionButtons.appendChild(deleteBtn);
+            } else {
+                deleteBtn.className = 'delete-btn delete-btn-disabled';
+                deleteBtn.innerHTML = '<span class="icon">🔒</span> Protetto';
+                deleteBtn.title = 'Le entità predefinite non possono essere eliminate';
+                deleteBtn.disabled = true;
             }
+            
+            deleteBtn.addEventListener('click', () => {
+                if (entityType.category === 'custom') {
+                    showDeleteConfirmation(entityType);
+                } else {
+                    showNotification('Le entità predefinite non possono essere eliminate', 'warning');
+                }
+            });
+            
+            actionButtons.appendChild(deleteBtn);
             
             actionsTd.appendChild(actionButtons);
             tr.appendChild(actionsTd);
@@ -755,7 +768,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // Funzione per mostrare la conferma di eliminazione
     function showDeleteConfirmation(entityType) {
         entityToDelete = entityType;
-        confirmationMessage.textContent = `Sei sicuro di voler eliminare il tipo di entità "${entityType.name}"?`;
+        confirmationMessage.textContent = `Sei sicuro di voler eliminare il tipo di entità "${entityType.name}" (${entityType.display_name})?`;
+        
+        // Aggiungiamo un testo aggiuntivo per la categoria
+        if (entityType.category !== 'custom') {
+            const warningText = document.createElement('p');
+            warningText.className = 'text-danger mt-2';
+            warningText.textContent = 'Attenzione: Questa è un\'entità predefinita. L\'eliminazione potrebbe non essere possibile.';
+            confirmationMessage.appendChild(warningText);
+        }
+        
         confirmationDialog.classList.remove('hidden');
         
         // Focus sul pulsante di cancellazione
@@ -784,18 +806,27 @@ document.addEventListener('DOMContentLoaded', function() {
         confirmCancelBtn.disabled = true;
         confirmDeleteBtn.innerHTML = '<span class="spinner-sm"></span> Eliminazione...';
         
+        // Logging per debug
+        console.log(`Tentativo di eliminare l'entità: ${name}`);
+        
         fetch(`/api/entity_types/${name}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
         })
         .then(response => {
+            console.log(`Risposta ricevuta con stato: ${response.status}`);
             if (!response.ok) {
                 return response.json().then(err => {
+                    console.error('Dettagli errore:', err);
                     throw new Error(err.message || `Errore HTTP: ${response.status}`);
                 });
             }
             return response.json();
         })
         .then(data => {
+            console.log('Risposta eliminazione:', data);
             if (data.status === 'success') {
                 showNotification(`Tipo di entità "${name}" eliminato con successo`, 'success');
                 loadEntityTypes();
@@ -804,7 +835,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(error => {
-            console.error('Errore:', error);
+            console.error('Errore durante l\'eliminazione:', error);
             showNotification(`Errore durante l'eliminazione: ${error.message}`, 'error');
         })
         .finally(() => {
@@ -816,6 +847,7 @@ document.addEventListener('DOMContentLoaded', function() {
             confirmDeleteBtn.textContent = 'Elimina';
         });
     }
+    
     
     // Gestione dei tasti di scelta rapida
     document.addEventListener('keydown', function(e) {

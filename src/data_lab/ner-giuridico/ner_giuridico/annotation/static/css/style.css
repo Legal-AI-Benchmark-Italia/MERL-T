@@ -1087,3 +1087,40 @@ input[type="file"] {
         width: 100%;
     }
 }
+
+/* Stile per il pulsante di eliminazione disabilitato */
+.delete-btn-disabled {
+    background-color: #6c757d !important;
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.delete-btn-disabled:hover {
+    background-color: #6c757d !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Animazione per evidenziare un messaggio di errore */
+@keyframes flash-error {
+    0% { background-color: rgba(220, 53, 69, 0.1); }
+    50% { background-color: rgba(220, 53, 69, 0.3); }
+    100% { background-color: rgba(220, 53, 69, 0.1); }
+}
+
+.flash-error {
+    animation: flash-error 1s ease-in-out;
+}
+
+/* Stile per un messaggio di avviso nel dialog di conferma */
+.text-danger {
+    color: #dc3545;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.mt-2 {
+    margin-top: 0.5rem;
+}

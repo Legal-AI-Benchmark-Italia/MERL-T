@@ -475,16 +475,19 @@ class DynamicNERGiuridico:
         return success
     
     def update_entity_type(self, name: str, display_name: Optional[str] = None, 
-                          color: Optional[str] = None, 
-                          metadata_schema: Optional[Dict[str, str]] = None) -> bool:
+                        category: Optional[str] = None, color: Optional[str] = None, 
+                        metadata_schema: Optional[Dict[str, str]] = None,
+                        patterns: Optional[List[str]] = None) -> bool:
         """
         Aggiorna un tipo di entità esistente.
         
         Args:
             name: Nome identificativo dell'entità
             display_name: Nuovo nome visualizzato (opzionale)
+            category: Nuova categoria (opzionale)
             color: Nuovo colore (opzionale)
             metadata_schema: Nuovo schema dei metadati (opzionale)
+            patterns: Nuovi pattern regex (opzionale)
             
         Returns:
             True se l'aggiornamento è avvenuto con successo, False altrimenti
@@ -493,8 +496,10 @@ class DynamicNERGiuridico:
         success = self.entity_manager.update_entity_type(
             name=name,
             display_name=display_name,
+            category=category,
             color=color,
-            metadata_schema=metadata_schema
+            metadata_schema=metadata_schema,
+            patterns=patterns
         )
         
         if success:
@@ -506,7 +511,6 @@ class DynamicNERGiuridico:
             self.entity_manager.save_entities("config/entities.json")
         
         return success
-    
     def remove_entity_type(self, name: str) -> bool:
         """
         Rimuove un tipo di entità dal sistema.

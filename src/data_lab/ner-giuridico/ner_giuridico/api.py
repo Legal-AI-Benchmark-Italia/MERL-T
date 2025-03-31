@@ -55,10 +55,11 @@ class EntityRequest(BaseModel):
 
 class EntityUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, description="Nome visualizzato dell'entità")
+    category: Optional[str] = Field(default=None, description="Categoria dell'entità (normative, jurisprudence, concepts, custom)")
     color: Optional[str] = Field(default=None, description="Colore dell'entità in formato esadecimale")
     metadata_schema: Optional[Dict[str, str]] = Field(default=None, description="Schema dei metadati dell'entità")
     patterns: Optional[List[str]] = Field(default=None, description="Pattern regex per il riconoscimento")
-
+    
 # Creazione dell'app e dei router
 app = FastAPI(
     title="NER-Giuridico API",
@@ -534,27 +535,46 @@ async def update_entity(
         Risultato dell'aggiornamento.
     """
     try:
+        logger.info(f"Richiesta di aggiornamento per l'entità {entity_name}")
+        
         ner = get_ner_system(dynamic=True)
         
         # Verifica che l'entità esista
         entity_manager = get_entity_manager()
         if not entity_manager.entity_type_exists(entity_name):
+            logger.warning(f"Tentativo di aggiornare un'entità inesistente: {entity_name}")
             raise HTTPException(status_code=404, detail=f"Entità {entity_name} non trovata")
+        
+        # Verifica che se si sta cambiando la categoria di un'entità predefinita
+        if entity.category:
+            current_entity = entity_manager.get_entity_type(entity_name)
+            original_category = current_entity.get("category", "custom")
             
+            if original_category != "custom" and original_category in ["normative", "jurisprudence", "concepts"] and entity.category != original_category:
+                logger.warning(f"Tentativo di cambiare la categoria di un'entità predefinita: {entity_name}")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Non è possibile cambiare la categoria dell'entità predefinita {entity_name}"
+                )
+        
         # Aggiorna l'entità
         success = ner.update_entity_type(
             name=entity_name,
             display_name=entity.display_name,
+            category=entity.category,
             color=entity.color,
             metadata_schema=entity.metadata_schema,
             patterns=entity.patterns
         )
         
         if not success:
+            logger.error(f"Errore nell'aggiornamento dell'entità {entity_name}")
             raise HTTPException(status_code=400, detail=f"Impossibile aggiornare l'entità {entity_name}")
-            
+        
         # Ottieni l'entità aggiornata
         updated_entity = entity_manager.get_entity_type(entity_name)
+        
+        logger.info(f"Entità {entity_name} aggiornata con successo")
         
         return {
             "status": "success",
@@ -564,12 +584,14 @@ async def update_entity(
                 **updated_entity
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Errore nell'aggiornamento dell'entità {entity_name}: {e}")
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 @entity_router.delete("/{entity_name}")
 async def delete_entity(
     entity_name: str

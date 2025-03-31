@@ -285,7 +285,7 @@ class DynamicEntityManager:
             return False
     
     def update_entity_type(self, name: str, display_name: Optional[str] = None, 
-                          color: Optional[str] = None, 
+                          category: Optional[str] = None, color: Optional[str] = None, 
                           metadata_schema: Optional[Dict[str, str]] = None,
                           patterns: Optional[List[str]] = None) -> bool:
         """
@@ -294,6 +294,7 @@ class DynamicEntityManager:
         Args:
             name: Nome identificativo dell'entità
             display_name: Nuovo nome visualizzato (opzionale)
+            category: Nuova categoria (opzionale)
             color: Nuovo colore (opzionale)
             metadata_schema: Nuovo schema dei metadati (opzionale)
             patterns: Nuovi pattern regex (opzionale)
@@ -308,6 +309,7 @@ class DynamicEntityManager:
                 
             # Crea una copia dell'entità esistente
             updated_definition = self.entity_types[name].copy()
+            original_category = updated_definition.get("category", "custom")
                 
             # Aggiorna i campi specificati
             if display_name:
@@ -321,7 +323,29 @@ class DynamicEntityManager:
                 
             if patterns:
                 updated_definition["patterns"] = patterns
+            
+            # Aggiorna la categoria se specificata e diversa dall'originale
+            if category and category != original_category:
+                # Verifica che la categoria sia valida
+                if category not in self.entity_categories:
+                    self.logger.error(f"Categoria non valida: {category}")
+                    return False
+                    
+                # Verifica che non sia un'entità predefinita (per proteggere le entità di sistema)
+                if original_category != "custom" and original_category in ["normative", "jurisprudence", "concepts"]:
+                    self.logger.error(f"Non è possibile cambiare la categoria di un'entità predefinita: {name}")
+                    return False
+                    
+                # Aggiorna la categoria
+                updated_definition["category"] = category
                 
+                # Aggiorna le liste di categorie
+                if name in self.entity_categories[original_category]:
+                    self.entity_categories[original_category].remove(name)
+                self.entity_categories[category].add(name)
+                
+                self.logger.info(f"Categoria dell'entità {name} cambiata da {original_category} a {category}")
+            
             # Aggiorna l'entità
             self.entity_types[name] = updated_definition
                 
@@ -330,12 +354,18 @@ class DynamicEntityManager:
             # Notifica gli osservatori
             self._notify_entity_updated(name, updated_definition)
             
+            # Aggiorna il database
+            try:
+                self.save_entities_to_database()
+            except Exception as e:
+                self.logger.warning(f"Errore nel salvataggio del database dopo l'aggiornamento dell'entità {name}: {e}")
+            
             return True
             
         except Exception as e:
             self.logger.error(f"Errore nell'aggiornamento dell'entità {name}: {str(e)}")
             return False
-    
+        
     def get_entity_type(self, name: str) -> Optional[Dict[str, Any]]:
         """
         Ottiene le informazioni di un tipo di entità.

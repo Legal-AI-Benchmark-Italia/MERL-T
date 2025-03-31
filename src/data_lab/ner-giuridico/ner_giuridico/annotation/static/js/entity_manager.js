@@ -326,7 +326,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Focus sul campo del nome
         nameInput.focus();
     }
-    
+        
     // Funzione per mostrare il form di modifica
     function showEditForm(entityType) {
         // Popola il form con i dati dell'entità
@@ -349,6 +349,28 @@ document.addEventListener('DOMContentLoaded', function() {
         // Disabilita il campo del nome (non dovrebbe essere modificato)
         nameInput.disabled = true;
         
+        // Gestisci lo stato del campo categoria in base al tipo di entità
+        if (entityType.category !== 'custom' && ['normative', 'jurisprudence', 'concepts'].includes(entityType.category)) {
+            // Disabilita il campo categoria se è un'entità predefinita
+            categorySelect.disabled = true;
+            
+            // Aggiungi un avviso sul campo della categoria
+            const categoryGroup = categorySelect.closest('.form-group');
+            const categoryWarning = document.createElement('div');
+            categoryWarning.className = 'validation-message warning';
+            categoryWarning.textContent = 'Non è possibile modificare la categoria di un\'entità predefinita';
+            categoryGroup.appendChild(categoryWarning);
+        } else {
+            // Abilita il campo categoria per le entità personalizzate
+            categorySelect.disabled = false;
+            
+            // Rimuovi eventuali avvisi precedenti
+            const existingWarning = categorySelect.closest('.form-group').querySelector('.validation-message.warning');
+            if (existingWarning) {
+                existingWarning.remove();
+            }
+        }
+        
         // Pulisci i messaggi di validazione
         clearValidationMessages();
         
@@ -364,6 +386,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Focus sul campo del nome visualizzato
         displayNameInput.focus();
     }
+
     
     // Funzione per nascondere il form
     function hideForm() {
@@ -725,8 +748,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Funzione per aggiornare un tipo di entità esistente
+    // Funzione per aggiornare un tipo di entità
     function updateEntityType(name, data) {
+        console.log('Inviando dati di aggiornamento:', data);
+        
         fetch(`/api/entity_types/${name}`, {
             method: 'PUT',
             headers: {
@@ -735,20 +760,31 @@ document.addEventListener('DOMContentLoaded', function() {
             body: JSON.stringify(data)
         })
         .then(response => {
+            console.log(`Risposta aggiornamento: status ${response.status}`);
             if (!response.ok) {
                 return response.json().then(err => {
+                    console.error('Dettagli errore:', err);
                     throw new Error(err.message || `Errore HTTP: ${response.status}`);
                 });
             }
             return response.json();
         })
-        .then(data => {
-            if (data.status === 'success') {
-                showNotification(`Tipo di entità "${data.entity_type.name}" aggiornato con successo`, 'success');
+        .then(responseData => {
+            console.log('Risposta aggiornamento:', responseData);
+            if (responseData && responseData.status === 'success' && responseData.entity) {
+                showNotification(`Tipo di entità "${name}" aggiornato con successo`, 'success');
+                
+                // Se la categoria è stata aggiornata, mostra un messaggio specifico
+                const originalCategory = categorySelect.dataset.originalCategory;
+                if (responseData.entity.category && originalCategory && 
+                    responseData.entity.category !== originalCategory) {
+                    showNotification(`Categoria aggiornata da "${getCategoryDisplayName(originalCategory)}" a "${getCategoryDisplayName(responseData.entity.category)}"`, 'info');
+                }
+                
                 hideForm();
                 loadEntityTypes();
             } else {
-                showNotification(`Errore: ${data.message}`, 'error');
+                throw new Error(responseData.message || 'Errore durante l\'aggiornamento');
             }
             
             // Ripristina il pulsante di salvataggio
@@ -756,7 +792,7 @@ document.addEventListener('DOMContentLoaded', function() {
             saveBtn.textContent = 'Aggiorna';
         })
         .catch(error => {
-            console.error('Errore:', error);
+            console.error('Errore durante l\'aggiornamento:', error);
             showNotification(`Errore durante l'aggiornamento: ${error.message}`, 'error');
             
             // Ripristina il pulsante di salvataggio
@@ -764,6 +800,7 @@ document.addEventListener('DOMContentLoaded', function() {
             saveBtn.textContent = 'Aggiorna';
         });
     }
+
     
     // Funzione per mostrare la conferma di eliminazione
     function showDeleteConfirmation(entityType) {
@@ -860,4 +897,53 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    // Add category change styles
+    const categoryChangedStyle = document.createElement('style');
+    categoryChangedStyle.textContent = `
+        .category-changed {
+            background-color: #fff8e1;
+            border-color: #ffca28;
+            box-shadow: 0 0 0 0.2rem rgba(255, 202, 40, 0.25);
+        }
+        
+        .validation-message.warning {
+            color: #ff9800;
+        }
+        
+        /* Aggiorna colori delle categorie nel form */
+        #category option[value="normative"] {
+            background-color: #e3f2fd;
+        }
+        
+        #category option[value="jurisprudence"] {
+            background-color: #e8f5e9;
+        }
+        
+        #category option[value="concepts"] {
+            background-color: #fff3e0;
+        }
+        
+        #category option[value="custom"] {
+            background-color: #f3e5f5;
+        }
+    `;
+    document.head.appendChild(categoryChangedStyle);
+
+    // Add category change handler
+    if (categorySelect) {
+        categorySelect.addEventListener('change', function() {
+            // Salva la categoria originale quando si carica l'entità
+            if (!this.dataset.originalCategory && editMode.value === 'edit') {
+                this.dataset.originalCategory = this.value;
+            }
+            
+            // Evidenzia visivamente il cambio di categoria
+            if (editMode.value === 'edit' && this.value !== this.dataset.originalCategory) {
+                this.classList.add('category-changed');
+            } else {
+                this.classList.remove('category-changed');
+            }
+        });
+    }
 });

@@ -255,11 +255,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 const isOverlap = currentAnnotations.length > 0;
                 const entityName = getEntityNameById(ann.type);
                 
+                // In the highlightExistingAnnotations function, modify the HTML generation
                 htmlContent += `<span class="entity-highlight ${isOverlap ? 'overlap' : ''}" 
-                          style="background-color: ${ann.color};" 
-                          data-id="${ann.id}" 
-                          data-type="${ann.type}">
-                          <span class="tooltip">${entityName}: ${ann.text}</span>`;
+                      style="background-color: ${ann.color};" 
+                      data-id="${ann.id}" 
+                      data-type="${ann.type}">
+                      <span class="tooltip">${entityName}: ${ann.text}</span>`;
                           
                 currentAnnotations.push(ann);
             });

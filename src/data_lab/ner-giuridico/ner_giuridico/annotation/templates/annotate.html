@@ -33,7 +33,7 @@
                     {% for entity_type in entity_types %}
                         <div class="entity-type" 
                              data-type="{{ entity_type.id }}" 
-                             style="background-color: {{ entity_type.color }}">
+                             style="background-color: {{ entity_type.color or '#ffffff' }}">
                             {{ entity_type.name }}
                         </div>
                     {% endfor %}

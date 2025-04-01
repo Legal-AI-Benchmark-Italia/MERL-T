@@ -15,7 +15,12 @@ async function request(endpoint, options = {}) {
         },
     };
     const config = { ...defaultOptions, ...options };
-    if (config.body && typeof config.body !== 'string') {
+    
+    // Special handling for FormData (file uploads)
+    if (config.body instanceof FormData) {
+        // For FormData, let the browser set the Content-Type header with proper boundary
+        delete config.headers['Content-Type'];
+    } else if (config.body && typeof config.body !== 'string') {
         config.body = JSON.stringify(config.body);
     }
 

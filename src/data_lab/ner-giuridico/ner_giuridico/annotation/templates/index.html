@@ -1,113 +1,346 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NER-Giuridico - Annotazione</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
-<body>
-    <header>
-        <h1>NER-Giuridico - Interfaccia di Annotazione</h1>
-        <nav>
-            <a href="{{ url_for('index') }}">Home</a>
-            <a href="{{ url_for('entity_types') }}">Tipi di Entità</a>
-        </nav>
-    </header>
-    
-    <main>
-        <section class="upload-section">
-            <h2>Carica un nuovo documento</h2>
-            <form id="upload-form" enctype="multipart/form-data">
-                <input type="file" id="document-file" accept=".txt, .md, .html, .xml, .json, .csv">
-                <button type="submit">Carica Documento</button>
-            </form>
-            <div class="file-formats">
-                <span>Formati supportati: .txt, .md, .html, .xml, .json, .csv</span>
-                <span>Dimensione massima: 10MB</span>
+<!-- index.html - Pagina principale migliorata -->
+{% extends "base.html" %}
+
+{% block title %}NER-Giuridico - Home{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- Upload Section -->
+    <div class="col-12 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary bg-gradient text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-upload me-2"></i>Carica un nuovo documento
+                </h5>
             </div>
-        </section>
-        
-        <section class="documents-section">
-            <h2>Documenti disponibili</h2>
-            <div class="documents-list">
-                {% if documents %}
-                    {% for doc in documents %}
-                        <div class="document-item" data-id="{{ doc.id }}">
-                            <h3 class="document-title">{{ doc.title }}</h3>
-                            <p class="document-preview">{{ doc.text[:100] }}...</p>
-                            <div class="document-metadata">
-                                <span>Parole: {{ doc.word_count }}</span>
-                                {% if doc.date_created %}
-                                <span>Creato: {{ doc.date_created.split('T')[0] }}</span>
-                                {% endif %}
-                            </div>
-                            <div class="document-actions">
-                                <a href="{{ url_for('annotate', doc_id=doc.id) }}" class="annotate-btn">Annota</a>
-                                <button class="edit-title-btn" data-id="{{ doc.id }}" data-title="{{ doc.title }}">Rinomina</button>
-                                <button class="delete-doc-btn" data-id="{{ doc.id }}" data-title="{{ doc.title }}">Elimina</button>
+            <div class="card-body">
+                <form id="upload-form" enctype="multipart/form-data" class="row g-3 align-items-end">
+                    <div class="col-md-8">
+                        <div class="form-group">
+                            <label for="document-file" class="form-label">File del documento</label>
+                            <input type="file" class="form-control" id="document-file" accept=".txt, .md, .html, .xml, .json, .csv">
+                            <div class="form-text text-muted mt-2">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Formati supportati: .txt, .md, .html, .xml, .json, .csv | Dimensione massima: 10MB
                             </div>
                         </div>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-cloud-upload-alt me-2"></i>Carica Documento
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Documents Section -->
+    <div class="col-12 mb-4">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary bg-gradient text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-file-alt me-2"></i>Documenti disponibili
+                </h5>
+                <span class="badge bg-light text-primary rounded-pill">{{ documents|length }} Documenti</span>
+            </div>
+            <div class="card-body">
+                {% if documents %}
+                <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4">
+                    {% for doc in documents %}
+                    <div class="col">
+                        <div class="card h-100 doc-card" data-id="{{ doc.id }}">
+                            <div class="card-header bg-light">
+                                <h5 class="card-title document-title mb-0">{{ doc.title }}</h5>
+                            </div>
+                            <div class="card-body">
+                                <p class="card-text document-preview text-truncate">{{ doc.text[:150] }}...</p>
+                                <div class="document-metadata text-muted small">
+                                    <span><i class="fas fa-file-word me-1"></i>{{ doc.word_count }} parole</span>
+                                    {% if doc.date_created %}
+                                    <span><i class="fas fa-calendar-alt me-1"></i>{{ doc.date_created.split('T')[0] }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="card-footer bg-white">
+                                <div class="btn-group w-100" role="group">
+                                    <a href="{{ url_for('annotate', doc_id=doc.id) }}" class="btn btn-success">
+                                        <i class="fas fa-tag me-1"></i>Annota
+                                    </a>
+                                    <button class="btn btn-primary edit-title-btn" data-id="{{ doc.id }}" data-title="{{ doc.title }}">
+                                        <i class="fas fa-edit me-1"></i>Rinomina
+                                    </button>
+                                    <button class="btn btn-danger delete-doc-btn" data-id="{{ doc.id }}" data-title="{{ doc.title }}">
+                                        <i class="fas fa-trash-alt me-1"></i>Elimina
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     {% endfor %}
+                </div>
                 {% else %}
-                    <p>Nessun documento disponibile. Carica un documento per iniziare.</p>
+                <div class="text-center py-5">
+                    <i class="fas fa-file-circle-xmark text-muted" style="font-size: 4rem;"></i>
+                    <h4 class="mt-3">Nessun documento disponibile</h4>
+                    <p class="text-muted">Carica un documento per iniziare l'annotazione</p>
+                </div>
                 {% endif %}
             </div>
-        </section>
+        </div>
+    </div>
+
+    <!-- Export Section -->
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary bg-gradient text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-file-export me-2"></i>Esporta annotazioni
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-md-4 d-flex flex-column">
+                        <div class="mb-3">
+                            <button id="export-json" class="btn btn-primary w-100 mb-2">
+                                <i class="fas fa-file-code me-2"></i>Esporta in JSON
+                            </button>
+                            <small class="text-muted d-block">Formato nativo dell'applicazione per backup e ripristino</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 d-flex flex-column">
+                        <div class="mb-3">
+                            <button id="export-spacy" class="btn btn-primary w-100 mb-2">
+                                <i class="fas fa-code-branch me-2"></i>Esporta in formato spaCy
+                            </button>
+                            <small class="text-muted d-block">Formato compatibile per l'addestramento di modelli NER</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="alert alert-info mb-0">
+                            <h6 class="alert-heading"><i class="fas fa-lightbulb me-2"></i>Suggerimento</h6>
+                            <p class="mb-0 small">Le annotazioni esportate possono essere utilizzate per addestrare o migliorare il sistema NER-Giuridico.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/index.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Versione migliorata della funzione di eliminazione documento
+        window.deleteDocument = function(docId, docTitle) {
+            if (!docId) return;
+            
+            const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
+            document.getElementById('confirm-title').textContent = 'Elimina documento';
+            document.getElementById('confirm-message').textContent = 
+                `Sei sicuro di voler eliminare il documento "${docTitle || docId}" e tutte le sue annotazioni?`;
+            
+            const confirmBtn = document.getElementById('confirm-action-btn');
+            confirmBtn.textContent = 'Elimina';
+            confirmBtn.className = 'btn btn-danger';
+            
+            confirmBtn.onclick = function() {
+                // Mostra spinner
+                this.disabled = true;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
+                
+                fetch('/api/delete_document', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({doc_id: docId})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    confirmModal.hide();
+                    if (data.status === 'success') {
+                        showNotification(data.message || 'Documento eliminato con successo', 'success');
+                        // Animazione di rimozione
+                        const docCard = document.querySelector(`.doc-card[data-id="${docId}"]`);
+                        if (docCard) {
+                            docCard.classList.add('fade-out');
+                            setTimeout(() => {
+                                docCard.closest('.col').remove();
+                                // Se non ci sono più documenti, ricarica la pagina
+                                if (document.querySelectorAll('.doc-card').length === 0) {
+                                    window.location.reload();
+                                }
+                            }, 500);
+                        } else {
+                            window.location.reload();
+                        }
+                    } else {
+                        showNotification('Errore: ' + data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    confirmModal.hide();
+                    console.error('Errore:', error);
+                    showNotification('Si è verificato un errore durante l\'eliminazione', 'danger');
+                });
+            };
+            
+            confirmModal.show();
+        };
         
-        <section class="export-section">
-            <h2>Esporta annotazioni</h2>
-            <div class="export-buttons">
-                <button id="export-json">Esporta in JSON</button>
-                <button id="export-spacy">Esporta in formato spaCy</button>
+        // Versione migliorata della funzione di rinomina documento
+        window.renameDocument = function(docId, currentTitle) {
+            const modal = new bootstrap.Modal(document.getElementById('rename-modal'));
+            document.getElementById('document-id').value = docId;
+            document.getElementById('document-title').value = currentTitle;
+            modal.show();
+        };
+        
+        // Collega la funzione di rinomina ai pulsanti
+        document.querySelectorAll('.edit-title-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                renameDocument(this.dataset.id, this.dataset.title);
+            });
+        });
+    });
+</script>
+
+<!-- Modale di conferma -->
+<div class="modal fade" id="confirm-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="confirm-title">Conferma azione</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="export-info">
-                <p>
-                    <strong>Formato JSON</strong>: esporta tutte le annotazioni nel formato nativo dell'applicazione, 
-                    utile per backup e ripristino.
-                </p>
-                <p>
-                    <strong>Formato spaCy</strong>: esporta le annotazioni in un formato compatibile 
-                    con spaCy per l'addestramento di modelli NER.
-                </p>
+            <div class="modal-body">
+                <p id="confirm-message">Sei sicuro di voler procedere?</p>
             </div>
-        </section>
-    </main>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="confirm-action-btn">Conferma</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modale per rinominare documento -->
+<div class="modal fade" id="rename-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Rinomina documento</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="rename-form">
+                    <input type="hidden" id="document-id">
+                    <div class="mb-3">
+                        <label for="document-title" class="form-label">Nuovo titolo</label>
+                        <input type="text" class="form-control" id="document-title" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="save-title-btn">Salva</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Gestisci il form di rinomina
+        const renameForm = document.getElementById('rename-form');
+        const saveTitleBtn = document.getElementById('save-title-btn');
+        const renameModal = new bootstrap.Modal(document.getElementById('rename-modal'));
+        
+        saveTitleBtn.addEventListener('click', function() {
+            const docId = document.getElementById('document-id').value;
+            const newTitle = document.getElementById('document-title').value;
+            
+            if (!newTitle.trim()) {
+                return;
+            }
+            
+            // Disabilita il pulsante e mostra il caricamento
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvataggio...';
+            
+            fetch('/api/update_document', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    doc_id: docId,
+                    title: newTitle
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                renameModal.hide();
+                if (data.status === 'success') {
+                    // Aggiorna l'interfaccia utente
+                    const titleElement = document.querySelector(`.doc-card[data-id="${docId}"] .document-title`);
+                    const renameBtn = document.querySelector(`.edit-title-btn[data-id="${docId}"]`);
+                    
+                    if (titleElement) {
+                        titleElement.textContent = newTitle;
+                    }
+                    
+                    if (renameBtn) {
+                        renameBtn.dataset.title = newTitle;
+                    }
+                    
+                    showNotification('Titolo aggiornato con successo', 'success');
+                } else {
+                    showNotification('Errore: ' + data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Errore:', error);
+                showNotification('Si è verificato un errore durante l\'aggiornamento', 'danger');
+            })
+            .finally(() => {
+                // Ripristina il pulsante
+                saveTitleBtn.disabled = false;
+                saveTitleBtn.innerHTML = 'Salva';
+            });
+        });
+    });
+</script>
+
+<style>
+    .fade-out {
+        opacity: 0;
+        transform: scale(0.9);
+        transition: opacity 0.5s ease, transform 0.5s ease;
+    }
     
-    <footer>
-        <p>&copy; 2025 NER-Giuridico</p>
-        <style>
-            .edit-title-btn {
-                background-color: #007bff;
-                color: white;
-                padding: 0.5rem 1rem;
-                border: none;
-                border-radius: 3px;
-                cursor: pointer;
-                font-size: 0.9rem;
-                transition: all 0.2s ease-in-out;
-                flex: 1;
-            }
-            
-            .edit-title-btn:hover {
-                background-color: #0069d9;
-                transform: translateY(-1px);
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            }
-            
-            .document-actions {
-                display: flex;
-                justify-content: space-between;
-                gap: 0.5rem;
-            }
-            
-            .document-actions > * {
-                flex: 1;
-            }
-            </style>
-            
-    </footer>
+    .document-metadata {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
     
-    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
-</body>
-</html>
+    .document-preview {
+        height: 3em;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
+    
+    .doc-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+    
+    .doc-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15);
+    }
+</style>
+{% endblock %}

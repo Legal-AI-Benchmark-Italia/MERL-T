@@ -1,167 +1,581 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NER-Giuridico - Gestione Tipi di Entità</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
-<body>
-    <header>
-        <h1>NER-Giuridico - Gestione Tipi di Entità</h1>
-        <nav>
-            <a href="{{ url_for('index') }}">Home</a>
-            <a href="{{ url_for('entity_types') }}" class="active">Tipi di Entità</a>
-        </nav>
-    </header>
-    
-    <main>
-        <section class="entity-types-manager">
-            <div class="section-header">
-                <h2>Tipi di Entità</h2>
-                <div class="search-filter">
-                    <input type="text" id="entity-search" placeholder="Cerca tipi di entità...">
-                    <select id="category-filter">
-                        <option value="">Tutte le categorie</option>
-                        <option value="normative">Normativa</option>
-                        <option value="jurisprudence">Giurisprudenziale</option>
-                        <option value="concepts">Concetto</option>
-                        <option value="custom">Personalizzata</option>
-                    </select>
+<!-- entity_types.html - Pagina di gestione tipi di entità migliorata -->
+{% extends "base.html" %}
+
+{% block title %}NER-Giuridico - Tipi di Entità{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary bg-gradient text-white d-flex justify-content-between align-items-center flex-wrap">
+                <h5 class="mb-0">
+                    <i class="fas fa-tags me-2"></i>Gestione Tipi di Entità
+                </h5>
+                <div class="mt-2 mt-md-0">
+                    <button id="add-entity-type-btn" class="btn btn-light btn-sm">
+                        <i class="fas fa-plus me-1"></i>Nuovo Tipo di Entità
+                    </button>
                 </div>
             </div>
-            
-            <div class="entity-types-container">
-                <div class="entity-types-list">
-                    <div class="entity-types-header">
-                        <h3>Tipi di Entità Esistenti</h3>
-                        <button id="add-entity-type-btn" class="primary-btn">
-                            <span class="icon">+</span> Nuovo Tipo di Entità
-                        </button>
-                    </div>
-                    <div class="entity-types-table-container">
-                        <table id="entity-types-table" class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Nome</th>
-                                    <th>Nome Visualizzato</th>
-                                    <th>Categoria</th>
-                                    <th>Colore</th>
-                                    <th>Azioni</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <!-- I tipi di entità saranno inseriti qui dinamicamente -->
-                            </tbody>
-                        </table>
-                        <div id="loading-indicator" class="loading-spinner">
-                            <div class="spinner"></div>
-                            <p>Caricamento tipi di entità...</p>
+            <div class="card-body">
+                <!-- Filtri e ricerca -->
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="input-group">
+                            <span class="input-group-text bg-light">
+                                <i class="fas fa-search"></i>
+                            </span>
+                            <input type="text" id="entity-search" class="form-control" placeholder="Cerca tipi di entità...">
                         </div>
-                        <div id="empty-state" class="empty-state hidden">
-                            <p>Nessun tipo di entità trovato</p>
-                            <button id="add-first-entity" class="primary-btn">Aggiungi il primo tipo di entità</button>
+                    </div>
+                    <div class="col-md-6">
+                        <select id="category-filter" class="form-select">
+                            <option value="">Tutte le categorie</option>
+                            <option value="normative">Normativa</option>
+                            <option value="jurisprudence">Giurisprudenziale</option>
+                            <option value="concepts">Concetto</option>
+                            <option value="custom">Personalizzata</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Tabella delle entità -->
+                <div class="table-responsive">
+                    <table id="entity-types-table" class="table table-striped table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Nome</th>
+                                <th>Nome Visualizzato</th>
+                                <th>Categoria</th>
+                                <th>Colore</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- I tipi di entità saranno inseriti qui dinamicamente -->
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Indicatore di caricamento -->
+                <div id="loading-indicator" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Caricamento...</span>
+                    </div>
+                    <p class="mt-3">Caricamento tipi di entità...</p>
+                </div>
+                
+                <!-- Stato vuoto -->
+                <div id="empty-state" class="text-center py-5 d-none">
+                    <i class="fas fa-tag text-muted" style="font-size: 4rem;"></i>
+                    <h4 class="mt-3">Nessun tipo di entità trovato</h4>
+                    <p class="text-muted mb-4">Aggiungi il tuo primo tipo di entità per iniziare l'annotazione</p>
+                    <button id="add-first-entity" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>Aggiungi il primo tipo di entità
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Form per creare/modificare tipi di entità -->
+<div id="entity-type-form-container" class="card shadow mt-4 d-none">
+    <div class="card-header bg-primary bg-gradient text-white d-flex justify-content-between align-items-center">
+        <h5 id="form-title" class="mb-0">Nuovo Tipo di Entità</h5>
+        <button id="close-form-btn" class="btn-close btn-close-white" aria-label="Chiudi form"></button>
+    </div>
+    <div class="card-body">
+        <form id="entity-type-form" class="needs-validation" novalidate>
+            <input type="hidden" id="edit-mode" value="create">
+            <input type="hidden" id="original-name" value="">
+            
+            <div class="row g-3">
+                <!-- Prima colonna -->
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="entity-name" class="form-label">Nome Identificativo*</label>
+                        <input type="text" id="entity-name" class="form-control" placeholder="NOME_ENTITA" required>
+                        <div class="form-text">Il nome deve essere in maiuscolo e senza spazi (es. NOME_ENTITA)</div>
+                        <div id="name-validation" class="invalid-feedback"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="display-name" class="form-label">Nome Visualizzato*</label>
+                        <input type="text" id="display-name" class="form-control" placeholder="Nome Entità" required>
+                        <div class="form-text">Nome descrittivo mostrato nell'interfaccia</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Categoria*</label>
+                        <select id="category" class="form-select" required>
+                            <option value="custom">Personalizzata</option>
+                            <option value="normative">Normativa</option>
+                            <option value="jurisprudence">Giurisprudenziale</option>
+                            <option value="concepts">Concetto</option>
+                        </select>
+                        <div class="form-text">Raggruppa tipi di entità con scopi simili</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="color" class="form-label">Colore*</label>
+                        <div class="d-flex align-items-center">
+                            <input type="color" id="color" class="form-control form-control-color me-2" value="#CCCCCC" required title="Scegli un colore">
+                            <span id="color-preview" class="badge border">#CCCCCC</span>
+                        </div>
+                        <div class="mt-2">
+                            <div class="p-2 rounded text-white" id="color-sample" style="background-color: #CCCCCC;">Esempio di evidenziazione del testo</div>
                         </div>
                     </div>
                 </div>
                 
-                <div id="entity-type-form-container" class="entity-type-form-container hidden">
-                    <div class="form-header">
-                        <h3 id="form-title">Nuovo Tipo di Entità</h3>
-                        <button id="close-form-btn" class="close-btn" aria-label="Chiudi form">×</button>
+                <!-- Seconda colonna -->
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label for="metadata-schema" class="form-label">Schema dei Metadati (JSON)</label>
+                        <textarea id="metadata-schema" class="form-control font-monospace" rows="4" placeholder='{"chiave1": "string", "chiave2": "number"}'></textarea>
+                        <div class="form-text">Schema dei metadati in formato JSON. Lasciare vuoto per nessun metadato.</div>
+                        <div id="metadata-validation" class="invalid-feedback"></div>
                     </div>
                     
-                    <form id="entity-type-form">
-                        <input type="hidden" id="edit-mode" value="create">
-                        <input type="hidden" id="original-name" value="">
-                        
-                        <div class="form-group">
-                            <label for="entity-name">Nome Identificativo*</label>
-                            <input type="text" id="entity-name" placeholder="NOME_ENTITA" required>
-                            <small>Il nome deve essere in maiuscolo e senza spazi (es. NOME_ENTITA)</small>
-                            <div id="name-validation" class="validation-message"></div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="display-name">Nome Visualizzato*</label>
-                            <input type="text" id="display-name" placeholder="Nome Entità" required>
-                            <small>Nome descrittivo mostrato nell'interfaccia</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="category">Categoria*</label>
-                            <select id="category" required>
-                                <option value="custom">Personalizzata</option>
-                                <option value="normative">Normativa</option>
-                                <option value="jurisprudence">Giurisprudenziale</option>
-                                <option value="concepts">Concetto</option>
-                            </select>
-                            <small>Raggruppa tipi di entità con scopi simili</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="color">Colore*</label>
-                            <div class="color-picker-container">
-                                <input type="color" id="color" value="#CCCCCC" required>
-                                <span id="color-preview">#CCCCCC</span>
-                                <div class="color-sample-container">
-                                    <div class="color-sample" id="color-sample">Esempio</div>
-                                    <small>Anteprima del colore per l'evidenziazione</small>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="metadata-schema">Schema dei Metadati (JSON)</label>
-                            <textarea id="metadata-schema" placeholder='{"chiave1": "string", "chiave2": "number"}'></textarea>
-                            <small>Schema dei metadati in formato JSON. Lasciare vuoto per nessun metadato.</small>
-                            <div id="metadata-validation" class="validation-message"></div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="patterns">Pattern Regex (uno per riga)</label>
-                            <textarea id="patterns" placeholder="pattern regex 1&#10;pattern regex 2"></textarea>
-                            <small>Un pattern regex per riga. Lasciare vuoto per nessun pattern.</small>
-                            <div id="patterns-validation" class="validation-message"></div>
-                        </div>
-                        
-                        <div class="pattern-tester">
-                            <h4>Tester Pattern</h4>
-                            <textarea id="test-text" placeholder="Inserisci testo di esempio per testare i pattern..."></textarea>
-                            <button type="button" id="test-patterns-btn" class="secondary-btn">Testa i Pattern</button>
-                            <div id="test-results" class="test-results hidden">
-                                <h5>Risultati:</h5>
-                                <pre id="test-output"></pre>
-                            </div>
-                        </div>
-                        
-                        <div class="form-actions">
-                            <button type="button" id="cancel-btn" class="secondary-btn">Annulla</button>
-                            <button type="submit" id="save-btn" class="primary-btn">Salva</button>
-                        </div>
-                    </form>
+                    <div class="mb-3">
+                        <label for="patterns" class="form-label">Pattern Regex (uno per riga)</label>
+                        <textarea id="patterns" class="form-control font-monospace" rows="4" placeholder="pattern regex 1&#10;pattern regex 2"></textarea>
+                        <div class="form-text">Un pattern regex per riga. Lasciare vuoto per nessun pattern.</div>
+                        <div id="patterns-validation" class="invalid-feedback"></div>
+                    </div>
                 </div>
             </div>
-        </section>
-    </main>
-    
-    <div id="notification" class="notification"></div>
-    
-    <div id="confirmation-dialog" class="modal hidden">
+            
+            <!-- Tester pattern -->
+            <div class="card bg-light mt-4">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fas fa-flask me-2"></i>Tester Pattern
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="test-text" class="form-label">Testo di esempio</label>
+                        <textarea id="test-text" class="form-control" rows="3" placeholder="Inserisci testo di esempio per testare i pattern..."></textarea>
+                    </div>
+                    <button type="button" id="test-patterns-btn" class="btn btn-outline-primary">
+                        <i class="fas fa-vial me-2"></i>Testa i Pattern
+                    </button>
+                    
+                    <div id="test-results" class="mt-3 d-none">
+                        <h6>Risultati:</h6>
+                        <pre id="test-output" class="bg-white p-3 rounded border" style="max-height: 200px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="d-flex justify-content-end mt-4 pt-3 border-top">
+                <button type="button" id="cancel-btn" class="btn btn-outline-secondary me-2">Annulla</button>
+                <button type="submit" id="save-btn" class="btn btn-primary">Salva</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modale di conferma -->
+<div class="modal fade" id="confirmation-dialog" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
         <div class="modal-content">
-            <h3>Conferma Eliminazione</h3>
-            <p id="confirmation-message">Sei sicuro di voler eliminare questo tipo di entità?</p>
-            <div class="modal-actions">
-                <button id="confirm-cancel-btn" class="secondary-btn">Annulla</button>
-                <button id="confirm-delete-btn" class="danger-btn">Elimina</button>
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">Conferma Eliminazione</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmation-message">Sei sicuro di voler eliminare questo tipo di entità?</p>
+            </div>
+            <div class="modal-footer">
+                <button id="confirm-cancel-btn" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button id="confirm-delete-btn" class="btn btn-danger">Elimina</button>
             </div>
         </div>
     </div>
-    
-    <footer>
-        <p>&copy; 2025 NER-Giuridico</p>
-    </footer>
-    
-    <script src="{{ url_for('static', filename='js/entity_manager.js') }}"></script>
-</body>
-</html>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/entity_manager.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Sovrascrivi la funzione setLoading per essere più Bootstrap-friendly
+        window.setLoading = function(loading) {
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const entityTypesTable = document.getElementById('entity-types-table');
+            const emptyState = document.getElementById('empty-state');
+            
+            if (loading) {
+                loadingIndicator.classList.remove('d-none');
+                entityTypesTable.classList.add('d-none');
+                emptyState.classList.add('d-none');
+            } else {
+                loadingIndicator.classList.add('d-none');
+                
+                // Controlla se ci sono entità da mostrare
+                if (!Array.isArray(window.allEntities) || window.allEntities.length === 0) {
+                    emptyState.classList.remove('d-none');
+                    entityTypesTable.classList.add('d-none');
+                } else {
+                    emptyState.classList.add('d-none');
+                    entityTypesTable.classList.remove('d-none');
+                }
+            }
+        };
+        
+        // Sovrascrivi la funzione renderEntityTypes per usare classi Bootstrap
+        window.renderEntityTypes = function(entityTypes) {
+            // Svuota la tabella
+            const tbody = document.querySelector('#entity-types-table tbody');
+            tbody.innerHTML = '';
+            
+            // Verifica che entityTypes sia un array
+            if (!Array.isArray(entityTypes)) {
+                console.error('entityTypes non è un array:', entityTypes);
+                entityTypes = [];
+            }
+            
+            // Se non ci sono entità, mostra un messaggio nella tabella
+            if (entityTypes.length === 0) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 5;
+                td.textContent = 'Nessun tipo di entità trovato';
+                td.className = 'text-center py-4 text-muted';
+                tr.appendChild(td);
+                tbody.appendChild(tr);
+                return;
+            }
+            
+            // Aggiungi i tipi di entità alla tabella
+            entityTypes.forEach(entityType => {
+                const tr = document.createElement('tr');
+                
+                // Nome
+                const nameTd = document.createElement('td');
+                nameTd.textContent = entityType.name;
+                nameTd.className = 'align-middle';
+                tr.appendChild(nameTd);
+                
+                // Nome visualizzato
+                const displayNameTd = document.createElement('td');
+                displayNameTd.textContent = entityType.display_name;
+                displayNameTd.className = 'align-middle';
+                tr.appendChild(displayNameTd);
+                
+                // Categoria
+                const categoryTd = document.createElement('td');
+                const categoryBadge = document.createElement('span');
+                categoryBadge.className = 'badge rounded-pill';
+                
+                // Colore della badge in base alla categoria
+                switch (entityType.category) {
+                    case 'normative':
+                        categoryBadge.classList.add('bg-primary');
+                        break;
+                    case 'jurisprudence':
+                        categoryBadge.classList.add('bg-success');
+                        break;
+                    case 'concepts':
+                        categoryBadge.classList.add('bg-info');
+                        break;
+                    case 'custom':
+                        categoryBadge.classList.add('bg-secondary');
+                        break;
+                    default:
+                        categoryBadge.classList.add('bg-dark');
+                }
+                
+                categoryBadge.textContent = getCategoryDisplayName(entityType.category);
+                categoryTd.className = 'align-middle';
+                categoryTd.appendChild(categoryBadge);
+                tr.appendChild(categoryTd);
+                
+                // Colore
+                const colorTd = document.createElement('td');
+                colorTd.className = 'align-middle';
+                
+                const colorCell = document.createElement('div');
+                colorCell.className = 'd-flex align-items-center';
+                
+                const colorPreview = document.createElement('div');
+                colorPreview.className = 'me-2 rounded';
+                colorPreview.style.backgroundColor = entityType.color;
+                colorPreview.style.width = '24px';
+                colorPreview.style.height = '24px';
+                colorPreview.style.border = '1px solid rgba(0,0,0,0.1)';
+                
+                const colorText = document.createElement('code');
+                colorText.textContent = entityType.color;
+                
+                colorCell.appendChild(colorPreview);
+                colorCell.appendChild(colorText);
+                colorTd.appendChild(colorCell);
+                tr.appendChild(colorTd);
+                
+                // Azioni
+                const actionsTd = document.createElement('td');
+                actionsTd.className = 'align-middle';
+                
+                const actionButtons = document.createElement('div');
+                actionButtons.className = 'btn-group';
+                
+                const editBtn = document.createElement('button');
+                editBtn.className = 'btn btn-sm btn-outline-primary';
+                editBtn.innerHTML = '<i class="fas fa-edit me-1"></i> Modifica';
+                editBtn.title = 'Modifica il tipo di entità';
+                editBtn.addEventListener('click', () => showEditForm(entityType));
+                
+                actionButtons.appendChild(editBtn);
+                
+                // Aggiungi sempre il pulsante di eliminazione, ma con styling diverso per tipi predefiniti
+                const deleteBtn = document.createElement('button');
+                
+                if (entityType.category === 'custom') {
+                    deleteBtn.className = 'btn btn-sm btn-outline-danger';
+                    deleteBtn.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Elimina';
+                    deleteBtn.title = 'Elimina il tipo di entità';
+                } else {
+                    deleteBtn.className = 'btn btn-sm btn-outline-secondary disabled';
+                    deleteBtn.innerHTML = '<i class="fas fa-lock me-1"></i> Protetto';
+                    deleteBtn.title = 'Le entità predefinite non possono essere eliminate';
+                    deleteBtn.disabled = true;
+                }
+                
+                deleteBtn.addEventListener('click', () => {
+                    if (entityType.category === 'custom') {
+                        showDeleteConfirmation(entityType);
+                    } else {
+                        showNotification('Le entità predefinite non possono essere eliminate', 'warning');
+                    }
+                });
+                
+                actionButtons.appendChild(deleteBtn);
+                
+                actionsTd.appendChild(actionButtons);
+                tr.appendChild(actionsTd);
+                
+                tbody.appendChild(tr);
+            });
+        };
+        
+        // Sovrascrivi la funzione showNotification per usare i toast di Bootstrap
+        window.showNotification = function(message, type = 'primary') {
+            const toast = new bootstrap.Toast(document.getElementById('notification-toast'));
+            document.getElementById('notification-message').textContent = message;
+            
+            // Imposta il tipo/colore
+            const toastElement = document.getElementById('notification-toast');
+            toastElement.className = toastElement.className.replace(/bg-\w+/, '');
+            toastElement.classList.add(`bg-${type}`);
+            
+            toast.show();
+        };
+        
+        // Sovrascrivi la funzione showDeleteConfirmation per usare il modale di Bootstrap
+        window.showDeleteConfirmation = function(entityType) {
+            window.entityToDelete = entityType;
+            
+            const confirmationMessage = document.getElementById('confirmation-message');
+            confirmationMessage.innerHTML = `Sei sicuro di voler eliminare il tipo di entità <strong>"${entityType.name}"</strong> (${entityType.display_name})?`;
+            
+            // Aggiungiamo un testo aggiuntivo per la categoria
+            if (entityType.category !== 'custom') {
+                const warningText = document.createElement('div');
+                warningText.className = 'alert alert-warning mt-3';
+                warningText.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Attenzione: Questa è un\'entità predefinita. L\'eliminazione potrebbe non essere possibile.';
+                confirmationMessage.appendChild(warningText);
+            }
+            
+            const confirmationModal = new bootstrap.Modal(document.getElementById('confirmation-dialog'));
+            confirmationModal.show();
+        };
+        
+        // Sovrascrivi la funzione updateColorPreview per un'anteprima più accurata
+        window.updateColorPreview = function() {
+            const colorValue = document.getElementById('color').value;
+            const colorPreview = document.getElementById('color-preview');
+            const colorSample = document.getElementById('color-sample');
+            
+            colorPreview.textContent = colorValue;
+            colorSample.style.backgroundColor = colorValue;
+            
+            // Calcola il colore del testo in base al colore di sfondo
+            const rgb = hexToRgb(colorValue);
+            const luminance = calculateLuminance(rgb.r, rgb.g, rgb.b);
+            colorSample.style.color = luminance > 0.5 ? '#000000' : '#FFFFFF';
+        };
+        
+        // Sovrascrivi i gestori degli eventi di validazione per usare classi Bootstrap
+        const nameInput = document.getElementById('entity-name');
+        nameInput.addEventListener('input', function() {
+            validateEntityName();
+        });
+        
+        const metadataSchemaInput = document.getElementById('metadata-schema');
+        metadataSchemaInput.addEventListener('input', function() {
+            validateMetadataSchema();
+        });
+        
+        const patternsInput = document.getElementById('patterns');
+        patternsInput.addEventListener('input', function() {
+            validatePatterns();
+        });
+        
+        // Sovrascrivi le funzioni di validazione per usare classi Bootstrap
+        window.validateEntityName = function() {
+            const name = nameInput.value;
+            const nameValidation = document.getElementById('name-validation');
+            
+            // Resetta lo stato di validazione
+            nameInput.classList.remove('is-valid', 'is-invalid');
+            nameValidation.textContent = '';
+            
+            if (!name) {
+                nameInput.classList.add('is-invalid');
+                nameValidation.textContent = 'Il nome è obbligatorio';
+                return false;
+            }
+            
+            if (name !== name.toUpperCase()) {
+                nameInput.classList.add('is-invalid');
+                nameValidation.textContent = 'Il nome deve essere in maiuscolo';
+                return false;
+            }
+            
+            if (name.includes(' ')) {
+                nameInput.classList.add('is-invalid');
+                nameValidation.textContent = 'Il nome non deve contenere spazi';
+                return false;
+            }
+            
+            // Controlla se il nome è già utilizzato (solo in modalità creazione)
+            if (document.getElementById('edit-mode').value === 'create') {
+                const existingEntity = window.allEntities.find(entity => entity.name === name);
+                if (existingEntity) {
+                    nameInput.classList.add('is-invalid');
+                    nameValidation.textContent = 'Questo nome è già in uso';
+                    return false;
+                }
+            }
+            
+            nameInput.classList.add('is-valid');
+            return true;
+        };
+        
+        window.validateMetadataSchema = function() {
+            const schema = metadataSchemaInput.value.trim();
+            const metadataValidation = document.getElementById('metadata-validation');
+            
+            // Resetta lo stato di validazione
+            metadataSchemaInput.classList.remove('is-valid', 'is-invalid');
+            metadataValidation.textContent = '';
+            
+            // Se lo schema è vuoto, è valido
+            if (!schema) {
+                return true;
+            }
+            
+            // Prova a parsare lo schema JSON
+            try {
+                JSON.parse(schema);
+                metadataSchemaInput.classList.add('is-valid');
+                return true;
+            } catch (error) {
+                metadataSchemaInput.classList.add('is-invalid');
+                metadataValidation.textContent = `Schema JSON non valido: ${error.message}`;
+                return false;
+            }
+        };
+        
+        window.validatePatterns = function() {
+            const patterns = patternsInput.value.trim();
+            const patternsValidation = document.getElementById('patterns-validation');
+            
+            // Resetta lo stato di validazione
+            patternsInput.classList.remove('is-valid', 'is-invalid');
+            patternsValidation.textContent = '';
+            
+            // Se non ci sono pattern, è valido
+            if (!patterns) {
+                return true;
+            }
+            
+            // Dividi i pattern in righe
+            const patternLines = patterns.split('\n').filter(line => line.trim() !== '');
+            
+            // Prova a compilare ogni pattern regex
+            let allValid = true;
+            let invalidPattern = null;
+            let errorMessage = null;
+            
+            for (const pattern of patternLines) {
+                try {
+                    new RegExp(pattern);
+                } catch (error) {
+                    allValid = false;
+                    invalidPattern = pattern;
+                    errorMessage = error.message;
+                    break;
+                }
+            }
+            
+            if (allValid) {
+                patternsInput.classList.add('is-valid');
+                return true;
+            } else {
+                patternsInput.classList.add('is-invalid');
+                patternsValidation.textContent = `Pattern non valido: "${invalidPattern}" - ${errorMessage}`;
+                return false;
+            }
+        };
+        
+        // Migliora la visualizzazione del form
+        window.showCreateForm = function() {
+            // Resetta il form
+            document.getElementById('entity-type-form').reset();
+            document.getElementById('edit-mode').value = 'create';
+            document.getElementById('original-name').value = '';
+            document.getElementById('form-title').textContent = 'Nuovo Tipo di Entità';
+            document.getElementById('save-btn').textContent = 'Crea';
+            
+            // Abilita il campo del nome
+            nameInput.disabled = false;
+            
+            // Inizializza il colore
+            document.getElementById('color').value = '#CCCCCC';
+            updateColorPreview();
+            
+            // Rimuovi classi di validazione
+            document.querySelectorAll('.is-valid, .is-invalid').forEach(el => {
+                el.classList.remove('is-valid', 'is-invalid');
+            });
+            
+            // Nascondi i risultati del test
+            document.getElementById('test-results').classList.add('d-none');
+            
+            // Mostra il form
+            document.getElementById('entity-type-form-container').classList.remove('d-none');
+            
+            // Scorri fino al form
+            document.getElementById('entity-type-form-container').scrollIntoView({behavior: 'smooth'});
+            
+            // Focus sul campo del nome
+            nameInput.focus();
+        };
+        
+        // Migliora la funzione per nascondere il form
+        window.hideForm = function() {
+            document.getElementById('entity-type-form-container').classList.add('d-none');
+            
+            // Rimuovi classi di validazione
+            document.querySelectorAll('.is-valid, .is-invalid').forEach(el => {
+                el.classList.remove('is-valid', 'is-invalid');
+            });
+        };
+    });
+</script>
+{% endblock %}

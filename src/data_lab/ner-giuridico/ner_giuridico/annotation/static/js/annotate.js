@@ -1,5 +1,10 @@
+/**
+ * annotate.js - Script migliorato per la funzionalità di annotazione
+ * Versione aggiornata con supporto per Bootstrap 5 e un'esperienza utente migliore
+ */
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Elementi DOM principali
+    // === Elementi DOM principali ===
     const textContent = document.getElementById('text-content');
     const docId = textContent.dataset.docId;
     const entityTypes = document.querySelectorAll('.entity-type');
@@ -9,106 +14,197 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchAnnotations = document.getElementById('search-annotations');
     const annotationStatus = document.getElementById('annotation-status');
     const annotationCount = document.getElementById('annotation-count');
-    const notification = document.getElementById('notification');
+    const visibleCount = document.getElementById('visible-count');
+    const annotationProgress = document.getElementById('annotation-progress');
+    const noAnnotationsMsg = document.getElementById('no-annotations');
     
-    // Controlli per lo zoom del testo
+    // === Controlli per lo zoom del testo ===
     const zoomInBtn = document.getElementById('zoom-in');
     const zoomOutBtn = document.getElementById('zoom-out');
     const resetZoomBtn = document.getElementById('reset-zoom');
     
-    // Stato dell'applicazione
+    // === Stato dell'applicazione ===
     let selectedType = null;
     let originalTextSize = 1.05; // rem
     let currentTextSize = originalTextSize;
-    
-    // Debug
-    console.log(`Tipi di entità disponibili: ${entityTypes.length}`);
-    entityTypes.forEach(et => {
-        console.log(`Entità: ${et.textContent.trim()}, tipo: ${et.dataset.type}, colore: ${et.style.backgroundColor}`);
-    });
-    
-    // Carica le annotazioni esistenti
-    const existingAnnotations = [];
-    document.querySelectorAll('.annotation-item').forEach(item => {
-        const id = item.dataset.id;
-        const text = item.querySelector('.annotation-text').textContent;
-        const typeElement = item.querySelector('.annotation-type');
-        const type = item.dataset.type;
-        const start = parseInt(item.dataset.start);
-        const end = parseInt(item.dataset.end);
-        const color = typeElement ? typeElement.style.backgroundColor : "";
+    let existingAnnotations = [];
+
+    // === Carica le annotazioni esistenti ===
+    function loadExistingAnnotations() {
+        existingAnnotations = [];
+        document.querySelectorAll('.annotation-item').forEach(item => {
+            const id = item.dataset.id;
+            const text = item.querySelector('.annotation-text').textContent;
+            const type = item.dataset.type;
+            const start = parseInt(item.dataset.start);
+            const end = parseInt(item.dataset.end);
+            
+            // Trova il colore dall'elemento badge
+            const typeElement = item.querySelector('.annotation-type');
+            const color = typeElement ? typeElement.style.backgroundColor : "";
+            
+            existingAnnotations.push({ id, text, type, start, end, color });
+        });
         
-        existingAnnotations.push({ id, text, type, start, end, color });
-    });
-    
-    // Aggiorna il conteggio delle annotazioni
-    updateAnnotationCount();
-    
-    // Funzione per mostrare notifiche
-    function showNotification(message, type = 'info') {
-        notification.textContent = message;
-        notification.className = `notification ${type} show`;
+        // Aggiorna i contatori e statistiche
+        updateAnnotationCount();
+        updateEntityCounters();
+        updateAnnotationProgress();
+        updateVisibleCount();
         
-        setTimeout(() => {
-            notification.className = 'notification';
-        }, 3000);
-    }
-    
-    // Funzione per aggiornare lo stato dell'annotazione
-    function updateStatus(message, isError = false) {
-        annotationStatus.textContent = message;
-        annotationStatus.style.backgroundColor = isError ? '#ffcccc' : '#e6f7ff';
-        annotationStatus.style.color = isError ? '#dc3545' : '#0066cc';
-        
-        // Rimuovi il messaggio dopo un po'
-        if (message) {
-            setTimeout(() => {
-                annotationStatus.textContent = '';
-                annotationStatus.style.backgroundColor = '';
-                annotationStatus.style.color = '';
-            }, 5000);
+        // Aggiorna visibilità del messaggio "nessuna annotazione"
+        if (existingAnnotations.length === 0) {
+            if (noAnnotationsMsg) noAnnotationsMsg.classList.remove('d-none');
+        } else {
+            if (noAnnotationsMsg) noAnnotationsMsg.classList.add('d-none');
         }
     }
     
-    // Funzione per aggiornare il conteggio delle annotazioni
-    function updateAnnotationCount() {
-        const count = document.querySelectorAll('.annotation-item').length;
-        annotationCount.textContent = `(${count})`;
+    // Esegui il caricamento iniziale
+    loadExistingAnnotations();
+    
+    // === Sistema di notifiche migliorato ===
+    function showNotification(message, type = 'primary') {
+        // Usa i toast di Bootstrap
+        const toastEl = document.getElementById('notification-toast');
+        if (!toastEl) return;
+        
+        const toastBody = toastEl.querySelector('.toast-body');
+        toastBody.textContent = message;
+        
+        // Imposta il tipo di toast
+        toastEl.className = toastEl.className.replace(/bg-\w+/, '');
+        toastEl.classList.add(`bg-${type}`);
+        
+        // Mostra il toast
+        const toast = new bootstrap.Toast(toastEl);
+        toast.show();
     }
     
-    // Gestione dello zoom del testo
-    zoomInBtn.addEventListener('click', function() {
-        currentTextSize = Math.min(currentTextSize + 0.1, 2);
-        textContent.style.fontSize = `${currentTextSize}rem`;
-    });
-    
-    zoomOutBtn.addEventListener('click', function() {
-        currentTextSize = Math.max(currentTextSize - 0.1, 0.8);
-        textContent.style.fontSize = `${currentTextSize}rem`;
-    });
-    
-    resetZoomBtn.addEventListener('click', function() {
-        currentTextSize = originalTextSize;
-        textContent.style.fontSize = `${currentTextSize}rem`;
-    });
-    
-    // Gestione della ricerca nelle annotazioni
-    searchAnnotations.addEventListener('input', function() {
-        const query = this.value.toLowerCase();
+    // === Funzione per aggiornare lo stato dell'annotazione ===
+    function updateStatus(message, isError = false) {
+        if (!annotationStatus) return;
         
-        document.querySelectorAll('.annotation-item').forEach(item => {
-            const text = item.querySelector('.annotation-text').textContent.toLowerCase();
-            const type = item.querySelector('.annotation-type').textContent.toLowerCase();
-            
-            if (text.includes(query) || type.includes(query)) {
-                item.style.display = '';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-    });
+        if (!message) {
+            annotationStatus.classList.add('d-none');
+            return;
+        }
+        
+        annotationStatus.textContent = message;
+        annotationStatus.classList.remove('d-none', 'alert-info', 'alert-danger');
+        annotationStatus.classList.add(isError ? 'alert-danger' : 'alert-info');
+        
+        // Rimuovi il messaggio dopo un po'
+        setTimeout(() => {
+            annotationStatus.classList.add('d-none');
+        }, 5000);
+    }
     
-    // Gestione scorciatoie da tastiera
+    // === Funzioni per aggiornare statistiche e contatori ===
+    function updateAnnotationCount() {
+        const count = document.querySelectorAll('.annotation-item').length;
+        if (annotationCount) annotationCount.textContent = `(${count})`;
+    }
+    
+    function updateEntityCounters() {
+        // Resetta tutti i contatori
+        document.querySelectorAll('.entity-counter').forEach(counter => {
+            counter.textContent = '0';
+        });
+        
+        // Conta le annotazioni per tipo
+        const annotations = document.querySelectorAll('.annotation-item');
+        const counts = {};
+        
+        annotations.forEach(item => {
+            const type = item.dataset.type;
+            counts[type] = (counts[type] || 0) + 1;
+        });
+        
+        // Aggiorna i contatori
+        for (const [type, count] of Object.entries(counts)) {
+            const counter = document.querySelector(`.entity-counter[data-type="${type}"]`);
+            if (counter) {
+                counter.textContent = count;
+            }
+        }
+    }
+    
+    function updateAnnotationProgress() {
+        if (!annotationProgress) return;
+        
+        const totalWords = parseInt(textContent.dataset.wordCount) || 100;
+        const annotationCount = document.querySelectorAll('.annotation-item').length;
+        
+        // Calcola una stima della copertura (puramente visiva)
+        const coverage = Math.min(annotationCount / (totalWords / 20) * 100, 100);
+        
+        annotationProgress.style.width = `${coverage}%`;
+        
+        // Aggiorna il colore in base alla copertura
+        annotationProgress.className = 'progress-bar';
+        if (coverage < 30) {
+            annotationProgress.classList.add('bg-danger');
+        } else if (coverage < 70) {
+            annotationProgress.classList.add('bg-warning');
+        } else {
+            annotationProgress.classList.add('bg-success');
+        }
+    }
+    
+    function updateVisibleCount() {
+        if (!visibleCount) return;
+        
+        const total = document.querySelectorAll('.annotation-item').length;
+        const visible = document.querySelectorAll('.annotation-item:not(.d-none)').length;
+        
+        visibleCount.textContent = visible === total ? total : `${visible}/${total}`;
+    }
+    
+    // === Gestione dello zoom del testo ===
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', function() {
+            currentTextSize = Math.min(currentTextSize + 0.1, 2);
+            textContent.style.fontSize = `${currentTextSize}rem`;
+        });
+    }
+    
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', function() {
+            currentTextSize = Math.max(currentTextSize - 0.1, 0.8);
+            textContent.style.fontSize = `${currentTextSize}rem`;
+        });
+    }
+    
+    if (resetZoomBtn) {
+        resetZoomBtn.addEventListener('click', function() {
+            currentTextSize = originalTextSize;
+            textContent.style.fontSize = `${currentTextSize}rem`;
+        });
+    }
+    
+    // === Gestione della ricerca nelle annotazioni ===
+    if (searchAnnotations) {
+        searchAnnotations.addEventListener('input', function() {
+            const query = this.value.toLowerCase();
+            
+            document.querySelectorAll('.annotation-item').forEach(item => {
+                const text = item.querySelector('.annotation-text').textContent.toLowerCase();
+                const type = item.querySelector('.annotation-type').textContent.toLowerCase();
+                
+                if (text.includes(query) || type.includes(query)) {
+                    item.classList.remove('d-none');
+                } else {
+                    item.classList.add('d-none');
+                }
+            });
+            
+            // Aggiorna il contatore di elementi visibili
+            updateVisibleCount();
+        });
+    }
+    
+    // === Gestione scorciatoie da tastiera ===
     document.addEventListener('keydown', function(e) {
         // Escape per annullare la selezione
         if (e.key === 'Escape') {
@@ -118,13 +214,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Alt+A per annotazione automatica
         if (e.key === 'a' && e.altKey) {
             e.preventDefault();
-            if (!autoAnnotateBtn.disabled) {
+            if (autoAnnotateBtn && !autoAnnotateBtn.disabled) {
                 autoAnnotateBtn.click();
             }
         }
     });
     
-    // Gestione della selezione del tipo di entità
+    // === Gestione della selezione del tipo di entità ===
     entityTypes.forEach(entityType => {
         entityType.addEventListener('click', function() {
             // Rimuovi la selezione precedente
@@ -133,11 +229,14 @@ document.addEventListener('DOMContentLoaded', function() {
             // Seleziona il nuovo tipo
             this.classList.add('selected');
             selectedType = this.dataset.type;
-            updateStatus(`Tipo selezionato: ${this.textContent.trim()}`);
+            
+            // Mostra il messaggio di stato
+            const entityName = this.querySelector('.entity-name').textContent;
+            updateStatus(`Tipo selezionato: ${entityName}. Seleziona il testo da annotare.`);
         });
     });
     
-    // Funzione per pulire la selezione
+    // === Funzione per pulire la selezione ===
     function clearSelection() {
         entityTypes.forEach(et => et.classList.remove('selected'));
         selectedType = null;
@@ -145,10 +244,12 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStatus('Selezione annullata');
     }
     
-    // Gestione del pulsante per annullare la selezione
-    clearSelectionBtn.addEventListener('click', clearSelection);
+    // === Gestione del pulsante per annullare la selezione ===
+    if (clearSelectionBtn) {
+        clearSelectionBtn.addEventListener('click', clearSelection);
+    }
     
-    // Funzione per determinare l'offset reale nel testo
+    // === Funzione per determinare l'offset reale nel testo ===
     function getTextNodeOffset(container, targetNode, offset) {
         if (container === targetNode) {
             return offset;
@@ -168,7 +269,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return -1;
     }
     
-    // Ordina le annotazioni per posizione di inizio
+    // === Ordina le annotazioni per posizione di inizio ===
     function sortAnnotationsByPosition(annotations) {
         return [...annotations].sort((a, b) => {
             // Ordinamento principale per posizione di inizio
@@ -180,40 +281,26 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Verifica se due annotazioni si sovrappongono
+    // === Verifica se due annotazioni si sovrappongono ===
     function isOverlapping(a, b) {
         return (a.start <= b.end && a.end >= b.start);
     }
     
-    // Funzione per evidenziare le annotazioni esistenti nel testo
+    // === Funzione per evidenziare le annotazioni esistenti nel testo ===
     function highlightExistingAnnotations() {
         const text = textContent.textContent;
-        let annotations = existingAnnotations.slice();
         
         // Aggiorna l'array delle annotazioni con i dati correnti dal DOM
-        annotations = [];
-        document.querySelectorAll('.annotation-item').forEach(item => {
-            const id = item.dataset.id;
-            const start = parseInt(item.dataset.start);
-            const end = parseInt(item.dataset.end);
-            const type = item.dataset.type;
-            const typeElement = item.querySelector('.annotation-type');
-            const color = typeElement ? typeElement.style.backgroundColor : "";
-            const text = item.querySelector('.annotation-text').textContent;
-            
-            if (!isNaN(start) && !isNaN(end)) {
-                annotations.push({ id, start, end, type, color, text });
-            }
-        });
+        loadExistingAnnotations();
         
         // Se non ci sono annotazioni, mostra solo il testo originale
-        if (annotations.length === 0) {
+        if (existingAnnotations.length === 0) {
             textContent.innerHTML = text;
             return;
         }
         
         // Ordina le annotazioni per posizione di inizio e poi per lunghezza (più lunghe prima)
-        annotations = sortAnnotationsByPosition(annotations);
+        const annotations = sortAnnotationsByPosition(existingAnnotations);
         
         // Crea un array di oggetti che rappresentano ogni carattere del testo
         const charObjects = Array.from(text).map((char, index) => ({
@@ -255,7 +342,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const isOverlap = currentAnnotations.length > 0;
                 const entityName = getEntityNameById(ann.type);
                 
-                // In the highlightExistingAnnotations function, modify the HTML generation
                 htmlContent += `<span class="entity-highlight ${isOverlap ? 'overlap' : ''}" 
                       style="background-color: ${ann.color};" 
                       data-id="${ann.id}" 
@@ -298,17 +384,17 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Funzione per ottenere il nome dell'entità dal suo ID
+    // === Funzione per ottenere il nome dell'entità dal suo ID ===
     function getEntityNameById(entityId) {
         for (const entityType of entityTypes) {
             if (entityType.dataset.type === entityId) {
-                return entityType.textContent.trim();
+                return entityType.querySelector('.entity-name').textContent;
             }
         }
         return entityId;
     }
     
-    // Funzione per ottenere il colore dell'entità dal suo ID
+    // === Funzione per ottenere il colore dell'entità dal suo ID ===
     function getEntityColorById(entityId) {
         for (const entityType of entityTypes) {
             if (entityType.dataset.type === entityId) {
@@ -318,8 +404,11 @@ document.addEventListener('DOMContentLoaded', function() {
         return "#CCCCCC";
     }
     
-    // Gestione della selezione del testo
+    // === Gestione della selezione del testo ===
     textContent.addEventListener('mouseup', function(e) {
+        // Se il contenuto è in modalità di modifica, non fare nulla
+        if (textContent.contentEditable === 'true') return;
+        
         const selection = window.getSelection();
         
         // Verifica se c'è del testo selezionato
@@ -328,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         if (!selectedType) {
-            showNotification('Seleziona prima un tipo di entità', 'error');
+            showNotification('Seleziona prima un tipo di entità', 'danger');
             updateStatus('Seleziona un tipo di entità prima di annotare', true);
             return;
         }
@@ -376,33 +465,50 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             
             if (hasOverlap) {
-                const proceed = confirm('La selezione si sovrappone a un\'annotazione esistente. Continuare?');
-                if (!proceed) {
-                    updateStatus('Annotazione annullata', true);
-                    return;
-                }
+                // Usa un modale di conferma Bootstrap anziché il confirm standard
+                const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
+                document.getElementById('confirm-title').textContent = 'Sovrapposizione rilevata';
+                document.getElementById('confirm-message').textContent = 
+                    'La selezione si sovrappone a un\'annotazione esistente. Continuare comunque?';
+                
+                const confirmBtn = document.getElementById('confirm-action-btn');
+                confirmBtn.textContent = 'Continua';
+                confirmBtn.className = 'btn btn-warning';
+                
+                confirmBtn.onclick = function() {
+                    confirmModal.hide();
+                    createAnnotation(startOffset, endOffset, selectedText, selectedType);
+                };
+                
+                confirmModal.show();
+                return;
             }
             
             // Crea l'annotazione
-            const annotation = {
-                start: startOffset,
-                end: endOffset,
-                text: selectedText,
-                type: selectedType
-            };
+            createAnnotation(startOffset, endOffset, selectedText, selectedType);
             
-            console.log(`Creata annotazione: ${JSON.stringify(annotation)}`);
-            updateStatus('Creazione annotazione in corso...');
-            
-            // Salva l'annotazione
-            saveAnnotation(annotation);
         } catch (e) {
             console.error("Errore nella selezione del testo:", e);
             updateStatus('Errore nella selezione del testo', true);
         }
     });
     
-    // Funzione per salvare un'annotazione
+    // === Funzione per creare un'annotazione ===
+    function createAnnotation(start, end, text, type) {
+        const annotation = {
+            start: start,
+            end: end,
+            text: text,
+            type: type
+        };
+        
+        updateStatus('Creazione annotazione in corso...');
+        
+        // Salva l'annotazione
+        saveAnnotation(annotation);
+    }
+    
+    // === Funzione per salvare un'annotazione ===
     function saveAnnotation(annotation) {
         fetch('/api/save_annotation', {
             method: 'POST',
@@ -431,46 +537,54 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Riesegui l'highlighting
                 highlightExistingAnnotations();
                 
-                // Aggiorna il conteggio
-                updateAnnotationCount();
-                
                 // Mostra notifica
                 showNotification('Annotazione salvata con successo', 'success');
                 updateStatus('Annotazione salvata con successo');
             } else {
-                showNotification(`Errore: ${data.message}`, 'error');
+                showNotification(`Errore: ${data.message}`, 'danger');
                 updateStatus(`Errore: ${data.message}`, true);
             }
         })
         .catch(error => {
             console.error('Errore:', error);
-            showNotification('Errore durante il salvataggio', 'error');
+            showNotification('Errore durante il salvataggio', 'danger');
             updateStatus('Errore durante il salvataggio', true);
         });
     }
     
-    // Funzione per aggiungere un'annotazione alla lista
+    // === Funzione per aggiungere un'annotazione alla lista ===
     function addAnnotationToList(annotation) {
         // Ottieni il colore e il nome del tipo di entità
         const entityColor = getEntityColorById(annotation.type);
         const entityName = getEntityNameById(annotation.type);
         
+        // Nascondi il messaggio "nessuna annotazione"
+        if (noAnnotationsMsg) noAnnotationsMsg.classList.add('d-none');
+        
         // Crea l'elemento HTML per l'annotazione
         const annotationItem = document.createElement('div');
-        annotationItem.className = 'annotation-item';
+        annotationItem.className = 'annotation-item card mb-2';
         annotationItem.dataset.id = annotation.id;
         annotationItem.dataset.start = annotation.start;
         annotationItem.dataset.end = annotation.end;
         annotationItem.dataset.type = annotation.type;
         
         annotationItem.innerHTML = `
-            <span class="annotation-text">${annotation.text}</span>
-            <span class="annotation-type" style="background-color: ${entityColor}">
-                ${entityName || annotation.type}
-            </span>
-            <div class="annotation-actions">
-                <button class="jump-to-annotation" data-id="${annotation.id}" title="Vai al testo">🔍</button>
-                <button class="delete-annotation" data-id="${annotation.id}" title="Elimina">🗑️</button>
+            <div class="card-body p-2">
+                <div class="d-flex align-items-start mb-2">
+                    <span class="annotation-type badge me-2" style="background-color: ${entityColor}">
+                        ${entityName || annotation.type}
+                    </span>
+                    <span class="annotation-text flex-grow-1 small">${annotation.text}</span>
+                </div>
+                <div class="annotation-actions d-flex justify-content-end">
+                    <button class="btn btn-sm btn-outline-primary jump-to-annotation me-1" data-id="${annotation.id}" title="Vai al testo">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger delete-annotation" data-id="${annotation.id}" title="Elimina">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
             </div>
         `;
         
@@ -493,9 +607,15 @@ document.addEventListener('DOMContentLoaded', function() {
         setTimeout(() => {
             annotationItem.classList.remove('highlight');
         }, 2000);
+        
+        // Aggiorna contatori e statistiche
+        updateAnnotationCount();
+        updateEntityCounters();
+        updateAnnotationProgress();
+        updateVisibleCount();
     }
     
-    // Funzione per saltare a una specifica annotazione nel testo
+    // === Funzione per saltare a una specifica annotazione nel testo ===
     function jumpToAnnotation(annotationId) {
         const highlight = document.querySelector(`.entity-highlight[data-id="${annotationId}"]`);
         
@@ -518,96 +638,33 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Funzione per eliminare un'annotazione
+    // === Funzione per eliminare un'annotazione ===
     function deleteAnnotation(annotationId) {
-        if (!confirm('Sei sicuro di voler eliminare questa annotazione?')) {
-            return;
-        }
+        // Usa un modale di conferma Bootstrap anziché il confirm standard
+        const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
+        document.getElementById('confirm-title').textContent = 'Elimina annotazione';
+        document.getElementById('confirm-message').textContent = 'Sei sicuro di voler eliminare questa annotazione?';
         
-        updateStatus('Eliminazione in corso...');
+        const confirmBtn = document.getElementById('confirm-action-btn');
+        confirmBtn.textContent = 'Elimina';
+        confirmBtn.className = 'btn btn-danger';
         
-        fetch('/api/delete_annotation', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                doc_id: docId,
-                annotation_id: annotationId
-            })
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Errore HTTP: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                // Rimuovi l'annotazione dalla lista
-                const annotationItem = document.querySelector(`.annotation-item[data-id="${annotationId}"]`);
-                if (annotationItem) {
-                    annotationItem.remove();
-                }
-                
-                // Riesegui l'highlighting
-                highlightExistingAnnotations();
-                
-                // Aggiorna il conteggio
-                updateAnnotationCount();
-                
-                // Mostra notifica
-                showNotification('Annotazione eliminata', 'success');
-                updateStatus('Annotazione eliminata con successo');
-            } else {
-                showNotification(`Errore: ${data.message}`, 'error');
-                updateStatus(`Errore: ${data.message}`, true);
-            }
-        })
-        .catch(error => {
-            console.error('Errore:', error);
-            showNotification('Errore durante l\'eliminazione', 'error');
-            updateStatus('Errore durante l\'eliminazione', true);
-        });
-    }
-    
-    // Gestione degli eventi di eliminazione per le annotazioni esistenti
-    document.querySelectorAll('.delete-annotation').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const annotationId = this.dataset.id;
-            deleteAnnotation(annotationId);
-        });
-    });
-    
-    // Gestione degli eventi di salto all'annotazione
-    document.querySelectorAll('.jump-to-annotation').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const annotationId = this.dataset.id;
-            jumpToAnnotation(annotationId);
-        });
-    });
-    
-    // Gestione del pulsante per l'annotazione automatica
-    if (autoAnnotateBtn) {
-        autoAnnotateBtn.addEventListener('click', function() {
-            const text = textContent.textContent;
+        confirmBtn.onclick = function() {
+            // Disabilita il pulsante e mostra il caricamento
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
             
-            if (!confirm('Vuoi eseguire il riconoscimento automatico delle entità nel testo? Questo processo potrebbe richiedere alcuni secondi.')) {
-                return;
-            }
+            updateStatus('Eliminazione in corso...');
             
-            // Mostra un indicatore di caricamento
-            autoAnnotateBtn.disabled = true;
-            autoAnnotateBtn.textContent = "Elaborazione...";
-            updateStatus('Riconoscimento automatico in corso...');
-            
-            // Richiedi il riconoscimento automatico delle entità
-            fetch('/api/recognize', {
+            fetch('/api/delete_annotation', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ text: text })
+                body: JSON.stringify({
+                    doc_id: docId,
+                    annotation_id: annotationId
+                })
             })
             .then(response => {
                 if (!response.ok) {
@@ -616,288 +673,294 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
+                confirmModal.hide();
+                
                 if (data.status === 'success') {
-                    const entities = data.entities;
-                    console.log(`Riconosciute ${entities.length} entità automaticamente`);
-                    
-                    if (entities.length === 0) {
-                        showNotification('Nessuna entità riconosciuta', 'info');
-                        updateStatus('Nessuna entità riconosciuta');
-                        autoAnnotateBtn.disabled = false;
-                        autoAnnotateBtn.textContent = "Riconoscimento automatico";
-                        return;
+                    // Rimuovi l'annotazione dalla lista con animazione
+                    const annotationItem = document.querySelector(`.annotation-item[data-id="${annotationId}"]`);
+                    if (annotationItem) {
+                        annotationItem.style.transition = 'all 0.3s ease';
+                        annotationItem.style.opacity = '0';
+                        annotationItem.style.height = '0';
+                        annotationItem.style.overflow = 'hidden';
+                        
+                        setTimeout(() => {
+                            annotationItem.remove();
+                            
+                            // Riesegui l'highlighting
+                            highlightExistingAnnotations();
+                            
+                            // Mostra il messaggio "nessuna annotazione" se non ci sono più annotazioni
+                            if (document.querySelectorAll('.annotation-item').length === 0) {
+                                if (noAnnotationsMsg) noAnnotationsMsg.classList.remove('d-none');
+                            }
+                        }, 300);
+                    } else {
+                        // Se l'elemento non è stato trovato, ricarica comunque le annotazioni
+                        highlightExistingAnnotations();
                     }
                     
-                    // Per ogni entità riconosciuta, crea un'annotazione
-                    let savedCount = 0;
-                    const totalToSave = entities.length;
-                    
-                    updateStatus(`Riconosciute ${entities.length} entità. Salvataggio in corso...`);
-                    
-                    // Funzione per salvare un'annotazione e gestire il conteggio
-                    const saveAnnotationWithTracking = (annotation) => {
-                        return fetch('/api/save_annotation', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                doc_id: docId,
-                                annotation: annotation
+                    // Mostra notifica
+                    showNotification('Annotazione eliminata', 'success');
+                    updateStatus('Annotazione eliminata con successo');
+                } else {
+                    showNotification(`Errore: ${data.message}`, 'danger');
+                    updateStatus(`Errore: ${data.message}`, true);
+                }
+            })
+            .catch(error => {
+                confirmModal.hide();
+                console.error('Errore:', error);
+                showNotification('Errore durante l\'eliminazione', 'danger');
+                updateStatus('Errore durante l\'eliminazione', true);
+            });
+        };
+        
+        confirmModal.show();
+    }
+    
+    // === Gestione degli eventi di eliminazione per le annotazioni esistenti ===
+    document.querySelectorAll('.delete-annotation').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const annotationId = this.dataset.id;
+            deleteAnnotation(annotationId);
+        });
+    });
+    
+    // === Gestione degli eventi di salto all'annotazione ===
+    document.querySelectorAll('.jump-to-annotation').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const annotationId = this.dataset.id;
+            jumpToAnnotation(annotationId);
+        });
+    });
+    
+    // === Gestione del pulsante per l'annotazione automatica ===
+    if (autoAnnotateBtn) {
+        autoAnnotateBtn.addEventListener('click', function() {
+            const text = textContent.textContent;
+            
+            // Usa un modale di conferma Bootstrap anziché il confirm standard
+            const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
+            document.getElementById('confirm-title').textContent = 'Riconoscimento automatico';
+            document.getElementById('confirm-message').textContent = 
+                'Vuoi eseguire il riconoscimento automatico delle entità nel testo? Questo processo potrebbe richiedere alcuni secondi.';
+            
+            const confirmBtn = document.getElementById('confirm-action-btn');
+            confirmBtn.textContent = 'Procedi';
+            confirmBtn.className = 'btn btn-primary';
+            
+            confirmBtn.onclick = function() {
+                confirmModal.hide();
+                
+                // Mostra un indicatore di caricamento
+                autoAnnotateBtn.disabled = true;
+                autoAnnotateBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Elaborazione...';
+                updateStatus('Riconoscimento automatico in corso...');
+                
+                // Richiedi il riconoscimento automatico delle entità
+                fetch('/api/recognize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: text })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Errore HTTP: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        const entities = data.entities;
+                        console.log(`Riconosciute ${entities.length} entità automaticamente`);
+                        
+                        if (entities.length === 0) {
+                            showNotification('Nessuna entità riconosciuta', 'info');
+                            updateStatus('Nessuna entità riconosciuta');
+                            autoAnnotateBtn.disabled = false;
+                            autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-2"></i>Riconoscimento automatico';
+                            return;
+                        }
+                        
+                        // Per ogni entità riconosciuta, crea un'annotazione
+                        let savedCount = 0;
+                        const totalToSave = entities.length;
+                        
+                        updateStatus(`Riconosciute ${entities.length} entità. Salvataggio in corso...`);
+                        
+                        // Funzione per salvare un'annotazione e gestire il conteggio
+                        const saveAnnotationWithTracking = (annotation) => {
+                            return fetch('/api/save_annotation', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    doc_id: docId,
+                                    annotation: annotation
+                                })
                             })
-                        })
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error(`Errore HTTP: ${response.status}`);
-                            }
-                            return response.json();
-                        })
-                        .then(data => {
-                            if (data.status === 'success') {
-                                savedCount++;
-                                // Aggiorna il testo del pulsante per mostrare il progresso
-                                autoAnnotateBtn.textContent = `Salvate ${savedCount}/${totalToSave}...`;
-                                updateStatus(`Salvate ${savedCount}/${totalToSave} annotazioni...`);
-                                
-                                // Aggiungi l'annotazione alla lista
-                                addAnnotationToList(data.annotation);
-                            }
-                            return data;
-                        });
-                    };
-                    
-                    // Salva le annotazioni in sequenza per evitare problemi di concorrenza
-                    let savePromise = Promise.resolve();
-                    
-                    entities.forEach(entity => {
-                        // Prepara l'annotazione
-                        const annotation = {
-                            start: entity.start,
-                            end: entity.end,
-                            text: entity.text,
-                            type: entity.type
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error(`Errore HTTP: ${response.status}`);
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    savedCount++;
+                                    // Aggiorna il testo del pulsante per mostrare il progresso
+                                    autoAnnotateBtn.innerHTML = 
+                                        `<span class="spinner-border spinner-border-sm me-2"></span>Salvate ${savedCount}/${totalToSave}...`;
+                                    updateStatus(`Salvate ${savedCount}/${totalToSave} annotazioni...`);
+                                    
+                                    // Aggiungi l'annotazione alla lista
+                                    addAnnotationToList(data.annotation);
+                                }
+                                return data;
+                            });
                         };
                         
-                        // Aggiungi alla catena di promise
-                        savePromise = savePromise.then(() => saveAnnotationWithTracking(annotation));
-                    });
-                    
-                    // Una volta salvate tutte le annotazioni
-                    savePromise.then(() => {
-                        console.log(`Salvate ${savedCount} annotazioni automatiche`);
+                        // Salva le annotazioni in sequenza per evitare problemi di concorrenza
+                        let savePromise = Promise.resolve();
+                        
+                        entities.forEach(entity => {
+                            // Prepara l'annotazione
+                            const annotation = {
+                                start: entity.start,
+                                end: entity.end,
+                                text: entity.text,
+                                type: entity.type
+                            };
+                            
+                            // Aggiungi alla catena di promise
+                            savePromise = savePromise.then(() => saveAnnotationWithTracking(annotation));
+                        });
+                        
+                        // Una volta salvate tutte le annotazioni
+                        savePromise.then(() => {
+                            console.log(`Salvate ${savedCount} annotazioni automatiche`);
+                            autoAnnotateBtn.disabled = false;
+                            autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-2"></i>Riconoscimento automatico';
+                            
+                            // Aggiorna l'evidenziazione delle annotazioni
+                            highlightExistingAnnotations();
+                            
+                            // Mostra notifica
+                            showNotification(`Salvate ${savedCount} annotazioni automatiche`, 'success');
+                            updateStatus(`Completato: salvate ${savedCount} annotazioni automatiche`);
+                        })
+                        .catch(error => {
+                            console.error('Errore durante il salvataggio:', error);
+                            autoAnnotateBtn.disabled = false;
+                            autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-2"></i>Riconoscimento automatico';
+                            showNotification('Errore durante il salvataggio delle annotazioni', 'danger');
+                            updateStatus('Errore durante il salvataggio delle annotazioni', true);
+                        });
+                    } else {
+                        showNotification(`Errore: ${data.message}`, 'danger');
+                        updateStatus(`Errore: ${data.message}`, true);
                         autoAnnotateBtn.disabled = false;
-                        autoAnnotateBtn.textContent = "Riconoscimento automatico";
-                        
-                        // Aggiorna l'evidenziazione delle annotazioni
-                        highlightExistingAnnotations();
-                        
-                        // Aggiorna il conteggio
-                        updateAnnotationCount();
-                        
-                        // Mostra notifica
-                        showNotification(`Salvate ${savedCount} annotazioni automatiche`, 'success');
-                        updateStatus(`Completato: salvate ${savedCount} annotazioni automatiche`);
-                    })
-                    .catch(error => {
-                        console.error('Errore durante il salvataggio:', error);
-                        autoAnnotateBtn.disabled = false;
-                        autoAnnotateBtn.textContent = "Riconoscimento automatico";
-                        showNotification('Errore durante il salvataggio delle annotazioni', 'error');
-                        updateStatus('Errore durante il salvataggio delle annotazioni', true);
-                    });
-                } else {
-                    showNotification(`Errore: ${data.message}`, 'error');
-                    updateStatus(`Errore: ${data.message}`, true);
+                        autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-2"></i>Riconoscimento automatico';
+                    }
+                })
+                .catch(error => {
+                    console.error('Errore:', error);
+                    showNotification('Errore durante il riconoscimento automatico', 'danger');
+                    updateStatus('Errore durante il riconoscimento automatico', true);
                     autoAnnotateBtn.disabled = false;
-                    autoAnnotateBtn.textContent = "Riconoscimento automatico";
+                    autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-2"></i>Riconoscimento automatico';
+                });
+            };
+            
+            confirmModal.show();
+        });
+    }
+    
+    // === Funzione per ordinare le annotazioni ===
+    function sortAnnotations(sortBy) {
+        const container = document.getElementById('annotations-container');
+        const items = Array.from(container.querySelectorAll('.annotation-item'));
+        
+        if (items.length === 0) return;
+        
+        items.sort((a, b) => {
+            if (sortBy === 'position') {
+                return parseInt(a.dataset.start) - parseInt(b.dataset.start);
+            } else if (sortBy === 'type') {
+                const typeA = a.dataset.type;
+                const typeB = b.dataset.type;
+                return typeA.localeCompare(typeB);
+            }
+            return 0;
+        });
+        
+        // Rimuovi gli elementi esistenti
+        items.forEach(item => item.remove());
+        
+        // Aggiungi gli elementi ordinati
+        items.forEach(item => container.appendChild(item));
+    }
+    
+    // === Collega gli eventi di ordinamento ===
+    document.querySelectorAll('.sort-annotations').forEach(button => {
+        button.addEventListener('click', function() {
+            sortAnnotations(this.dataset.sort);
+            
+            // Aggiorna lo stato dei pulsanti
+            document.querySelectorAll('.sort-annotations').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            this.classList.add('active');
+        });
+    });
+    
+    // === Funzione per eliminare tutte le annotazioni ===
+    window.clearAnnotations = function(docId, entityType) {
+        return new Promise((resolve, reject) => {
+            fetch('/api/clear_annotations', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(entityType ? {
+                    doc_id: docId,
+                    entity_type: entityType
+                } : {
+                    doc_id: docId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showNotification(data.message || 'Annotazioni eliminate con successo', 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                    resolve(true);
+                } else {
+                    showNotification('Errore: ' + data.message, 'danger');
+                    reject(new Error(data.message));
                 }
             })
             .catch(error => {
                 console.error('Errore:', error);
-                showNotification('Errore durante il riconoscimento automatico', 'error');
-                updateStatus('Errore durante il riconoscimento automatico', true);
-                autoAnnotateBtn.disabled = false;
-                autoAnnotateBtn.textContent = "Riconoscimento automatico";
+                showNotification('Si è verificato un errore durante l\'eliminazione', 'danger');
+                reject(error);
             });
         });
-    }
+    };
     
-    // Inizializzazione: evidenzia le annotazioni esistenti
+    // === Inizializzazione: evidenzia le annotazioni esistenti ===
     highlightExistingAnnotations();
+    
+    // === Esponi funzioni globali ===
+    window.showNotification = showNotification;
+    window.updateStatus = updateStatus;
+    window.updateAnnotationCount = updateAnnotationCount;
+    window.addAnnotationToList = addAnnotationToList;
+    window.highlightExistingAnnotations = highlightExistingAnnotations;
+    window.jumpToAnnotation = jumpToAnnotation;
+    window.deleteAnnotation = deleteAnnotation;
 });
-
-// Funzione di utility per gestire le risposte delle richieste di API
-function handleResponse(response) {
-    if (!response.ok) {
-        return response.json().then(err => {
-            throw new Error(err.message || `Errore HTTP: ${response.status}`);
-        });
-    }
-    return response.json();
-}
-
-// Funzione di utility per gestire gli errori
-function handleError(error) {
-    console.error('Errore:', error);
-    // Mostra la notifica di errore nella pagina
-    const notification = document.getElementById('notification');
-    if (notification) {
-        notification.textContent = error.message || 'Si è verificato un errore';
-        notification.className = 'notification error show';
-        setTimeout(() => {
-            notification.className = 'notification';
-        }, 3000);
-    }
-}
-
-// Funzione migliorata per l'eliminazione di un documento
-function deleteDocument(docId, docTitle) {
-    if (!docId) {
-        console.error('ID documento non specificato');
-        return;
-    }
-    
-    // Verifica la conferma dell'utente
-    if (!confirm(`Sei sicuro di voler eliminare il documento "${docTitle || docId}" e tutte le sue annotazioni?`)) {
-        return;
-    }
-    
-    // Mostra un indicatore di caricamento, se disponibile
-    const loadingIndicator = document.getElementById('loading-indicator');
-    if (loadingIndicator) loadingIndicator.style.display = 'block';
-    
-    fetch('/api/delete_document', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({doc_id: docId})
-    })
-    .then(handleResponse)
-    .then(data => {
-        console.log('Documento eliminato con successo:', data);
-        
-        // Mostra una notifica di successo
-        const notification = document.getElementById('notification');
-        if (notification) {
-            notification.textContent = data.message || 'Documento eliminato con successo';
-            notification.className = 'notification success show';
-            
-            // Reindirizza alla pagina principale dopo un breve ritardo
-            setTimeout(() => {
-                window.location.href = '/';
-            }, 1500);
-        } else {
-            // Reindirizza immediatamente se non c'è una notifica
-            window.location.href = '/';
-        }
-    })
-    .catch(error => {
-        handleError(error);
-        // Nascondi l'indicatore di caricamento in caso di errore
-        if (loadingIndicator) loadingIndicator.style.display = 'none';
-    });
-}
-
-// Funzione migliorata per l'aggiornamento di un documento
-function updateDocument(docId, newContent, newTitle) {
-    if (!docId) {
-        console.error('ID documento non specificato');
-        return Promise.reject(new Error('ID documento non specificato'));
-    }
-    
-    const data = { doc_id: docId };
-    if (newContent !== undefined) data.content = newContent;
-    if (newTitle !== undefined) data.title = newTitle;
-    
-    // Mostra un indicatore di caricamento, se disponibile
-    const loadingIndicator = document.getElementById('loading-indicator');
-    if (loadingIndicator) loadingIndicator.style.display = 'block';
-    
-    return fetch('/api/update_document', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(handleResponse)
-    .then(data => {
-        console.log('Documento aggiornato con successo:', data);
-        
-        // Mostra una notifica di successo
-        const notification = document.getElementById('notification');
-        if (notification) {
-            notification.textContent = data.message || 'Documento aggiornato con successo';
-            notification.className = 'notification success show';
-            setTimeout(() => {
-                notification.className = 'notification';
-            }, 3000);
-        }
-        
-        // Nascondi l'indicatore di caricamento
-        if (loadingIndicator) loadingIndicator.style.display = 'none';
-        
-        return data;
-    })
-    .catch(error => {
-        handleError(error);
-        // Nascondi l'indicatore di caricamento in caso di errore
-        if (loadingIndicator) loadingIndicator.style.display = 'none';
-        return Promise.reject(error);
-    });
-}
-
-// Funzione per eliminare tutte le annotazioni di un documento o di un tipo specifico
-function clearAnnotations(docId, entityType) {
-    if (!docId) {
-        console.error('ID documento non specificato');
-        return Promise.reject(new Error('ID documento non specificato'));
-    }
-    
-    let confirmMessage = 'Sei sicuro di voler eliminare tutte le annotazioni?';
-    if (entityType) {
-        confirmMessage = `Sei sicuro di voler eliminare tutte le annotazioni di tipo "${entityType}"?`;
-    }
-    
-    if (!confirm(confirmMessage)) {
-        return Promise.resolve(false);
-    }
-    
-    const data = { doc_id: docId };
-    if (entityType) {
-        data.entity_type = entityType;
-    }
-    
-    return fetch('/api/clear_annotations', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(handleResponse)
-    .then(data => {
-        console.log('Annotazioni eliminate con successo:', data);
-        
-        // Mostra una notifica di successo
-        const notification = document.getElementById('notification');
-        if (notification) {
-            notification.textContent = data.message || 'Annotazioni eliminate con successo';
-            notification.className = 'notification success show';
-            setTimeout(() => {
-                notification.className = 'notification';
-            }, 3000);
-        }
-        
-        // Ricarica la pagina o aggiorna l'UI per mostrare le modifiche
-        setTimeout(() => {
-            window.location.reload();
-        }, 1500);
-        
-        return true;
-    })
-    .catch(error => {
-        handleError(error);
-        return false;
-    });
-}
-
-// Aggiungi le funzioni come proprietà globali, se necessario
-window.deleteDocument = deleteDocument;
-window.updateDocument = updateDocument;
-window.clearAnnotations = clearAnnotations;

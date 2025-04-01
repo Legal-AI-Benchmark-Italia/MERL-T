@@ -1,15 +1,33 @@
 /**
  * ui-enhancements.js - Miglioramenti dell'interfaccia utente per l'applicazione di annotazione
- * Questo script aggiunge miglioramenti significativi all'esperienza utente dell'interfaccia di annotazione
+ * Versione ristrutturata per compatibilità con le correzioni alle funzionalità di annotazione
  */
 
 document.addEventListener('DOMContentLoaded', function() {
     const UIEnhancer = {
         /**
+         * Stato dell'enhancer
+         */
+        state: {
+            initialized: false,
+            panelStates: {
+                entityCollapsed: false,
+                annotationsCollapsed: false
+            }
+        },
+        
+        /**
          * Inizializza tutti i miglioramenti dell'interfaccia utente
          */
         init: function() {
             console.info("✨ Inizializzazione miglioramenti UI");
+            
+            // Verifica prerequisiti
+            if (!this.checkPrerequisites()) {
+                console.warn("Prerequisiti mancanti per UI Enhancer, alcune funzionalità potrebbero non funzionare correttamente");
+            }
+            
+            // Inizializza funzionalità in ordine di priorità
             this.addProgressIndicator();
             this.enhancePanelVisibility();
             this.addAccessibilityFeatures();
@@ -18,10 +36,36 @@ document.addEventListener('DOMContentLoaded', function() {
             this.improveTabNavigation();
             this.addResponsiveDesignSupport();
             this.enhanceAnnotationVisibility();
+            
+            // Segnala inizializzazione completata
+            this.state.initialized = true;
+            console.info("✨ Miglioramenti UI inizializzati con successo");
+        },
+
+        /**
+         * Verifica che i prerequisiti siano presenti
+         */
+        checkPrerequisites: function() {
+            let allPresent = true;
+            
+            // Verifica che AnnotationManager sia definito
+            if (typeof AnnotationManager === 'undefined') {
+                console.warn("AnnotationManager non trovato");
+                allPresent = false;
+            }
+            
+            // Verifica che NERGiuridico sia definito
+            if (typeof NERGiuridico === 'undefined') {
+                console.warn("NERGiuridico utilities non trovate");
+                allPresent = false;
+            }
+            
+            return allPresent;
         },
 
         /**
          * Aggiunge un indicatore di progresso persistente
+         * Compatibile con la barra di progresso migliorata
          */
         addProgressIndicator: function() {
             // Crea un elemento per il progresso complessivo nella parte superiore della pagina
@@ -42,52 +86,18 @@ document.addEventListener('DOMContentLoaded', function() {
             if (documentInfo) {
                 documentInfo.parentNode.insertBefore(progressContainer, documentInfo.nextSibling);
 
-                // Aggiungi gli stili necessari
-                this.addStyles(`
-                    .annotation-progress-container {
-                        margin-bottom: 1rem;
-                        padding: 0.75rem;
-                        background: white;
-                        border-radius: 0.5rem;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                        display: flex;
-                        align-items: center;
-                        flex-wrap: wrap;
-                        gap: 0.75rem;
-                    }
-                    
-                    .annotation-progress-bar {
-                        flex: 1;
-                        height: 0.75rem;
-                        background: #f0f0f0;
-                        border-radius: 1rem;
-                        overflow: hidden;
-                        position: relative;
-                    }
-                    
-                    .annotation-progress-fill {
-                        height: 100%;
-                        background: linear-gradient(90deg, #2563eb, #4f46e5);
-                        width: 0%;
-                        transition: width 0.5s ease;
-                        border-radius: 1rem;
-                    }
-                    
-                    .annotation-progress-stats {
-                        display: flex;
-                        gap: 1rem;
-                        font-weight: 500;
-                        color: #4b5563;
-                    }
-                    
-                    #annotation-progress-percentage {
-                        color: #2563eb;
-                        font-weight: 700;
-                    }
-                `);
+                // Non è più necessario aggiungere stili custom poiché sono inclusi nel CSS migliorato
 
                 // Implementa la funzione di aggiornamento del progresso
                 window.updateGlobalProgressIndicator = function() {
+                    // Ottieni elementi DOM
+                    const progressFill = document.getElementById('global-annotation-progress');
+                    const percentageEl = document.getElementById('annotation-progress-percentage');
+                    const countEl = document.getElementById('annotation-progress-count');
+                    
+                    if (!progressFill || !percentageEl || !countEl) return;
+                    
+                    // Ottieni conteggi
                     const totalWords = parseInt(document.getElementById('text-content').dataset.wordCount) || 100;
                     const annotationCount = document.querySelectorAll('.annotation-item').length;
                     
@@ -95,14 +105,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     const coverage = Math.min(annotationCount / (totalWords / 15) * 100, 100);
                     
                     // Aggiorna la barra di progresso e le statistiche
-                    document.getElementById('global-annotation-progress').style.width = `${coverage}%`;
-                    document.getElementById('annotation-progress-percentage').textContent = `${Math.round(coverage)}%`;
-                    document.getElementById('annotation-progress-count').textContent = 
+                    progressFill.style.width = `${coverage}%`;
+                    percentageEl.textContent = `${Math.round(coverage)}%`;
+                    countEl.textContent = 
                         `${annotationCount} ${annotationCount === 1 ? 'annotazione' : 'annotazioni'}`;
                     
                     // Aggiorna anche la classe nel body per lo stato di completamento
                     if (coverage >= 70) {
                         document.body.classList.add('high-completion');
+                        document.body.classList.remove('medium-completion');
                     } else if (coverage >= 30) {
                         document.body.classList.add('medium-completion');
                         document.body.classList.remove('high-completion');
@@ -112,21 +123,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
 
                 // Hook per aggiornare l'indicatore quando vengono aggiornate le annotazioni
+                // Usa l'implementazione originale se esiste, altrimenti crea una nuova
                 const originalUpdateAnnotationCount = window.updateAnnotationCount;
                 if (originalUpdateAnnotationCount) {
                     window.updateAnnotationCount = function() {
+                        // Chiama la funzione originale
                         originalUpdateAnnotationCount.apply(this, arguments);
-                        window.updateGlobalProgressIndicator();
+                        
+                        // Aggiorna l'indicatore globale
+                        if (typeof window.updateGlobalProgressIndicator === 'function') {
+                            window.updateGlobalProgressIndicator();
+                        }
                     };
                 }
 
                 // Esegui subito l'aggiornamento iniziale
-                setTimeout(window.updateGlobalProgressIndicator, 500);
+                setTimeout(function() {
+                    if (typeof window.updateGlobalProgressIndicator === 'function') {
+                        window.updateGlobalProgressIndicator();
+                    }
+                }, 500);
             }
         },
 
         /**
          * Migliora la visibilità e l'accessibilità dei pannelli
+         * Compatibile con la nuova gestione della modalità clean
          */
         enhancePanelVisibility: function() {
             // Aggiungi indicatori di pannello per rendere chiaro che ci sono pannelli laterali
@@ -141,115 +163,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Aggiungi pulsanti per espandere/contrarre i pannelli
                 this.addPanelToggleButtons();
                 
-                // Aggiungi indicatori visivi per pannelli
-                this.addStyles(`
-                    .entity-sidebar, .annotations-sidebar {
-                        position: relative;
-                        transition: all 0.3s ease;
-                        min-width: 280px;
-                    }
-                    
-                    .entity-sidebar::before, .annotations-sidebar::before {
-                        content: '';
-                        position: absolute;
-                        top: 0;
-                        height: 100%;
-                        width: 3px;
-                        background: linear-gradient(to bottom, #2563eb, #4f46e5);
-                        opacity: 0.7;
-                    }
-                    
-                    .entity-sidebar::before {
-                        left: 0;
-                        border-radius: 3px 0 0 3px;
-                    }
-                    
-                    .annotations-sidebar::before {
-                        right: 0;
-                        border-radius: 0 3px 3px 0;
-                    }
-                    
-                    .panel-header {
-                        display: flex;
-                        align-items: center;
-                        padding: 0.75rem 0;
-                        margin-bottom: 1rem;
-                        border-bottom: 2px solid #e5e7eb;
-                    }
-                    
-                    .panel-header i {
-                        font-size: 1.25rem;
-                        margin-right: 0.5rem;
-                        color: #2563eb;
-                    }
-                    
-                    .panel-header h5 {
-                        margin: 0;
-                        font-weight: 600;
-                        color: #1f2937;
-                    }
-                    
-                    .panel-collapsed {
-                        width: 50px !important;
-                        overflow: hidden;
-                    }
-                    
-                    .panel-collapsed * {
-                        opacity: 0;
-                    }
-                    
-                    .panel-collapsed .panel-toggle {
-                        opacity: 1;
-                    }
-                    
-                    .panel-toggle {
-                        position: absolute;
-                        top: 1rem;
-                        background: white;
-                        border: 1px solid #e5e7eb;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                        border-radius: 50%;
-                        width: 28px;
-                        height: 28px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        cursor: pointer;
-                        z-index: 10;
-                        transition: all 0.2s ease;
-                    }
-                    
-                    .panel-toggle:hover {
-                        background: #f3f4f6;
-                        transform: scale(1.1);
-                    }
-                    
-                    .entity-sidebar .panel-toggle {
-                        right: -14px;
-                    }
-                    
-                    .annotations-sidebar .panel-toggle {
-                        left: -14px;
-                    }
-                    
-                    .panel-toggle i {
-                        font-size: 0.8rem;
-                        color: #4b5563;
-                    }
-                    
-                    /* Quando il pannello è aperto, cambia l'icona */
-                    .panel-collapsed .panel-toggle i.fa-chevron-left:before {
-                        content: "\\f054"; /* fa-chevron-right */
-                    }
-                    
-                    .panel-collapsed .panel-toggle i.fa-chevron-right:before {
-                        content: "\\f053"; /* fa-chevron-left */
-                    }
-                `);
+                // Salva e ripristina lo stato dei pannelli
+                this.setupPanelStateRestoration();
             }
-            
-            // Salva e ripristina lo stato dei pannelli
-            this.setupPanelStateRestoration();
         },
         
         /**
@@ -287,6 +203,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         /**
          * Aggiunge pulsanti per espandere/contrarre i pannelli
+         * Compatibile con la nuova modalità clean
          */
         addPanelToggleButtons: function() {
             const entitySidebar = document.querySelector('.entity-sidebar');
@@ -300,15 +217,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 toggleBtn.title = 'Espandi/Contrai pannello';
                 entitySidebar.appendChild(toggleBtn);
                 
-                toggleBtn.addEventListener('click', function() {
+                toggleBtn.addEventListener('click', () => {
+                    // Non permettere il toggle in modalità clean
+                    if (document.body.classList.contains('clean-mode')) return;
+                    
                     entitySidebar.classList.toggle('panel-collapsed');
+                    this.state.panelStates.entityCollapsed = entitySidebar.classList.contains('panel-collapsed');
+                    
                     // Aggiorna la classe di text-container per dare più spazio
                     if (textContainer) {
                         textContainer.classList.toggle('entity-panel-collapsed');
                     }
+                    
                     // Salva lo stato
-                    localStorage.setItem('entity-panel-collapsed', 
-                                        entitySidebar.classList.contains('panel-collapsed'));
+                    localStorage.setItem('entity-panel-collapsed', this.state.panelStates.entityCollapsed);
                 });
             }
             
@@ -319,22 +241,66 @@ document.addEventListener('DOMContentLoaded', function() {
                 toggleBtn.title = 'Espandi/Contrai pannello';
                 annotationsSidebar.appendChild(toggleBtn);
                 
-                toggleBtn.addEventListener('click', function() {
+                toggleBtn.addEventListener('click', () => {
+                    // Non permettere il toggle in modalità clean
+                    if (document.body.classList.contains('clean-mode')) return;
+                    
                     annotationsSidebar.classList.toggle('panel-collapsed');
+                    this.state.panelStates.annotationsCollapsed = annotationsSidebar.classList.contains('panel-collapsed');
+                    
                     // Aggiorna la classe di text-container per dare più spazio
                     if (textContainer) {
                         textContainer.classList.toggle('annotations-panel-collapsed');
                     }
+                    
                     // Salva lo stato
-                    localStorage.setItem('annotations-panel-collapsed', 
-                                        annotationsSidebar.classList.contains('panel-collapsed'));
+                    localStorage.setItem('annotations-panel-collapsed', this.state.panelStates.annotationsCollapsed);
                 });
             }
             
-            // Aggiungi stili per l'espansione del contenuto
+            // Aggiungi stili per i pulsanti e l'espansione del contenuto
             this.addStyles(`
-                .text-container {
-                    transition: all 0.3s ease;
+                .panel-toggle {
+                    position: absolute;
+                    top: 1rem;
+                    background: white;
+                    border: 1px solid #e5e7eb;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    border-radius: 50%;
+                    width: 28px;
+                    height: 28px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    z-index: 10;
+                    transition: all 0.2s ease;
+                }
+                
+                .panel-toggle:hover {
+                    background: #f3f4f6;
+                    transform: scale(1.1);
+                }
+                
+                .entity-sidebar .panel-toggle {
+                    right: -14px;
+                }
+                
+                .annotations-sidebar .panel-toggle {
+                    left: -14px;
+                }
+                
+                .panel-collapsed {
+                    width: 50px !important;
+                    overflow: hidden;
+                }
+                
+                .panel-collapsed * {
+                    opacity: 0;
+                }
+                
+                .panel-collapsed .panel-toggle {
+                    opacity: 1;
                 }
                 
                 .text-container.entity-panel-collapsed {
@@ -343,6 +309,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 .text-container.annotations-panel-collapsed {
                     margin-right: 50px !important;
+                }
+                
+                /* Quando il pannello è aperto, cambia l'icona */
+                .panel-collapsed .panel-toggle i.fa-chevron-left:before {
+                    content: "\\f054"; /* fa-chevron-right */
+                }
+                
+                .panel-collapsed .panel-toggle i.fa-chevron-right:before {
+                    content: "\\f053"; /* fa-chevron-left */
+                }
+                
+                /* Disabilita il toggle quando in modalità clean */
+                body.clean-mode .panel-toggle {
+                    display: none !important;
                 }
             `);
         },
@@ -355,15 +335,21 @@ document.addEventListener('DOMContentLoaded', function() {
             const annotationsSidebar = document.querySelector('.annotations-sidebar');
             const textContainer = document.querySelector('.text-container');
             
-            // Ripristina lo stato dei pannelli
-            if (entitySidebar && localStorage.getItem('entity-panel-collapsed') === 'true') {
-                entitySidebar.classList.add('panel-collapsed');
-                if (textContainer) textContainer.classList.add('entity-panel-collapsed');
-            }
-            
-            if (annotationsSidebar && localStorage.getItem('annotations-panel-collapsed') === 'true') {
-                annotationsSidebar.classList.add('panel-collapsed');
-                if (textContainer) textContainer.classList.add('annotations-panel-collapsed');
+            // Ripristina lo stato dei pannelli solo se non siamo in modalità clean
+            if (!document.body.classList.contains('clean-mode')) {
+                // Stato del pannello entità
+                this.state.panelStates.entityCollapsed = localStorage.getItem('entity-panel-collapsed') === 'true';
+                if (entitySidebar && this.state.panelStates.entityCollapsed) {
+                    entitySidebar.classList.add('panel-collapsed');
+                    if (textContainer) textContainer.classList.add('entity-panel-collapsed');
+                }
+                
+                // Stato del pannello annotazioni
+                this.state.panelStates.annotationsCollapsed = localStorage.getItem('annotations-panel-collapsed') === 'true';
+                if (annotationsSidebar && this.state.panelStates.annotationsCollapsed) {
+                    annotationsSidebar.classList.add('panel-collapsed');
+                    if (textContainer) textContainer.classList.add('annotations-panel-collapsed');
+                }
             }
         },
 
@@ -371,40 +357,6 @@ document.addEventListener('DOMContentLoaded', function() {
          * Aggiunge caratteristiche di accessibilità
          */
         addAccessibilityFeatures: function() {
-            // Migliora il contrasto delle etichette
-            this.addStyles(`
-                .entity-highlight {
-                    text-shadow: 0 0 3px rgba(0,0,0,0.5) !important;
-                    font-weight: 500 !important;
-                }
-                
-                .entity-type, .annotation-type {
-                    text-shadow: 0 0 2px rgba(0,0,0,0.3);
-                }
-                
-                /* Migliora la leggibilità delle annotazioni selezionate */
-                .entity-highlight:focus, 
-                .entity-highlight.focused {
-                    outline: 2px solid #2563eb !important;
-                    outline-offset: 2px !important;
-                }
-                
-                /* Migliora il focus sulla lista delle annotazioni */
-                .annotation-item:focus-within,
-                .annotation-item.focused {
-                    box-shadow: 0 0 0 2px #2563eb !important;
-                }
-                
-                /* Aumenta la dimensione di clic per i piccoli bottoni */
-                .btn-sm {
-                    min-height: 38px;
-                    min-width: 38px;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-            `);
-            
             // Aggiungi attributi ARIA per migliorare l'accessibilità
             this.enhanceAriaAttributes();
         },
@@ -660,6 +612,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     display: flex;
                     justify-content: space-between;
                 }
+                
+                /* Stile per elementi evidenziati nel tour */
+                .tour-highlight {
+                    position: relative;
+                    z-index: 9998;
+                    box-shadow: 0 0 0 2000px rgba(0,0,0,0.4);
+                    animation: pulse-highlight 2s infinite;
+                }
+                
+                @keyframes pulse-highlight {
+                    0% { box-shadow: 0 0 0 2000px rgba(0,0,0,0.4), 0 0 0 0 rgba(37, 99, 235, 0.4); }
+                    70% { box-shadow: 0 0 0 2000px rgba(0,0,0,0.4), 0 0 0 10px rgba(37, 99, 235, 0); }
+                    100% { box-shadow: 0 0 0 2000px rgba(0,0,0,0.4), 0 0 0 0 rgba(37, 99, 235, 0); }
+                }
             `);
             
             // Aggiungi logica per il tour
@@ -806,8 +772,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const endTour = () => {
                 // Mostra una notifica
-                if (window.showNotification) {
-                    window.showNotification('Tour completato! Ora puoi iniziare ad annotare.', 'success');
+                if (typeof NERGiuridico !== 'undefined' && typeof NERGiuridico.showNotification === 'function') {
+                    NERGiuridico.showNotification('Tour completato! Ora puoi iniziare ad annotare.', 'success');
                 }
                 
                 // Rimuovi eventuali stili di evidenziazione
@@ -815,22 +781,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     el.classList.remove('tour-highlight');
                 });
             };
-            
-            // Aggiungi stili per il tour
-            this.addStyles(`
-                .tour-highlight {
-                    position: relative;
-                    z-index: 9998;
-                    box-shadow: 0 0 0 2000px rgba(0,0,0,0.4) !important;
-                    animation: pulse-highlight 2s infinite;
-                }
-                
-                @keyframes pulse-highlight {
-                    0% { box-shadow: 0 0 0 2000px rgba(0,0,0,0.4), 0 0 0 0 rgba(37, 99, 235, 0.4); }
-                    70% { box-shadow: 0 0 0 2000px rgba(0,0,0,0.4), 0 0 0 10px rgba(37, 99, 235, 0); }
-                    100% { box-shadow: 0 0 0 2000px rgba(0,0,0,0.4), 0 0 0 0 rgba(37, 99, 235, 0); }
-                }
-            `);
             
             // Avvia il tour
             showStep(currentStep);
@@ -889,8 +839,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <li><kbd>Shift</kbd> + <kbd>↑</kbd>/<kbd>↓</kbd> Naviga tra le annotazioni</li>
                         <li><kbd>Ctrl</kbd> + <kbd>G</kbd> Vai alla riga</li>
                         <li><kbd>Ctrl</kbd> + <kbd>Z</kbd> Annulla ultima annotazione</li>
-                        <li><kbd>Ctrl</kbd> + <kbd>D</kbd> Duplica l'annotazione selezionata</li>
-                        <li><kbd>Ctrl</kbd> + <kbd>F</kbd> Cerca nel testo</li>
+                        <li><kbd>/</kbd> Cerca nelle annotazioni</li>
                     </ul>
                 `;
                 
@@ -938,6 +887,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         width: 100%;
                     }
                 `);
+                
+                // Sistema operativo specifico testi per scorciatoie
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                if (!isMac) {
+                    extraShortcuts.innerHTML = extraShortcuts.innerHTML.replace(/Ctrl/g, 'Ctrl');
+                }
             }
         },
 
@@ -993,80 +948,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         /**
          * Aggiunge supporto per design responsive
+         * Compatibile con i miglioramenti CSS
          */
         addResponsiveDesignSupport: function() {
-            // Aggiungi media queries per migliorare l'esperienza su dispositivi diversi
-            this.addStyles(`
-                /* Tablet e dispositivi più piccoli */
-                @media (max-width: 1024px) {
-                    .annotation-area {
-                        flex-wrap: wrap;
-                    }
-                    
-                    .entity-sidebar, .annotations-sidebar {
-                        width: 100% !important;
-                        order: 2;
-                        max-height: 300px !important;
-                        overflow-y: auto !important;
-                    }
-                    
-                    .text-container {
-                        width: 100% !important;
-                        order: 1;
-                        margin: 0 0 1rem 0 !important;
-                    }
-                    
-                    .panel-toggle {
-                        display: none !important;
-                    }
-                    
-                    /* Layout a tabs per mobile */
-                    .mobile-tabs {
-                        display: flex !important;
-                        background: white;
-                        border-radius: 0.5rem;
-                        margin-bottom: 1rem;
-                        overflow: hidden;
-                    }
-                    
-                    .mobile-tab {
-                        flex: 1;
-                        text-align: center;
-                        padding: 0.75rem;
-                        cursor: pointer;
-                        border-bottom: 3px solid transparent;
-                        font-weight: 500;
-                    }
-                    
-                    /* Nascondi il pannello non attivo */
-                    .entity-sidebar.tab-hidden,
-                    .annotations-sidebar.tab-hidden {
-                        display: none !important;
-                    }
-                }
-                
-                /* Mobile */
-                @media (max-width: 640px) {
-                    .document-info h2 {
-                        font-size: 1.25rem !important;
-                    }
-                    
-                    .text-container {
-                        font-size: 0.9rem !important;
-                    }
-                    
-                    .entity-type {
-                        padding: 0.5rem !important;
-                    }
-                    
-                    /* Semplifico l'interfaccia su mobile */
-                    .keyboard-shortcuts,
-                    .annotation-stats {
-                        display: none !important;
-                    }
-                }
-            `);
-            
             // Aggiungi navegazione a tabs per mobile
             const annotationArea = document.querySelector('.annotation-area');
             if (annotationArea) {
@@ -1138,62 +1022,106 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Controlla subito e aggiungi listener per resize
                 checkScreenSize();
                 window.addEventListener('resize', checkScreenSize);
+                
+                // Aggiungi stili responsivi
+                this.addStyles(`
+                    /* Layout a tabs per mobile */
+                    .mobile-tabs {
+                        display: flex !important;
+                        background: white;
+                        border-radius: 0.5rem;
+                        margin-bottom: 1rem;
+                        overflow: hidden;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    }
+                    
+                    .mobile-tab {
+                        flex: 1;
+                        text-align: center;
+                        padding: 0.75rem;
+                        cursor: pointer;
+                        border-bottom: 3px solid transparent;
+                        font-weight: 500;
+                        transition: all 0.2s ease;
+                    }
+                    
+                    .mobile-tab.active-tab {
+                        background-color: #f9fafb;
+                        border-bottom-color: #2563eb;
+                    }
+                    
+                    .mobile-tab:hover {
+                        background-color: #f3f4f6;
+                    }
+                    
+                    /* Nascondi il pannello non attivo */
+                    .entity-sidebar.tab-hidden,
+                    .annotations-sidebar.tab-hidden {
+                        display: none !important;
+                    }
+                    
+                    /* Tablet e dispositivi più piccoli */
+                    @media (max-width: 1024px) {
+                        .annotation-area {
+                            flex-wrap: wrap;
+                        }
+                        
+                        .entity-sidebar, 
+                        .annotations-sidebar {
+                            width: 100% !important;
+                            order: 2;
+                            max-height: 300px !important;
+                            overflow-y: auto !important;
+                        }
+                        
+                        .text-container {
+                            width: 100% !important;
+                            order: 1;
+                            margin: 0 0 1rem 0 !important;
+                        }
+                        
+                        body:not(.clean-mode) .panel-toggle {
+                            display: none !important;
+                        }
+                    }
+                    
+                    /* Mobile */
+                    @media (max-width: 640px) {
+                        .document-info h2 {
+                            font-size: 1.25rem !important;
+                        }
+                        
+                        .text-container {
+                            font-size: 0.9rem !important;
+                            padding: 1rem !important;
+                        }
+                        
+                        .entity-type {
+                            padding: 0.5rem !important;
+                        }
+                        
+                        /* Semplifico l'interfaccia su mobile */
+                        .keyboard-shortcuts,
+                        .annotation-stats {
+                            display: none !important;
+                        }
+                        
+                        /* Minore padding su mobile */
+                        .annotation-progress-container {
+                            padding: 0.5rem !important;
+                        }
+                    }
+                `);
             }
         },
 
         /**
          * Migliora la visibilità delle annotazioni
+         * Compatibile con i miglioramenti CSS per le entità
          */
         enhanceAnnotationVisibility: function() {
-            // Aggiungi styles per migliorare la leggibilità delle annotazioni
-            this.addStyles(`
-                /* Effetto hover migliorato per le annotazioni */
-                .entity-highlight {
-                    position: relative;
-                    border-radius: 2px;
-                    transition: all 0.2s ease;
-                }
-                
-                .entity-highlight:hover {
-                    z-index: 10;
-                    transform: translateY(-2px) !important;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
-                }
-                
-                /* Miglioramento popup tooltips */
-                .entity-highlight .tooltip {
-                    min-width: 150px;
-                    max-width: 300px;
-                    border-radius: 4px;
-                    font-size: 0.8rem !important;
-                    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
-                    z-index: 100;
-                    padding: 4px 8px !important;
-                    pointer-events: none;
-                }
-                
-                /* Miglioramento della lista di annotazioni */
-                .annotation-item {
-                    transition: all 0.3s ease;
-                    border-left: 3px solid transparent;
-                }
-                
-                .annotation-item:hover {
-                    transform: translateX(4px);
-                }
-                
-                /* Evidenziazione dell'annotazione attiva */
-                .annotation-item.active {
-                    background-color: #f3f4f6;
-                    border-left-color: #2563eb;
-                }
-                
-                /* Effetto focus quando si clicca su un'annotazione nella lista */
-                .entity-highlight.focused {
-                    outline: 2px solid #2563eb !important;
-                    outline-offset: 2px !important;
-                }
-            `);
+            // Non aggiungiamo stili duplicati per gli highlight,
+            // poiché sono già definiti nelle correzioni proposte
             
             // Aggiungi interazione tra la lista e le annotazioni
             this.setupAnnotationInteractions();
@@ -1201,14 +1129,16 @@ document.addEventListener('DOMContentLoaded', function() {
         
         /**
          * Configura interazioni avanzate tra le annotazioni
+         * Compatibile con le nuove funzioni del gestore annotazioni
          */
         setupAnnotationInteractions: function() {
             // Aggiungi un listener delegato per gestire clic su annotazioni
             document.addEventListener('click', function(e) {
                 // Quando si clicca su un'annotazione evidenziata nel testo
-                if (e.target.closest('.entity-highlight')) {
-                    const highlight = e.target.closest('.entity-highlight');
+                const highlight = e.target.closest('.entity-highlight');
+                if (highlight) {
                     const annotationId = highlight.dataset.id;
+                    if (!annotationId) return;
                     
                     // Rimuovi la classe focused da tutte le altre annotazioni
                     document.querySelectorAll('.entity-highlight.focused').forEach(el => {
@@ -1223,33 +1153,42 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (annotationItem) {
                         // Rimuovi active da tutte le altre annotazioni
                         document.querySelectorAll('.annotation-item.active').forEach(el => {
-                            el.classList.remove('active');
+                            el.classList.remove('active', 'selected');
                         });
                         
                         // Aggiungi active a questa annotazione
-                        annotationItem.classList.add('active');
+                        annotationItem.classList.add('active', 'selected');
                         
                         // Scorri alla annotazione nella lista
                         annotationItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
+                    
+                    // Se esiste AnnotationManager, aggiorna lo stato
+                    if (typeof AnnotationManager !== 'undefined') {
+                        AnnotationManager.state.highlightedAnnotationId = annotationId;
+                        AnnotationManager.state.selectedAnnotationId = annotationId;
+                    }
                 }
                 
                 // Quando si clicca su un'annotazione nella lista
-                if (e.target.closest('.annotation-item')) {
-                    const annotationItem = e.target.closest('.annotation-item');
+                const annotationItem = e.target.closest('.annotation-item');
+                if (annotationItem && !e.target.closest('button')) {
                     const annotationId = annotationItem.dataset.id;
+                    if (!annotationId) return;
                     
-                    // Se non è stato cliccato su un pulsante interno
-                    if (!e.target.closest('button')) {
-                        // Rimuovi active da tutte le altre annotazioni
-                        document.querySelectorAll('.annotation-item.active').forEach(el => {
-                            if (el !== annotationItem) el.classList.remove('active');
-                        });
-                        
-                        // Aggiungi active a questa annotazione
-                        annotationItem.classList.add('active');
-                        
-                        // Trova l'elemento corrispondente nel testo e focalizzalo
+                    // Rimuovi active da tutte le altre annotazioni
+                    document.querySelectorAll('.annotation-item.active, .annotation-item.selected').forEach(el => {
+                        if (el !== annotationItem) el.classList.remove('active', 'selected');
+                    });
+                    
+                    // Aggiungi active a questa annotazione
+                    annotationItem.classList.add('active', 'selected');
+                    
+                    // Se abbiamo la funzione jumpToAnnotation, la utilizziamo
+                    if (typeof window.jumpToAnnotation === 'function') {
+                        window.jumpToAnnotation(annotationId);
+                    } else {
+                        // Altrimenti, facciamo il nostro best effort
                         const highlight = document.querySelector(`.entity-highlight[data-id="${annotationId}"]`);
                         if (highlight) {
                             // Rimuovi focused da tutte le altre annotazioni
@@ -1263,6 +1202,46 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Scorri all'annotazione nel testo
                             highlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }
+                    }
+                    
+                    // Se esiste AnnotationManager, aggiorna lo stato
+                    if (typeof AnnotationManager !== 'undefined') {
+                        AnnotationManager.state.selectedAnnotationId = annotationId;
+                        AnnotationManager.state.highlightedAnnotationId = annotationId;
+                    }
+                }
+            });
+            
+            // Supporto per le scorciatoie da tastiera di navigazione
+            document.addEventListener('keydown', function(e) {
+                // Shift + frecce per navigare tra le annotazioni
+                if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                    e.preventDefault();
+                    
+                    const annotationItems = Array.from(document.querySelectorAll('.annotation-item:not(.d-none)'));
+                    if (annotationItems.length === 0) return;
+                    
+                    // Trova l'indice corrente
+                    let currentIndex = -1;
+                    const selectedItem = document.querySelector('.annotation-item.selected');
+                    
+                    if (selectedItem) {
+                        currentIndex = annotationItems.indexOf(selectedItem);
+                    }
+                    
+                    // Calcola il nuovo indice
+                    let newIndex;
+                    if (e.key === 'ArrowUp') {
+                        newIndex = currentIndex <= 0 ? annotationItems.length - 1 : currentIndex - 1;
+                    } else {
+                        newIndex = currentIndex === annotationItems.length - 1 || currentIndex === -1 ? 0 : currentIndex + 1;
+                    }
+                    
+                    // Attiva la nuova annotazione
+                    const newItem = annotationItems[newIndex];
+                    if (newItem) {
+                        // Simula un click sulla nuova annotazione
+                        newItem.click();
                     }
                 }
             });
@@ -1283,6 +1262,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Inizializza i miglioramenti UI
-    UIEnhancer.init();
+    // Inizializza i miglioramenti UI dopo un breve ritardo per assicurare
+    // che AnnotationManager e altre dipendenze siano completamente caricate
+    setTimeout(function() {
+        UIEnhancer.init();
+    }, 50);
 });

@@ -334,36 +334,37 @@ body {
 .entity-highlight {
     display: inline !important;
     padding: 0.1em 0.1em !important;
-    border-radius: var(--border-radius-sm);
-    position: relative;
-    white-space: pre-wrap;
-    line-height: inherit;
+    border-radius: 3px !important;
+    position: relative !important;
+    white-space: pre-wrap !important;
+    line-height: inherit !important;
     width: auto !important;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-    cursor: pointer;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    transition: var(--transition-base);
-    color: white;
-    text-shadow: 0px 0px 1px rgba(0, 0, 0, 0.4);
+    box-decoration-break: clone !important;
+    -webkit-box-decoration-break: clone !important;
+    cursor: pointer !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
+    transition: all 0.2s ease !important;
+    color: white !important;
+    text-shadow: 0px 0px 1px rgba(0, 0, 0, 0.4) !important;
+    opacity: 1 !important;
 }
 
 .entity-highlight:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16);
-    z-index: 10;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16) !important;
+    z-index: 10 !important;
 }
 
 .entity-highlight.overlap {
-    outline: 2px dashed rgba(255, 255, 255, 0.7);
-    z-index: 2;
-    box-shadow: 0 0 0 1px #ff9800, 0 1px 2px rgba(0, 0, 0, 0.08);
+    outline: 2px dashed rgba(255, 255, 255, 0.7) !important;
+    z-index: 2 !important;
+    box-shadow: 0 0 0 1px #ff9800, 0 1px 2px rgba(0, 0, 0, 0.08) !important;
 }
 
 .entity-highlight.focused {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-    z-index: 3;
+    outline: 2px solid #2563eb !important;
+    outline-offset: 2px !important;
+    z-index: 3 !important;
 }
 
 .entity-highlight .tooltip {
@@ -584,6 +585,8 @@ body.clean-mode .annotations-sidebar {
     top: 0 !important;
     height: 100% !important;
     z-index: 100 !important;
+    background-color: white !important;
+    transition: width 0.3s ease, opacity 0.3s ease, padding 0.3s ease !important;
 }
 
 body.clean-mode .entity-sidebar {
@@ -605,30 +608,52 @@ body.clean-mode .annotations-sidebar:hover {
     background-color: white !important;
 }
 
-body.clean-mode .text-container {
+/* ===== Barra di progresso annotazioni ===== */
+.annotation-progress-container {
+    margin-bottom: 1rem !important;
+    padding: 0.75rem !important;
+    background: white !important;
+    border-radius: 0.5rem !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+    display: flex !important;
+    align-items: center !important;
+    flex-wrap: wrap !important;
+    gap: 0.75rem !important;
+}
+
+.annotation-progress-bar {
     flex: 1 !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    border: none !important;
-    max-width: 100% !important;
-    width: 100% !important;
+    height: 0.75rem !important;
+    background: #f0f0f0 !important;
+    border-radius: 1rem !important;
+    overflow: hidden !important;
+    position: relative !important;
 }
 
-body.clean-mode #clean-mode-toggle {
-    position: fixed !important;
-    top: 10px;
-    right: 10px;
-    z-index: 1000 !important;
-    opacity: 0.7 !important;
-    transition: opacity 0.2s ease !important;
+.annotation-progress-fill {
+    height: 100% !important;
+    background: linear-gradient(90deg, #2563eb, #4f46e5) !important;
+    width: 0% !important;
+    transition: width 0.5s ease !important;
+    border-radius: 1rem !important;
 }
 
-body.clean-mode #clean-mode-toggle:hover {
-    opacity: 1 !important;
+.annotation-progress-stats {
+    display: flex !important;
+    gap: 1rem !important;
+    font-weight: 500 !important;
+    color: #4b5563 !important;
 }
 
-body.clean-mode #clean-mode-toggle .fa-expand:before {
-    content: "\f066"; /* icona compress */
+#annotation-progress-percentage {
+    color: #2563eb !important;
+    font-weight: 700 !important;
+}
+
+/* ===== Effetti di rimozione ===== */
+.removing {
+    opacity: 0.5 !important;
+    background-color: rgba(220, 38, 38, 0.5) !important;
 }
 
 /* ===== Miglioramenti per l'accessibilità ===== */

@@ -118,6 +118,110 @@
         padding-top: 1.5rem;
         word-break: break-word;
     }
+
+    /* Stili per la modalità clean */
+    body.clean-mode .navbar,
+    body.clean-mode .footer,
+    body.clean-mode .document-info {
+        display: none !important;
+    }
+    
+    body.clean-mode {
+        overflow: hidden;
+        height: 100vh;
+    }
+    
+    body.clean-mode .container-fluid {
+        padding: 0;
+        height: 100vh;
+    }
+    
+    body.clean-mode .annotation-area {
+        height: 100vh;
+        border-radius: 0;
+    }
+    
+    body.clean-mode .entity-sidebar,
+    body.clean-mode .annotations-sidebar {
+        width: 0;
+        padding: 0;
+        margin: 0;
+        opacity: 0;
+        overflow: hidden;
+        transition: all 0.3s ease;
+    }
+    
+    body.clean-mode .entity-sidebar:hover,
+    body.clean-mode .annotations-sidebar:hover {
+        width: 280px;
+        padding: 1rem;
+        opacity: 1;
+    }
+    
+    body.clean-mode .text-container {
+        flex-grow: 1;
+        margin: 0;
+        border-radius: 0;
+        border: none;
+    }
+    
+    /* Feedback visivo quando viene selezionata un'entità con scorciatoia */
+    .shortcut-highlight {
+        animation: shortcutPulse 0.5s ease-in-out;
+    }
+    
+    @keyframes shortcutPulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+    }
+    
+    /* Stile per le etichette delle scorciatoie */
+    .shortcut-badge {
+        font-size: 0.7rem;
+        background-color: rgba(0,0,0,0.2);
+        color: white;
+        border-radius: 3px;
+        padding: 1px 3px;
+        font-family: monospace;
+    }
+    
+    /* Mostra sidebars solo al hover in modalità clean */
+    body.clean-mode .entity-sidebar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        z-index: 100;
+        background-color: white;
+        box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+    }
+    
+    body.clean-mode .annotations-sidebar {
+        position: absolute;
+        right: 0;
+        top: 0;
+        height: 100%;
+        z-index: 100;
+        background-color: white;
+        box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+    }
+    
+    /* Pulsante per uscire dalla modalità clean */
+    body.clean-mode #clean-mode-toggle {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        opacity: 0.7;
+    }
+    
+    body.clean-mode #clean-mode-toggle:hover {
+        opacity: 1;
+    }
+    
+    body.clean-mode #clean-mode-toggle .fa-expand:before {
+        content: "\f066"; /* icona compress */
+    }
 </style>
 {% endblock %}
 
@@ -178,9 +282,13 @@
             {% for entity_type in entity_types %}
             <div class="entity-type d-flex align-items-center p-2 mb-2 rounded text-white" 
                  data-type="{{ entity_type.id }}" 
+                 data-shortcut="{{ loop.index }}"
                  style="background-color: {{ entity_type.color or '#ffffff' }}; cursor: pointer;">
                 <span class="entity-name flex-grow-1">{{ entity_type.name }}</span>
-                <span class="badge bg-light bg-opacity-25 text-white rounded-pill ms-2 entity-counter" data-type="{{ entity_type.id }}">0</span>
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-light bg-opacity-25 text-white rounded-pill ms-2 entity-counter" data-type="{{ entity_type.id }}">0</span>
+                    <kbd class="ms-2 shortcut-badge">⌘{{ loop.index }}</kbd>
+                </div>
             </div>
             {% endfor %}
         </div>
@@ -218,6 +326,8 @@
             <ul class="list-unstyled small mb-0">
                 <li><kbd>Esc</kbd> Annulla selezione</li>
                 <li><kbd>Alt</kbd> + <kbd>A</kbd> Riconoscimento automatico</li>
+                <li><kbd>⌘</kbd> + <kbd>numero</kbd> Seleziona tipo entità</li>
+                <li><kbd>⌘</kbd> + <kbd>F</kbd> Modalità a schermo intero</li>
             </ul>
         </div>
     </div>
@@ -225,6 +335,12 @@
     <!-- Contenitore centrale: Testo del documento -->
     <div class="text-container flex-grow-1 bg-white shadow-sm rounded mx-3 position-relative" style="overflow-y: auto;">
         <div class="text-controls position-absolute top-0 end-0 p-2 bg-light bg-opacity-75 rounded m-2">
+            <div class="btn-group me-2">
+                <button id="clean-mode-toggle" class="btn btn-sm btn-outline-primary" title="Modalità a schermo intero">
+                    <i class="fas fa-expand"></i>
+                </button>
+            </div>
+            
             <div class="btn-group">
                 <button id="zoom-in" class="btn btn-sm btn-outline-secondary" title="Aumenta zoom">
                     <i class="fas fa-search-plus"></i>
@@ -757,6 +873,62 @@
         
         function preventDefaultHandler(e) {
             e.stopPropagation();
+        }
+
+        // Gestione della modalità clean (a schermo intero)
+        const cleanModeToggle = document.getElementById('clean-mode-toggle');
+        
+        if (cleanModeToggle) {
+            cleanModeToggle.addEventListener('click', function() {
+                document.body.classList.toggle('clean-mode');
+                
+                if (document.body.classList.contains('clean-mode')) {
+                    this.title = "Esci dalla modalità a schermo intero";
+                    showNotification('Modalità a schermo intero attivata. Passa con il mouse sui bordi per vedere i pannelli.', 'info');
+                } else {
+                    this.title = "Modalità a schermo intero";
+                    showNotification('Modalità a schermo intero disattivata', 'info');
+                }
+            });
+        }
+        
+        // Gestione delle scorciatoie da tastiera
+        document.addEventListener('keydown', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+                e.preventDefault();
+                
+                const index = parseInt(e.key) - 1;
+                const entityTypes = document.querySelectorAll('.entity-type');
+                
+                if (index < entityTypes.length) {
+                    entityTypes[index].click();
+                    entityTypes[index].classList.add('shortcut-highlight');
+                    setTimeout(() => {
+                        entityTypes[index].classList.remove('shortcut-highlight');
+                    }, 500);
+                    
+                    const entityName = entityTypes[index].querySelector('.entity-name').textContent;
+                    updateStatus(`Tipo selezionato: ${entityName} tramite scorciatoia da tastiera`);
+                }
+            }
+            
+            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+                e.preventDefault();
+                if (cleanModeToggle) cleanModeToggle.click();
+            }
+        });
+        
+        // Sistema operativo specifico testi per scorciatoie
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        document.querySelectorAll('.shortcut-badge').forEach(badge => {
+            if (!isMac) {
+                badge.textContent = badge.textContent.replace('⌘', 'Ctrl+');
+            }
+        });
+        
+        const keyboardShortcuts = document.querySelector('.keyboard-shortcuts');
+        if (keyboardShortcuts && !isMac) {
+            keyboardShortcuts.innerHTML = keyboardShortcuts.innerHTML.replace(/⌘/g, 'Ctrl');
         }
     });
 </script>

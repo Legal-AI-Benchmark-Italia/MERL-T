@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const visibleCount = document.getElementById('visible-count');
     const annotationProgress = document.getElementById('annotation-progress');
     const noAnnotationsMsg = document.getElementById('no-annotations');
+    const cleanModeToggle = document.getElementById('clean-mode-toggle');
     
     // === Controlli per lo zoom del testo ===
     const zoomInBtn = document.getElementById('zoom-in');
@@ -28,6 +29,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let originalTextSize = 1.05; // rem
     let currentTextSize = originalTextSize;
     let existingAnnotations = [];
+    let isCleanMode = false;
 
     // === Carica le annotazioni esistenti ===
     function loadExistingAnnotations() {
@@ -63,6 +65,73 @@ document.addEventListener('DOMContentLoaded', function() {
     // Esegui il caricamento iniziale
     loadExistingAnnotations();
     
+    function optimizeTextDisplay() {
+        // Verifica e corregge eventuali problemi di visualizzazione dopo il rendering
+        setTimeout(() => {
+            const highlights = document.querySelectorAll('.entity-highlight');
+            
+            // Miglioramento per garantire che le annotazioni non causino problemi di layout
+            highlights.forEach(highlight => {
+                // Verifica se l'elemento ha un layout corretto
+                const rect = highlight.getBoundingClientRect();
+                if (rect.width === 0 || rect.height === 0) {
+                    console.warn('Rilevato elemento di annotazione con dimensione zero:', highlight);
+                    // Tentativo di correzione forzando un reflow
+                    highlight.style.display = 'inline-block';
+                    setTimeout(() => highlight.style.display = 'inline', 0);
+                }
+            });
+            
+            // Verifica se ci sono sovrapposizioni problematiche
+            checkForOverlappingHighlights();
+        }, 500);
+    }
+    
+    // === Funzione per individuare e correggere sovrapposizioni problematiche ===
+    function checkForOverlappingHighlights() {
+        const highlights = Array.from(document.querySelectorAll('.entity-highlight'));
+        
+        // Gruppo le evidenziazioni per linea
+        const lineMap = new Map();
+        
+        highlights.forEach(highlight => {
+            const rect = highlight.getBoundingClientRect();
+            const lineKey = Math.round(rect.top); // Arrotondato per gestire piccole differenze
+            
+            if (!lineMap.has(lineKey)) {
+                lineMap.set(lineKey, []);
+            }
+            
+            lineMap.get(lineKey).push({
+                element: highlight,
+                left: rect.left,
+                right: rect.right
+            });
+        });
+        
+        // Controllo e gestisco le sovrapposizioni per ogni linea
+        lineMap.forEach(line => {
+            if (line.length < 2) return; // Nessuna sovrapposizione possibile
+            
+            // Ordino per posizione da sinistra
+            line.sort((a, b) => a.left - b.left);
+            
+            // Controllo sovrapposizioni orizzontali
+            for (let i = 0; i < line.length - 1; i++) {
+                const current = line[i];
+                const next = line[i + 1];
+                
+                if (current.right > next.left + 2) { // 2px di tolleranza
+                    console.log('Sovrapposizione orizzontale rilevata:', current.element, next.element);
+                    
+                    // Aggiungi classe per evidenziare la sovrapposizione
+                    current.element.classList.add('overlap');
+                    next.element.classList.add('overlap');
+                }
+            }
+        });
+    }
+        
     // === Sistema di notifiche migliorato ===
     function showNotification(message, type = 'primary') {
         // Usa i toast di Bootstrap
@@ -342,11 +411,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const isOverlap = currentAnnotations.length > 0;
                 const entityName = getEntityNameById(ann.type);
                 
+                // Modificato il markup HTML per migliorare la visualizzazione
                 htmlContent += `<span class="entity-highlight ${isOverlap ? 'overlap' : ''}" 
                       style="background-color: ${ann.color};" 
                       data-id="${ann.id}" 
-                      data-type="${ann.type}">
-                      <span class="tooltip">${entityName}: ${ann.text}</span>`;
+                      data-type="${ann.type}"><span class="tooltip">${entityName}: ${ann.text}</span><span>`;
                           
                 currentAnnotations.push(ann);
             });
@@ -356,8 +425,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Chiudi tutti i tag rimanenti alla fine
-        currentAnnotations.sort((a, b) => b.start - a.start).forEach(() => {
-            htmlContent += '</span>';
+        currentAnnotations.sort((a, b) => b.start - a.start).forEach(ann => {
+            htmlContent += '</span></span>';
         });
         
         // Sostituisci il contenuto
@@ -963,4 +1032,118 @@ document.addEventListener('DOMContentLoaded', function() {
     window.highlightExistingAnnotations = highlightExistingAnnotations;
     window.jumpToAnnotation = jumpToAnnotation;
     window.deleteAnnotation = deleteAnnotation;
+
+    // === Gestione della modalità clean (a schermo intero) ===
+    function toggleCleanMode() {
+        isCleanMode = !isCleanMode;
+        document.body.classList.toggle('clean-mode', isCleanMode);
+        
+        const icon = cleanModeToggle.querySelector('i');
+        if (icon) {
+            if (isCleanMode) {
+                icon.className = 'fas fa-compress';
+                cleanModeToggle.title = "Esci dalla modalità a schermo intero";
+                showNotification('Modalità a schermo intero attivata. Passa con il mouse sui bordi per vedere i pannelli.', 'info');
+            } else {
+                icon.className = 'fas fa-expand';
+                cleanModeToggle.title = "Modalità a schermo intero";
+                showNotification('Modalità a schermo intero disattivata', 'info');
+            }
+        }
+        
+        if (isCleanMode) {
+            setTimeout(() => {
+                if (textContent) textContent.focus();
+            }, 300);
+        }
+
+        // Salva lo stato
+        localStorage.setItem('ner-clean-mode', isCleanMode);
+    }
+
+    // Ripristina lo stato della modalità clean
+    const savedCleanMode = localStorage.getItem('ner-clean-mode') === 'true';
+    if (savedCleanMode && cleanModeToggle) {
+        toggleCleanMode();
+    }
+
+    if (cleanModeToggle) {
+        cleanModeToggle.addEventListener('click', toggleCleanMode);
+    }
+
+    // === Preparazione dei badge delle scorciatoie ===
+    function setupShortcutBadges() {
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const modifierKey = isMac ? '⌘' : 'Ctrl';
+        
+        document.querySelectorAll('.shortcut-badge').forEach((badge, index) => {
+            badge.textContent = `${modifierKey}${index + 1}`;
+        });
+        
+        const keyboardShortcuts = document.querySelector('.keyboard-shortcuts');
+        if (keyboardShortcuts && !isMac) {
+            const items = keyboardShortcuts.querySelectorAll('li');
+            items.forEach(item => {
+                item.innerHTML = item.innerHTML.replace(/⌘/g, 'Ctrl');
+            });
+        }
+    }
+
+    // Configura i badge delle scorciatoie
+    setupShortcutBadges();
+
+    // === Gestione migliorata delle scorciatoie da tastiera ===
+    document.addEventListener('keydown', function(e) {
+        // Cmd/Ctrl + numero per selezionare un tipo di entità
+        if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
+            e.preventDefault();
+            
+            const index = parseInt(e.key) - 1;
+            const entityTypes = document.querySelectorAll('.entity-type');
+            
+            if (index < entityTypes.length) {
+                entityTypes[index].click();
+                entityTypes[index].classList.add('shortcut-highlight');
+                setTimeout(() => {
+                    entityTypes[index].classList.remove('shortcut-highlight');
+                }, 500);
+                
+                const entityName = entityTypes[index].querySelector('.entity-name').textContent;
+                updateStatus(`Tipo selezionato: ${entityName} tramite scorciatoia da tastiera`);
+            }
+        }
+        
+        // Cmd/Ctrl + F per modalità clean
+        if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+            e.preventDefault();
+            if (cleanModeToggle) toggleCleanMode();
+        }
+        
+        // Escape gestisce anche l'uscita dalla modalità clean
+        if (e.key === 'Escape') {
+            if (isCleanMode) {
+                toggleCleanMode();
+                e.preventDefault();
+                return;
+            }
+            // ...existing Escape handling...
+        }
+    });
+
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'childList' && mutation.target.id === 'text-content') {
+                optimizeTextDisplay();
+            }
+        });
+    });
+    
+    // Osserva i cambiamenti nel contenuto del testo
+    if (textContent) {
+        observer.observe(textContent, { childList: true, subtree: true });
+    }
+    
+    // Ottimizza il display all'avvio
+    optimizeTextDisplay();
+    
 });

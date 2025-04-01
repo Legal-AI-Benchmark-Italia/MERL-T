@@ -155,8 +155,60 @@ body {
     opacity: 0.9;
 }
 
+/* Modifiche agli stili per gli elementi di evidenziazione */
+
+/* Stile migliorato per l'highlighting del testo */
 .entity-highlight {
+    display: inline;  /* Mantiene la visualizzazione inline per seguire il flusso del testo */
+    border-radius: 2px;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    transition: all 0.2s ease;
+    padding: 0;  /* Rimuoviamo il padding laterale */
+    margin: 0;
+    color: white;
+    text-shadow: 0px 0px 1px rgba(0, 0, 0, 0.4);
     position: relative;
+}
+
+/* Per garantire un aspetto migliore, aggiungiamo un margine minimo solo dentro il testo */
+.entity-highlight > span:not(.tooltip) {
+    padding: 0 1px;  /* Padding minimo per il testo, non per il container */
+}
+
+/* Miglioramento della visualizzazione quando si sovrappongono le etichette */
+.entity-highlight.overlap {
+    box-shadow: 0 0 0 1px #ff9800, 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Miglioramento del tooltip */
+.entity-highlight .tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 5px;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    text-align: center;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+/* Miglioramento stile hover */
+.entity-highlight:hover {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
+    transform: translateY(-1px);
+}
+
+.entity-highlight:hover .tooltip {
+    opacity: 1;
 }
 
 /* ===== Personalizzazione Toast Notifications ===== */
@@ -319,4 +371,265 @@ kbd {
 /* ===== Dark mode (opzionale, da implementare in seguito) ===== */
 @media (prefers-color-scheme: dark) {
     /* Implementare in una versione futura */
+}
+
+.text-container {
+    /* Miglioramento dello spacing del testo per garantire leggibilità */
+    line-height: 1.8;
+    letter-spacing: 0.01em;
+    padding: 2rem;
+}
+
+#text-content {
+    /* Garanzia di un corretto wrapping delle parole */
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    word-break: normal;
+    hyphens: auto;
+}
+
+/* Miglioramento per garantire che le annotazioni non disturbino il layout */
+.entity-highlight {
+    /* Evita problemi di line-height e allineamento verticale */
+    line-height: inherit;
+    vertical-align: baseline;
+    /* Migliora display rispetto a inline-block che può causare spazi */
+    display: inline;
+}
+
+/* Garanzia che le evidenziazioni non si estendano oltre i limiti del testo */
+#text-content span {
+    max-width: 100%;
+    display: inline;
+}
+
+/* Aggiunta di uno stile elegante quando si passa sopra le entità nel testo */
+.entity-highlight:hover {
+    transform: translateY(-1px);
+    z-index: 2; /* Porta l'elemento in primo piano su hover */
+}
+
+/* Miglioramento della visualizzazione nelle situazioni di sovrapposizione */
+.overlap-container {
+    position: relative;
+    display: inline;
+}
+
+/* Stile per il debug delle annotazioni se necessario */
+.debug-highlight-boundaries {
+    box-shadow: 0 0 0 1px red;
+}
+
+/* Miglioramento per la visualizzazione in differenti browser */
+@supports (-webkit-touch-callout: none) {
+    /* Correzioni specifiche per Safari */
+    .entity-highlight {
+        -webkit-box-decoration-break: clone;
+    }
+}
+
+@supports (-moz-appearance: none) {
+    /* Correzioni specifiche per Firefox */
+    .entity-highlight {
+        box-decoration-break: clone;
+    }
+}
+/* ===== Modalità Clean/Schermo Intero ===== */
+body.clean-mode {
+    overflow: hidden;
+    height: 100vh;
+}
+
+body.clean-mode .navbar,
+body.clean-mode .footer,
+body.clean-mode .document-info {
+    display: none !important;
+}
+
+body.clean-mode .container-fluid {
+    padding: 0 !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+}
+
+body.clean-mode .annotation-area {
+    height: 100vh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    display: flex !important;
+}
+
+/* Riduzione sidebars in modalità clean */
+body.clean-mode .entity-sidebar,
+body.clean-mode .annotations-sidebar {
+    flex: 0 0 0 !important;
+    width: 0 !important; 
+    padding: 0 !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    top: 0 !important;
+    height: 100% !important;
+    transition: all 0.3s ease !important;
+    z-index: 100 !important;
+}
+
+body.clean-mode .entity-sidebar {
+    left: 0 !important;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1) !important;
+}
+
+body.clean-mode .annotations-sidebar {
+    right: 0 !important;
+    box-shadow: -2px 0 10px rgba(0,0,0,0.1) !important;
+}
+
+/* Espansione sidebar al passaggio del mouse */
+body.clean-mode .entity-sidebar:hover,
+body.clean-mode .annotations-sidebar:hover {
+    flex: 0 0 280px !important;
+    width: 280px !important;
+    padding: 1rem !important;
+    opacity: 1 !important;
+    background-color: white !important;
+}
+
+/* Espansione contenuto centrale */
+body.clean-mode .text-container {
+    flex: 1 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+/* Pulsante toggle clean mode */
+body.clean-mode #clean-mode-toggle {
+    position: fixed !important;
+    z-index: 1000 !important;
+    opacity: 0.7 !important;
+    transition: opacity 0.2s ease !important;
+}
+
+body.clean-mode #clean-mode-toggle:hover {
+    opacity: 1 !important;
+}
+
+/* Indicatori tabs laterali in modalità clean */
+body.clean-mode .entity-sidebar::after,
+body.clean-mode .annotations-sidebar::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 10px;
+    height: 80px;
+    background-color: rgba(0,0,0,0.1);
+    border-radius: 0 5px 5px 0;
+    transform: translateY(-50%);
+    transition: background-color 0.2s ease;
+}
+
+body.clean-mode .entity-sidebar::after {
+    right: -10px;
+}
+
+body.clean-mode .annotations-sidebar::after {
+    left: -10px;
+    border-radius: 5px 0 0 5px;
+}
+
+body.clean-mode .entity-sidebar:hover::after,
+body.clean-mode .annotations-sidebar:hover::after {
+    background-color: transparent;
+}
+
+/* Indicatori di contenuto per i tab laterali */
+body.clean-mode .entity-sidebar::before {
+    content: "Tipi";
+    position: absolute;
+    top: 50%;
+    right: -10px;
+    transform: translateY(-50%) rotate(90deg);
+    transform-origin: center right;
+    color: #555;
+    font-weight: bold;
+    font-size: 12px;
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+body.clean-mode .annotations-sidebar::before {
+    content: "Annotazioni";
+    position: absolute;
+    top: 50%;
+    left: -10px;
+    transform: translateY(-50%) rotate(-90deg);
+    transform-origin: center left;
+    color: #555;
+    font-weight: bold;
+    font-size: 12px;
+    white-space: nowrap;
+    text-transform: uppercase;
+}
+
+body.clean-mode .entity-sidebar:hover::before,
+body.clean-mode .annotations-sidebar:hover::before {
+    opacity: 0;
+}
+
+/* ===== Scorciatoie da tastiera ===== */
+/* Badge per scorciatoie */
+.shortcut-badge {
+    font-size: 0.7rem;
+    background-color: rgba(0,0,0,0.2);
+    color: white;
+    border-radius: 3px;
+    padding: 1px 3px;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Effetto di evidenziazione quando si usa una scorciatoia */
+.shortcut-highlight {
+    animation: shortcutPulse 0.5s ease-in-out;
+}
+
+@keyframes shortcutPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); box-shadow: 0 0 15px rgba(255,255,255,0.8); }
+    100% { transform: scale(1); }
+}
+
+/* Miglioramento stile kbd per le scorciatoie */
+kbd {
+    display: inline-block;
+    padding: 2px 4px;
+    font-size: 0.8rem;
+    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #555;
+    background-color: #f7f7f7;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.2), inset 0 0 0 2px #fff;
+    margin: 0 0.1rem;
+}
+
+/* Focus migliorato per accessibilità tastiera */
+.entity-type:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.6);
+}
+
+/* Indici numerici visibili accanto ai tipi di entità */
+.entity-type::before {
+    content: attr(data-shortcut);
+    position: absolute;
+    left: -20px;
+    opacity: 0.5;
+    font-size: 0.8rem;
+}
+
+.entity-type {
+    position: relative;
 }

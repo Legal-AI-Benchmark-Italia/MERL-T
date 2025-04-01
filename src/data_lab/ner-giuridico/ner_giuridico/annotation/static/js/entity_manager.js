@@ -1,153 +1,183 @@
 /**
  * entity_manager.js - Script migliorato per la gestione dei tipi di entità
- * Versione aggiornata con supporto per Bootstrap 5 e miglioramenti UX
+ * 
+ * Questo script gestisce l'interfaccia utente per la creazione, modifica ed eliminazione
+ * dei tipi di entità utilizzati nel sistema NER-Giuridico.
+ *
+ * @version 2.0.0
+ * @author NER-Giuridico Team
  */
 
-document.addEventListener('DOMContentLoaded', function() {
-    // === Elementi DOM ===
-    const entityTypesTable = document.getElementById('entity-types-table');
-    const entityTypeForm = document.getElementById('entity-type-form');
-    const entityTypeFormContainer = document.getElementById('entity-type-form-container');
-    const formTitle = document.getElementById('form-title');
-    const addEntityTypeBtn = document.getElementById('add-entity-type-btn');
-    const addFirstEntityBtn = document.getElementById('add-first-entity');
-    const cancelBtn = document.getElementById('cancel-btn');
-    const closeFormBtn = document.getElementById('close-form-btn');
-    const saveBtn = document.getElementById('save-btn');
-    const editMode = document.getElementById('edit-mode');
-    const originalName = document.getElementById('original-name');
-    const nameInput = document.getElementById('entity-name');
-    const displayNameInput = document.getElementById('display-name');
-    const categorySelect = document.getElementById('category');
-    const colorInput = document.getElementById('color');
-    const colorPreview = document.getElementById('color-preview');
-    const colorSample = document.getElementById('color-sample');
-    const metadataSchemaInput = document.getElementById('metadata-schema');
-    const patternsInput = document.getElementById('patterns');
-    const testPatternsBtn = document.getElementById('test-patterns-btn');
-    const testText = document.getElementById('test-text');
-    const testResults = document.getElementById('test-results');
-    const testOutput = document.getElementById('test-output');
-    const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
-    const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
-    const loadingIndicator = document.getElementById('loading-indicator');
-    const emptyState = document.getElementById('empty-state');
-    const entitySearch = document.getElementById('entity-search');
-    const categoryFilter = document.getElementById('category-filter');
+// Entity Type Manager
+const EntityManager = {
+    // Stato dell'applicazione
+    state: {
+        entityTypes: [],
+        selectedEntityType: null,
+        isLoading: true,
+        pendingOperations: 0,
+        filterText: '',
+        filterCategory: '',
+        isEditMode: false,
+        entityToDelete: null
+    },
     
-    // === Stato dell'applicazione ===
-    let entityToDelete = null;
-    let allEntities = [];
-    let isLoading = true;
+    // Elementi DOM
+    elements: {},
     
-    // === Imposta lo stato di caricamento ===
-    function setLoading(loading) {
-        isLoading = loading;
+    /**
+     * Inizializza il gestore dei tipi di entità
+     */
+    init: function() {
+        console.info('🔖 Inizializzazione Entity Manager...');
         
-        if (!loadingIndicator || !entityTypesTable || !emptyState) {
-            console.error('DOM elements not found');
-            return;
+        // Seleziona gli elementi DOM principali
+        this.elements = {
+            entityTypesTable: document.getElementById('entity-types-table'),
+            entityTypeForm: document.getElementById('entity-type-form'),
+            entityTypeFormContainer: document.getElementById('entity-type-form-container'),
+            formTitle: document.getElementById('form-title'),
+            addEntityTypeBtn: document.getElementById('add-entity-type-btn'),
+            addFirstEntityBtn: document.getElementById('add-first-entity'),
+            cancelBtn: document.getElementById('cancel-btn'),
+            closeFormBtn: document.getElementById('close-form-btn'),
+            saveBtn: document.getElementById('save-btn'),
+            editMode: document.getElementById('edit-mode'),
+            originalName: document.getElementById('original-name'),
+            nameInput: document.getElementById('entity-name'),
+            displayNameInput: document.getElementById('display-name'),
+            categorySelect: document.getElementById('category'),
+            colorInput: document.getElementById('color'),
+            colorPreview: document.getElementById('color-preview'),
+            colorSample: document.getElementById('color-sample'),
+            metadataSchemaInput: document.getElementById('metadata-schema'),
+            patternsInput: document.getElementById('patterns'),
+            testPatternsBtn: document.getElementById('test-patterns-btn'),
+            testText: document.getElementById('test-text'),
+            testResults: document.getElementById('test-results'),
+            testOutput: document.getElementById('test-output'),
+            confirmDeleteBtn: document.getElementById('confirm-delete-btn'),
+            confirmCancelBtn: document.getElementById('confirm-cancel-btn'),
+            loadingIndicator: document.getElementById('loading-indicator'),
+            emptyState: document.getElementById('empty-state'),
+            entitySearch: document.getElementById('entity-search'),
+            categoryFilter: document.getElementById('category-filter')
+        };
+        
+        // Configura gli event handlers
+        this.setupEventHandlers();
+        
+        // Carica i tipi di entità
+        this.loadEntityTypes();
+        
+        console.info('🔖 Entity Manager inizializzato');
+    },
+    
+    /**
+     * Configura tutti gli event handlers
+     */
+    setupEventHandlers: function() {
+        // Pulsanti per mostrare il form di creazione
+        if (this.elements.addEntityTypeBtn) {
+            this.elements.addEntityTypeBtn.addEventListener('click', () => this.showCreateForm());
         }
         
-        if (loading) {
-            loadingIndicator.classList.remove('d-none');
-            entityTypesTable.classList.add('d-none');
-            emptyState.classList.add('d-none');
-        } else {
-            loadingIndicator.classList.add('d-none');
-            
-            if (!Array.isArray(allEntities) || allEntities.length === 0) {
-                emptyState.classList.remove('d-none');
-                entityTypesTable.classList.add('d-none');
-            } else {
-                emptyState.classList.add('d-none');
-                entityTypesTable.classList.remove('d-none');
+        if (this.elements.addFirstEntityBtn) {
+            this.elements.addFirstEntityBtn.addEventListener('click', () => this.showCreateForm());
+        }
+        
+        // Pulsanti per nascondere il form
+        if (this.elements.cancelBtn) {
+            this.elements.cancelBtn.addEventListener('click', () => this.hideForm());
+        }
+        
+        if (this.elements.closeFormBtn) {
+            this.elements.closeFormBtn.addEventListener('click', () => this.hideForm());
+        }
+        
+        // Gestione del form
+        if (this.elements.entityTypeForm) {
+            this.elements.entityTypeForm.addEventListener('submit', e => this.handleFormSubmit(e));
+        }
+        
+        // Preview del colore
+        if (this.elements.colorInput) {
+            this.elements.colorInput.addEventListener('input', () => this.updateColorPreview());
+        }
+        
+        // Conferma eliminazione
+        if (this.elements.confirmDeleteBtn) {
+            this.elements.confirmDeleteBtn.addEventListener('click', () => this.confirmDelete());
+        }
+        
+        if (this.elements.confirmCancelBtn) {
+            this.elements.confirmCancelBtn.addEventListener('click', () => this.hideConfirmationDialog());
+        }
+        
+        // Ricerca e filtro
+        if (this.elements.entitySearch) {
+            const debouncedSearch = NERGiuridico.debounce(() => this.filterEntityTypes(), 300);
+            this.elements.entitySearch.addEventListener('input', debouncedSearch);
+        }
+        
+        if (this.elements.categoryFilter) {
+            this.elements.categoryFilter.addEventListener('change', () => this.filterEntityTypes());
+        }
+        
+        // Test dei pattern
+        if (this.elements.testPatternsBtn) {
+            this.elements.testPatternsBtn.addEventListener('click', () => this.testPatterns());
+        }
+        
+        // Validazione in tempo reale
+        if (this.elements.nameInput) {
+            this.elements.nameInput.addEventListener('input', () => this.validateEntityName());
+        }
+        
+        if (this.elements.metadataSchemaInput) {
+            this.elements.metadataSchemaInput.addEventListener('input', () => this.validateMetadataSchema());
+        }
+        
+        if (this.elements.patternsInput) {
+            this.elements.patternsInput.addEventListener('input', () => this.validatePatterns());
+        }
+        
+        // Gestione dei tasti di scelta rapida
+        document.addEventListener('keydown', e => {
+            // Escape per chiudere il form o la finestra di conferma
+            if (e.key === 'Escape') {
+                const confirmationModal = bootstrap.Modal.getInstance(document.getElementById('confirmation-dialog'));
+                if (confirmationModal) {
+                    confirmationModal.hide();
+                } else if (!this.elements.entityTypeFormContainer.classList.contains('d-none')) {
+                    this.hideForm();
+                }
             }
+        });
+        
+        // Gestione del cambiamento della categoria
+        if (this.elements.categorySelect) {
+            this.elements.categorySelect.addEventListener('change', function() {
+                // Salva la categoria originale quando si carica l'entità
+                if (!this.dataset.originalCategory && EntityManager.state.isEditMode) {
+                    this.dataset.originalCategory = this.value;
+                }
+                
+                // Evidenzia visivamente il cambio di categoria
+                if (EntityManager.state.isEditMode && this.value !== this.dataset.originalCategory) {
+                    this.classList.add('border-warning', 'bg-warning', 'bg-opacity-10');
+                } else {
+                    this.classList.remove('border-warning', 'bg-warning', 'bg-opacity-10');
+                }
+            });
         }
-    }
+    },
     
-    // === Carica i tipi di entità all'avvio ===
-    loadEntityTypes();
-    
-    // === Event listeners ===
-    if (addEntityTypeBtn) {
-        addEntityTypeBtn.addEventListener('click', showCreateForm);
-    }
-    
-    if (addFirstEntityBtn) {
-        addFirstEntityBtn.addEventListener('click', showCreateForm);
-    }
-    
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', hideForm);
-    }
-    
-    if (closeFormBtn) {
-        closeFormBtn.addEventListener('click', hideForm);
-    }
-    
-    if (entityTypeForm) {
-        entityTypeForm.addEventListener('submit', handleFormSubmit);
-    }
-    
-    if (colorInput) {
-        colorInput.addEventListener('input', updateColorPreview);
-    }
-    
-    if (confirmDeleteBtn) {
-        confirmDeleteBtn.addEventListener('click', confirmDelete);
-    }
-    
-    if (confirmCancelBtn) {
-        confirmCancelBtn.addEventListener('click', hideConfirmationDialog);
-    }
-    
-    if (entitySearch) {
-        entitySearch.addEventListener('input', filterEntities);
-    }
-    
-    if (categoryFilter) {
-        categoryFilter.addEventListener('change', filterEntities);
-    }
-    
-    if (testPatternsBtn) {
-        testPatternsBtn.addEventListener('click', testPatterns);
-    }
-    
-    // === Validazione in tempo reale ===
-    if (nameInput) {
-        nameInput.addEventListener('input', validateEntityName);
-    }
-    
-    if (metadataSchemaInput) {
-        metadataSchemaInput.addEventListener('input', validateMetadataSchema);
-    }
-    
-    if (patternsInput) {
-        patternsInput.addEventListener('input', validatePatterns);
-    }
-    
-    // === Funzione per mostrare una notifica ===
-    function showNotification(message, type = 'primary') {
-        // Utilizziamo i toast di Bootstrap
-        const toastEl = document.getElementById('notification-toast');
-        if (!toastEl) return;
-        
-        const toastBody = toastEl.querySelector('.toast-body');
-        if (toastBody) toastBody.textContent = message;
-        
-        // Imposta il tipo di toast
-        toastEl.className = toastEl.className.replace(/bg-\w+/, '');
-        toastEl.classList.add(`bg-${type}`);
-        
-        // Mostra il toast
-        const toast = new bootstrap.Toast(toastEl);
-        toast.show();
-    }
-    
-    // === Funzione per caricare i tipi di entità ===
-    function loadEntityTypes() {
-        setLoading(true);
+    /**
+     * Carica i tipi di entità dal server
+     */
+    loadEntityTypes: function() {
+        this.setLoading(true);
         
         fetch('/api/entity_types')
             .then(response => {
@@ -159,41 +189,75 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(data => {
                 // Verifica che i dati siano nel formato atteso
                 if (data && data.status === 'success' && Array.isArray(data.entity_types)) {
-                    window.allEntities = data.entity_types;
-                    allEntities = data.entity_types;
+                    this.state.entityTypes = data.entity_types;
+                    window.allEntities = data.entity_types; // Per compatibilità
                 } else {
                     console.error('Formato risposta non valido:', data);
+                    this.state.entityTypes = [];
                     window.allEntities = [];
-                    allEntities = [];
-                    showNotification('Errore nel formato dei dati ricevuti', 'danger');
+                    NERGiuridico.showNotification('Errore nel formato dei dati ricevuti', 'danger');
                 }
                 
-                renderEntityTypes(allEntities);
+                this.renderEntityTypes(this.state.entityTypes);
             })
             .catch(error => {
                 console.error('Errore:', error);
+                this.state.entityTypes = [];
                 window.allEntities = [];
-                allEntities = [];
-                showNotification(`Errore durante il caricamento dei tipi di entità: ${error.message}`, 'danger');
+                NERGiuridico.showNotification(`Errore durante il caricamento dei tipi di entità: ${error.message}`, 'danger');
             })
             .finally(() => {
-                setLoading(false);
+                this.setLoading(false);
             });
-    }
+    },
     
-    // === Funzione per filtrare le entità ===
-    function filterEntities() {
-        const searchTerm = entitySearch.value.toLowerCase();
-        const categoryValue = categoryFilter.value;
+    /**
+     * Imposta lo stato di caricamento
+     * @param {boolean} loading - True se sta caricando, false altrimenti
+     */
+    setLoading: function(loading) {
+        this.state.isLoading = loading;
         
-        // Assicuriamoci che allEntities sia un array
-        if (!Array.isArray(allEntities)) {
-            allEntities = [];
-            setLoading(false);
+        if (!this.elements.loadingIndicator || !this.elements.entityTypesTable || !this.elements.emptyState) {
+            console.error('DOM elements not found');
+            return;
+        }
+        
+        if (loading) {
+            this.elements.loadingIndicator.classList.remove('d-none');
+            this.elements.entityTypesTable.classList.add('d-none');
+            this.elements.emptyState.classList.add('d-none');
+        } else {
+            this.elements.loadingIndicator.classList.add('d-none');
+            
+            if (this.state.entityTypes.length === 0) {
+                this.elements.emptyState.classList.remove('d-none');
+                this.elements.entityTypesTable.classList.add('d-none');
+            } else {
+                this.elements.emptyState.classList.add('d-none');
+                this.elements.entityTypesTable.classList.remove('d-none');
+            }
+        }
+    },
+    
+    /**
+     * Filtra i tipi di entità in base al testo di ricerca e alla categoria
+     */
+    filterEntityTypes: function() {
+        const searchTerm = this.elements.entitySearch.value.toLowerCase();
+        const categoryValue = this.elements.categoryFilter.value;
+        
+        this.state.filterText = searchTerm;
+        this.state.filterCategory = categoryValue;
+        
+        // Assicuriamoci che entityTypes sia un array
+        if (!Array.isArray(this.state.entityTypes)) {
+            this.state.entityTypes = [];
+            this.setLoading(false);
             return;
         }
 
-        const filteredEntities = allEntities.filter(entity => {
+        const filteredEntities = this.state.entityTypes.filter(entity => {
             const matchesSearch = 
                 entity.name.toLowerCase().includes(searchTerm) || 
                 entity.display_name.toLowerCase().includes(searchTerm);
@@ -204,34 +268,19 @@ document.addEventListener('DOMContentLoaded', function() {
             return matchesSearch && matchesCategory;
         });
         
-        renderEntityTypes(filteredEntities);
-        
-        // Mostra messaggio se non ci sono risultati
-        if (filteredEntities.length === 0 && allEntities.length > 0) {
-            const tbody = entityTypesTable.querySelector('tbody');
-            const tr = document.createElement('tr');
-            const td = document.createElement('td');
-            td.colSpan = 5;
-            td.textContent = 'Nessun risultato trovato';
-            td.className = 'text-center py-4 text-muted';
-            tr.appendChild(td);
-            tbody.appendChild(tr);
-        }
-    }
+        this.renderEntityTypes(filteredEntities);
+    },
     
-    // === Funzione per visualizzare i tipi di entità nella tabella ===
-    function renderEntityTypes(entityTypes) {
+    /**
+     * Visualizza i tipi di entità nella tabella
+     * @param {Array} entityTypes - Array di tipi di entità da visualizzare
+     */
+    renderEntityTypes: function(entityTypes) {
         // Svuota la tabella
-        const tbody = entityTypesTable.querySelector('tbody');
+        const tbody = this.elements.entityTypesTable.querySelector('tbody');
         if (!tbody) return;
         
         tbody.innerHTML = '';
-        
-        // Verifica che entityTypes sia un array
-        if (!Array.isArray(entityTypes)) {
-            console.error('entityTypes non è un array:', entityTypes);
-            entityTypes = [];
-        }
         
         // Gestione esplicita di zero entità
         if (entityTypes.length === 0) {
@@ -244,7 +293,7 @@ document.addEventListener('DOMContentLoaded', function() {
             tbody.appendChild(tr);
             return;
         }
-    
+        
         // Aggiungi i tipi di entità alla tabella
         entityTypes.forEach(entityType => {
             const tr = document.createElement('tr');
@@ -284,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     categoryBadge.classList.add('bg-dark');
             }
             
-            categoryBadge.textContent = getCategoryDisplayName(entityType.category);
+            categoryBadge.textContent = this.getCategoryDisplayName(entityType.category);
             categoryTd.className = 'align-middle';
             categoryTd.appendChild(categoryBadge);
             tr.appendChild(categoryTd);
@@ -322,7 +371,7 @@ document.addEventListener('DOMContentLoaded', function() {
             editBtn.className = 'btn btn-sm btn-outline-primary';
             editBtn.innerHTML = '<i class="fas fa-edit me-1"></i> Modifica';
             editBtn.title = 'Modifica il tipo di entità';
-            editBtn.addEventListener('click', () => showEditForm(entityType));
+            editBtn.addEventListener('click', () => this.showEditForm(entityType));
             
             actionButtons.appendChild(editBtn);
             
@@ -342,9 +391,9 @@ document.addEventListener('DOMContentLoaded', function() {
             
             deleteBtn.addEventListener('click', () => {
                 if (entityType.category === 'custom') {
-                    showDeleteConfirmation(entityType);
+                    this.showDeleteConfirmation(entityType);
                 } else {
-                    showNotification('Le entità predefinite non possono essere eliminate', 'warning');
+                    NERGiuridico.showNotification('Le entità predefinite non possono essere eliminate', 'warning');
                 }
             });
             
@@ -355,10 +404,14 @@ document.addEventListener('DOMContentLoaded', function() {
             
             tbody.appendChild(tr);
         });
-    }
+    },
     
-    // === Funzione per ottenere il nome visualizzato della categoria ===
-    function getCategoryDisplayName(category) {
+    /**
+     * Ottiene il nome visualizzato della categoria
+     * @param {string} category - Codice della categoria
+     * @returns {string} - Nome visualizzato della categoria
+     */
+    getCategoryDisplayName: function(category) {
         const categories = {
             'normative': 'Normativa',
             'jurisprudence': 'Giurisprudenziale',
@@ -367,23 +420,25 @@ document.addEventListener('DOMContentLoaded', function() {
         };
         
         return categories[category] || category;
-    }
+    },
     
-    // === Funzione per mostrare il form di creazione ===
-    function showCreateForm() {
+    /**
+     * Mostra il form di creazione di un nuovo tipo di entità
+     */
+    showCreateForm: function() {
         // Resetta il form
-        entityTypeForm.reset();
-        editMode.value = 'create';
-        originalName.value = '';
-        formTitle.textContent = 'Nuovo Tipo di Entità';
-        saveBtn.textContent = 'Crea';
+        this.elements.entityTypeForm.reset();
+        this.elements.editMode.value = 'create';
+        this.elements.originalName.value = '';
+        this.elements.formTitle.textContent = 'Nuovo Tipo di Entità';
+        this.elements.saveBtn.textContent = 'Crea';
         
         // Abilita il campo del nome
-        nameInput.disabled = false;
+        this.elements.nameInput.disabled = false;
         
         // Inizializza il colore
-        colorInput.value = '#CCCCCC';
-        updateColorPreview();
+        this.elements.colorInput.value = '#CCCCCC';
+        this.updateColorPreview();
         
         // Rimuovi classi di validazione
         document.querySelectorAll('.is-valid, .is-invalid').forEach(el => {
@@ -391,39 +446,45 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         // Nascondi i risultati del test
-        testResults.classList.add('d-none');
+        this.elements.testResults.classList.add('d-none');
         
         // Mostra il form
-        entityTypeFormContainer.classList.remove('d-none');
+        this.elements.entityTypeFormContainer.classList.remove('d-none');
+        
+        // Aggiorna lo stato
+        this.state.isEditMode = false;
         
         // Scorri fino al form
-        entityTypeFormContainer.scrollIntoView({behavior: 'smooth'});
+        this.elements.entityTypeFormContainer.scrollIntoView({behavior: 'smooth'});
         
         // Focus sul campo del nome
-        nameInput.focus();
-    }
-        
-    // === Funzione per mostrare il form di modifica ===
-    function showEditForm(entityType) {
+        this.elements.nameInput.focus();
+    },
+    
+    /**
+     * Mostra il form di modifica di un tipo di entità esistente
+     * @param {Object} entityType - Il tipo di entità da modificare
+     */
+    showEditForm: function(entityType) {
         // Popola il form con i dati dell'entità
-        nameInput.value = entityType.name;
-        displayNameInput.value = entityType.display_name;
-        categorySelect.value = entityType.category;
-        colorInput.value = entityType.color;
-        updateColorPreview();
+        this.elements.nameInput.value = entityType.name;
+        this.elements.displayNameInput.value = entityType.display_name;
+        this.elements.categorySelect.value = entityType.category;
+        this.elements.colorInput.value = entityType.color;
+        this.updateColorPreview();
         
         // Popola i metadati e i pattern
-        metadataSchemaInput.value = JSON.stringify(entityType.metadata_schema || {}, null, 2);
-        patternsInput.value = (entityType.patterns || []).join('\n');
+        this.elements.metadataSchemaInput.value = JSON.stringify(entityType.metadata_schema || {}, null, 2);
+        this.elements.patternsInput.value = (entityType.patterns || []).join('\n');
         
         // Imposta la modalità di modifica
-        editMode.value = 'edit';
-        originalName.value = entityType.name;
-        formTitle.textContent = `Modifica Tipo di Entità: ${entityType.name}`;
-        saveBtn.textContent = 'Aggiorna';
+        this.elements.editMode.value = 'edit';
+        this.elements.originalName.value = entityType.name;
+        this.elements.formTitle.textContent = `Modifica Tipo di Entità: ${entityType.name}`;
+        this.elements.saveBtn.textContent = 'Aggiorna';
         
         // Disabilita il campo del nome (non dovrebbe essere modificato)
-        nameInput.disabled = true;
+        this.elements.nameInput.disabled = true;
         
         // Rimuovi classi di validazione
         document.querySelectorAll('.is-valid, .is-invalid').forEach(el => {
@@ -433,10 +494,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Gestisci lo stato del campo categoria in base al tipo di entità
         if (entityType.category !== 'custom' && ['normative', 'jurisprudence', 'concepts'].includes(entityType.category)) {
             // Disabilita il campo categoria se è un'entità predefinita
-            categorySelect.disabled = true;
+            this.elements.categorySelect.disabled = true;
             
             // Aggiungi un avviso sul campo della categoria
-            const categoryGroup = categorySelect.closest('.form-group') || categorySelect.closest('.mb-3');
+            const categoryGroup = this.elements.categorySelect.closest('.form-group') || this.elements.categorySelect.closest('.mb-3');
             
             // Rimuovi avvisi precedenti
             const existingWarning = categoryGroup.querySelector('.alert-warning');
@@ -449,202 +510,367 @@ document.addEventListener('DOMContentLoaded', function() {
             categoryGroup.appendChild(categoryWarning);
         } else {
             // Abilita il campo categoria per le entità personalizzate
-            categorySelect.disabled = false;
+            this.elements.categorySelect.disabled = false;
             
             // Rimuovi eventuali avvisi precedenti
-            const categoryGroup = categorySelect.closest('.form-group') || categorySelect.closest('.mb-3');
+            const categoryGroup = this.elements.categorySelect.closest('.form-group') || this.elements.categorySelect.closest('.mb-3');
             const existingWarning = categoryGroup.querySelector('.alert-warning');
             if (existingWarning) existingWarning.remove();
         }
         
         // Nascondi i risultati del test
-        testResults.classList.add('d-none');
+        this.elements.testResults.classList.add('d-none');
+        
+        // Aggiorna lo stato
+        this.state.isEditMode = true;
+        this.state.selectedEntityType = entityType;
         
         // Mostra il form
-        entityTypeFormContainer.classList.remove('d-none');
+        this.elements.entityTypeFormContainer.classList.remove('d-none');
         
         // Scorri fino al form
-        entityTypeFormContainer.scrollIntoView({behavior: 'smooth'});
+        this.elements.entityTypeFormContainer.scrollIntoView({behavior: 'smooth'});
         
         // Focus sul campo del nome visualizzato
-        displayNameInput.focus();
-    }
+        this.elements.displayNameInput.focus();
+    },
     
-    // === Funzione per nascondere il form ===
-    function hideForm() {
-        entityTypeFormContainer.classList.add('d-none');
+    /**
+     * Nasconde il form di creazione/modifica
+     */
+    hideForm: function() {
+        this.elements.entityTypeFormContainer.classList.add('d-none');
         
         // Rimuovi classi di validazione
         document.querySelectorAll('.is-valid, .is-invalid').forEach(el => {
             el.classList.remove('is-valid', 'is-invalid');
         });
-    }
+        
+        // Reimposta lo stato
+        this.state.isEditMode = false;
+        this.state.selectedEntityType = null;
+    },
     
-    // === Funzione per aggiornare l'anteprima del colore ===
-    function updateColorPreview() {
-        const colorValue = colorInput.value;
-        colorPreview.textContent = colorValue;
-        colorSample.style.backgroundColor = colorValue;
+    /**
+     * Gestisce l'invio del form
+     * @param {Event} e - L'evento submit
+     */
+    handleFormSubmit: function(e) {
+        e.preventDefault();
         
-        // Calcola il colore del testo in base al colore di sfondo
-        const rgb = hexToRgb(colorValue);
-        const luminance = calculateLuminance(rgb.r, rgb.g, rgb.b);
-        colorSample.style.color = luminance > 0.5 ? '#000000' : '#FFFFFF';
-    }
-    
-    // === Funzione per convertire un colore HEX in RGB ===
-    function hexToRgb(hex) {
-        // Rimuovi il # se presente
-        hex = hex.replace(/^#/, '');
+        // Valida il form
+        const isNameValid = this.validateEntityName();
+        const isMetadataValid = this.validateMetadataSchema();
+        const arePatternsValid = this.validatePatterns();
         
-        // Converti il colore HEX in RGB
-        const bigint = parseInt(hex, 16);
-        const r = (bigint >> 16) & 255;
-        const g = (bigint >> 8) & 255;
-        const b = bigint & 255;
-        
-        return { r, g, b };
-    }
-    
-    // === Funzione per calcolare la luminanza di un colore ===
-    function calculateLuminance(r, g, b) {
-        const a = [r, g, b].map(function(v) {
-            v /= 255;
-            return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        });
-        return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
-    }
-    
-    // === Funzione per validare il nome dell'entità ===
-    function validateEntityName() {
-        const name = nameInput.value;
-        
-        // Resetta il campo
-        nameInput.classList.remove('is-valid', 'is-invalid');
-        
-        // Se il campo è disabilitato (in modalità modifica), ritorna true
-        if (nameInput.disabled) return true;
-        
-        // Controlla se il nome è vuoto
-        if (!name) {
-            nameInput.classList.add('is-invalid');
-            const feedback = nameInput.nextElementSibling.nextElementSibling;
-            if (feedback) feedback.textContent = 'Il nome è obbligatorio';
-            return false;
+        if (!isNameValid || !isMetadataValid || !arePatternsValid) {
+            NERGiuridico.showNotification('Correggi gli errori di validazione prima di salvare', 'danger');
+            return;
         }
         
-        // Controlla se il nome è in maiuscolo
-        if (name !== name.toUpperCase()) {
-            nameInput.classList.add('is-invalid');
-            const feedback = nameInput.nextElementSibling.nextElementSibling;
-            if (feedback) feedback.textContent = 'Il nome deve essere in maiuscolo';
-            return false;
-        }
-        
-        // Controlla se il nome contiene spazi
-        if (name.includes(' ')) {
-            nameInput.classList.add('is-invalid');
-            const feedback = nameInput.nextElementSibling.nextElementSibling;
-            if (feedback) feedback.textContent = 'Il nome non deve contenere spazi';
-            return false;
-        }
-        
-        // Controlla se il nome è già utilizzato (solo in modalità creazione)
-        if (editMode.value === 'create') {
-            const existingEntity = allEntities.find(entity => entity.name === name);
-            if (existingEntity) {
-                nameInput.classList.add('is-invalid');
-                const feedback = nameInput.nextElementSibling.nextElementSibling;
-                if (feedback) feedback.textContent = 'Questo nome è già in uso';
-                return false;
-            }
-        }
-        
-        nameInput.classList.add('is-valid');
-        return true;
-    }
-    
-    // === Funzione per validare lo schema dei metadati ===
-    function validateMetadataSchema() {
-        const schema = metadataSchemaInput.value.trim();
-        
-        // Resetta il campo
-        metadataSchemaInput.classList.remove('is-valid', 'is-invalid');
-        
-        // Se lo schema è vuoto, è valido
-        if (!schema) {
-            return true;
-        }
-        
-        // Prova a parsare lo schema JSON
         try {
-            JSON.parse(schema);
-            metadataSchemaInput.classList.add('is-valid');
-            return true;
-        } catch (error) {
-            metadataSchemaInput.classList.add('is-invalid');
-            const feedback = metadataSchemaInput.nextElementSibling.nextElementSibling;
-            if (feedback) feedback.textContent = `Schema JSON non valido: ${error.message}`;
-            return false;
-        }
-    }
-    
-    // === Funzione per validare i pattern ===
-    function validatePatterns() {
-        const patterns = patternsInput.value.trim();
-        
-        // Resetta il campo
-        patternsInput.classList.remove('is-valid', 'is-invalid');
-        
-        // Se non ci sono pattern, è valido
-        if (!patterns) {
-            return true;
-        }
-        
-        // Dividi i pattern in righe
-        const patternLines = patterns.split('\n').filter(line => line.trim() !== '');
-        
-        // Prova a compilare ogni pattern regex
-        let allValid = true;
-        let invalidPattern = null;
-        let errorMessage = null;
-        
-        for (const pattern of patternLines) {
-            try {
-                new RegExp(pattern);
-            } catch (error) {
-                allValid = false;
-                invalidPattern = pattern;
-                errorMessage = error.message;
-                break;
+            // Ottieni i dati dal form
+            const name = this.elements.nameInput.value;
+            const displayName = this.elements.displayNameInput.value;
+            const category = this.elements.categorySelect.value;
+            const color = this.elements.colorInput.value;
+            
+            // Valida i metadati
+            let metadataSchema = {};
+            if (this.elements.metadataSchemaInput.value.trim()) {
+                try {
+                    metadataSchema = JSON.parse(this.elements.metadataSchemaInput.value);
+                } catch (error) {
+                    NERGiuridico.showNotification('Schema dei metadati non valido. Deve essere in formato JSON.', 'danger');
+                    return;
+                }
             }
+            
+            // Valida i pattern
+            let patterns = [];
+            if (this.elements.patternsInput.value.trim()) {
+                patterns = this.elements.patternsInput.value.split('\n').filter(pattern => pattern.trim() !== '');
+                
+                // Verifica che tutti i pattern siano validi
+                for (const pattern of patterns) {
+                    try {
+                        new RegExp(pattern);
+                    } catch (error) {
+                        NERGiuridico.showNotification(`Pattern non valido: "${pattern}" - ${error.message}`, 'danger');
+                        return;
+                    }
+                }
+            }
+            
+            // Prepara i dati da inviare
+            const data = {
+                name: name,
+                display_name: displayName,
+                category: category,
+                color: color,
+                metadata_schema: metadataSchema,
+                patterns: patterns
+            };
+            
+            // Mostra un indicatore di caricamento
+            this.startPendingOperation();
+            NERGiuridico.showLoading(this.elements.saveBtn, 'Salvataggio...');
+            
+            // Determina se stiamo creando o aggiornando
+            const isCreating = this.elements.editMode.value === 'create';
+            
+            if (isCreating) {
+                this.createEntityType(data);
+            } else {
+                this.updateEntityType(this.elements.originalName.value, data);
+            }
+        } catch (error) {
+            console.error('Errore:', error);
+            NERGiuridico.showNotification(`Errore durante il salvataggio: ${error.message}`, 'danger');
+            
+            // Ripristina il pulsante di salvataggio
+            this.endPendingOperation();
+            NERGiuridico.hideLoading(this.elements.saveBtn);
+        }
+    },
+    
+    /**
+     * Crea un nuovo tipo di entità
+     * @param {Object} data - I dati del tipo di entità
+     */
+    createEntityType: function(data) {
+        fetch('/api/entity_types', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.message || `Errore HTTP: ${response.status}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                NERGiuridico.showNotification(`Tipo di entità "${data.entity_type.name}" creato con successo`, 'success');
+                
+                // Aggiungi la nuova entità all'array
+                this.state.entityTypes.push(data.entity_type);
+                
+                // Aggiorna la tabella
+                this.renderEntityTypes(this.state.entityTypes);
+                
+                // Nascondi il form
+                this.hideForm();
+            } else {
+                NERGiuridico.showNotification(`Errore: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            NERGiuridico.showNotification(`Errore durante la creazione: ${error.message}`, 'danger');
+        })
+        .finally(() => {
+            this.endPendingOperation();
+            NERGiuridico.hideLoading(this.elements.saveBtn);
+        });
+    },
+    
+    /**
+     * Aggiorna un tipo di entità esistente
+     * @param {string} name - Il nome del tipo di entità
+     * @param {Object} data - I nuovi dati del tipo di entità
+     */
+    updateEntityType: function(name, data) {
+        fetch(`/api/entity_types/${name}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.message || `Errore HTTP: ${response.status}`);
+                });
+            }
+            return response.json();
+        })
+        .then(responseData => {
+            if (responseData && responseData.status === 'success') {
+                // Usa entity_type o entity, a seconda di quale esiste nella risposta
+                const updatedEntity = responseData.entity_type || responseData.entity;
+                
+                NERGiuridico.showNotification(`Tipo di entità "${name}" aggiornato con successo`, 'success');
+                
+                // Se la categoria è stata aggiornata, mostra un messaggio specifico
+                const originalCategory = this.elements.categorySelect.dataset.originalCategory;
+                if (updatedEntity && updatedEntity.category && originalCategory && 
+                    updatedEntity.category !== originalCategory) {
+                    NERGiuridico.showNotification(`Categoria aggiornata da "${this.getCategoryDisplayName(originalCategory)}" a "${this.getCategoryDisplayName(updatedEntity.category)}"`, 'info');
+                }
+                
+                // Aggiorna l'entità nell'array
+                const index = this.state.entityTypes.findIndex(e => e.name === name);
+                if (index !== -1) {
+                    this.state.entityTypes[index] = updatedEntity;
+                }
+                
+                // Aggiorna la tabella
+                this.renderEntityTypes(this.state.entityTypes);
+                
+                // Nascondi il form
+                this.hideForm();
+            } else {
+                throw new Error(responseData.message || 'Errore durante l\'aggiornamento');
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            NERGiuridico.showNotification(`Errore durante l'aggiornamento: ${error.message}`, 'danger');
+        })
+        .finally(() => {
+            this.endPendingOperation();
+            NERGiuridico.hideLoading(this.elements.saveBtn);
+        });
+    },
+    
+    /**
+     * Mostra la finestra di conferma per l'eliminazione
+     * @param {Object} entityType - Il tipo di entità da eliminare
+     */
+    showDeleteConfirmation: function(entityType) {
+        this.state.entityToDelete = entityType;
+        
+        // Usa il modale di Bootstrap
+        const confirmationModal = new bootstrap.Modal(document.getElementById('confirmation-dialog'));
+        
+        const confirmationMessage = document.getElementById('confirmation-message');
+        confirmationMessage.innerHTML = `Sei sicuro di voler eliminare il tipo di entità <strong>"${entityType.name}"</strong> (${entityType.display_name})?`;
+        
+        // Aggiungiamo un testo aggiuntivo per la categoria
+        if (entityType.category !== 'custom') {
+            const warningText = document.createElement('div');
+            warningText.className = 'alert alert-warning mt-3';
+            warningText.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Attenzione: Questa è un\'entità predefinita. L\'eliminazione potrebbe non essere possibile.';
+            confirmationMessage.appendChild(warningText);
         }
         
-        if (allValid) {
-            patternsInput.classList.add('is-valid');
-            return true;
-        } else {
-            patternsInput.classList.add('is-invalid');
-            const feedback = patternsInput.nextElementSibling.nextElementSibling;
-            if (feedback) feedback.textContent = `Pattern non valido: "${invalidPattern}" - ${errorMessage}`;
-            return false;
-        }
-    }
+        confirmationModal.show();
+        
+        // Focus sul pulsante di cancellazione
+        setTimeout(() => {
+            if (this.elements.confirmCancelBtn) this.elements.confirmCancelBtn.focus();
+        }, 300);
+    },
     
-    // === Funzione per testare i pattern ===
-    function testPatterns() {
-        const patterns = patternsInput.value.trim();
-        const testString = testText.value;
+    /**
+     * Nasconde la finestra di conferma
+     */
+    hideConfirmationDialog: function() {
+        const confirmationModal = bootstrap.Modal.getInstance(document.getElementById('confirmation-dialog'));
+        if (confirmationModal) confirmationModal.hide();
+        this.state.entityToDelete = null;
+    },
+    
+    /**
+     * Conferma l'eliminazione del tipo di entità
+     */
+    confirmDelete: function() {
+        if (!this.state.entityToDelete) {
+            this.hideConfirmationDialog();
+            return;
+        }
+        
+        const name = this.state.entityToDelete.name;
+        
+        // Disabilita i pulsanti di conferma
+        this.startPendingOperation();
+        NERGiuridico.showLoading(this.elements.confirmDeleteBtn, 'Eliminazione...');
+        this.elements.confirmCancelBtn.disabled = true;
+        
+        fetch(`/api/entity_types/${name}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(err => {
+                    throw new Error(err.message || `Errore HTTP: ${response.status}`);
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                NERGiuridico.showNotification(`Tipo di entità "${name}" eliminato con successo`, 'success');
+                
+                // Rimuovi l'entità dall'array
+                this.state.entityTypes = this.state.entityTypes.filter(e => e.name !== name);
+                
+                // Aggiorna la tabella
+                this.renderEntityTypes(this.state.entityTypes);
+                
+                // Se non ci sono più entità, mostra il messaggio vuoto
+                if (this.state.entityTypes.length === 0) {
+                    this.elements.emptyState.classList.remove('d-none');
+                    this.elements.entityTypesTable.classList.add('d-none');
+                }
+            } else {
+                NERGiuridico.showNotification(`Errore: ${data.message}`, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Errore durante l\'eliminazione:', error);
+            NERGiuridico.showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
+        })
+        .finally(() => {
+            this.hideConfirmationDialog();
+            this.endPendingOperation();
+            
+            // Ripristina i pulsanti di conferma
+            this.elements.confirmDeleteBtn.disabled = false;
+            this.elements.confirmCancelBtn.disabled = false;
+            NERGiuridico.hideLoading(this.elements.confirmDeleteBtn);
+        });
+    },
+    
+    /**
+     * Testa i pattern
+     */
+    testPatterns: function() {
+        const patterns = this.elements.patternsInput.value.trim();
+        const testString = this.elements.testText.value;
         
         // Se non ci sono pattern o testo di test, non fare nulla
         if (!patterns || !testString) {
-            showNotification('Inserisci almeno un pattern e un testo di esempio', 'warning');
+            NERGiuridico.showNotification('Inserisci almeno un pattern e un testo di esempio', 'warning');
             return;
         }
         
         // Dividi i pattern in righe
         const patternLines = patterns.split('\n').filter(line => line.trim() !== '');
         
+        // Test manuale dei pattern
+        this.testPatternsLocally(patternLines, testString);
+        
+        // In alternativa, testa i pattern usando l'API
+        //this.testPatternsViaAPI(patternLines, testString);
+    },
+    
+    /**
+     * Testa i pattern localmente (client-side)
+     * @param {Array} patternLines - I pattern da testare
+     * @param {string} testString - Il testo su cui testare i pattern
+     */
+    testPatternsLocally: function(patternLines, testString) {
         // Compila ogni pattern regex e cerca le corrispondenze
         const results = [];
         
@@ -700,303 +926,256 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         // Mostra i risultati
-        testOutput.textContent = output;
-        testResults.classList.remove('d-none');
-    }
+        this.elements.testOutput.textContent = output;
+        this.elements.testResults.classList.remove('d-none');
+        
+        // Scorri ai risultati
+        this.elements.testResults.scrollIntoView({behavior: 'smooth'});
+    },
     
-    // === Funzione per gestire l'invio del form ===
-    function handleFormSubmit(e) {
-        e.preventDefault();
+    /**
+     * Testa i pattern tramite API
+     * @param {Array} patternLines - I pattern da testare
+     * @param {string} testString - Il testo su cui testare i pattern
+     */
+    testPatternsViaAPI: function(patternLines, testString) {
+        this.startPendingOperation();
+        NERGiuridico.showLoading(this.elements.testPatternsBtn, 'Test in corso...');
         
-        // Valida il form
-        const isNameValid = validateEntityName();
-        const isMetadataValid = validateMetadataSchema();
-        const arePatternsValid = validatePatterns();
-        
-        if (!isNameValid || !isMetadataValid || !arePatternsValid) {
-            showNotification('Correggi gli errori di validazione prima di salvare', 'danger');
-            return;
-        }
-        
-        try {
-            // Ottieni i dati dal form
-            const name = nameInput.value;
-            const displayName = displayNameInput.value;
-            const category = categorySelect.value;
-            const color = colorInput.value;
-            
-            // Valida i metadati
-            let metadataSchema = {};
-            if (metadataSchemaInput.value.trim()) {
-                try {
-                    metadataSchema = JSON.parse(metadataSchemaInput.value);
-                } catch (error) {
-                    showNotification('Schema dei metadati non valido. Deve essere in formato JSON.', 'danger');
-                    return;
-                }
-            }
-            
-            // Valida i pattern
-            let patterns = [];
-            if (patternsInput.value.trim()) {
-                patterns = patternsInput.value.split('\n').filter(pattern => pattern.trim() !== '');
-                
-                // Verifica che tutti i pattern siano validi
-                for (const pattern of patterns) {
-                    try {
-                        new RegExp(pattern);
-                    } catch (error) {
-                        showNotification(`Pattern non valido: "${pattern}" - ${error.message}`, 'danger');
-                        return;
-                    }
-                }
-            }
-            
-            // Prepara i dati da inviare
-            const data = {
-                name: name,
-                display_name: displayName,
-                category: category,
-                color: color,
-                metadata_schema: metadataSchema,
-                patterns: patterns
-            };
-            
-            // Mostra un indicatore di caricamento
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Salvataggio...';
-            
-            // Determina se stiamo creando o aggiornando
-            const isCreating = editMode.value === 'create';
-            
-            if (isCreating) {
-                createEntityType(data);
-            } else {
-                updateEntityType(originalName.value, data);
-            }
-        } catch (error) {
-            console.error('Errore:', error);
-            showNotification(`Errore durante il salvataggio: ${error.message}`, 'danger');
-            
-            // Ripristina il pulsante di salvataggio
-            saveBtn.disabled = false;
-            saveBtn.textContent = editMode.value === 'create' ? 'Crea' : 'Aggiorna';
-        }
-    }
-    
-    // === Funzione per creare un nuovo tipo di entità ===
-    function createEntityType(data) {
-        fetch('/api/entity_types', {
+        fetch('/api/test_pattern', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(data)
+            body: JSON.stringify({
+                pattern: patternLines[0], // Testa solo il primo pattern
+                text: testString
+            })
         })
         .then(response => {
             if (!response.ok) {
-                return response.json().then(err => {
-                    throw new Error(err.message || `Errore HTTP: ${response.status}`);
-                });
+                throw new Error(`Errore HTTP: ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
             if (data.status === 'success') {
-                showNotification(`Tipo di entità "${data.entity_type.name}" creato con successo`, 'success');
-                hideForm();
-                loadEntityTypes();
-            } else {
-                showNotification(`Errore: ${data.message}`, 'danger');
-            }
-            
-            // Ripristina il pulsante di salvataggio
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Crea';
-        })
-        .catch(error => {
-            console.error('Errore:', error);
-            showNotification(`Errore durante la creazione: ${error.message}`, 'danger');
-            
-            // Ripristina il pulsante di salvataggio
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Crea';
-        });
-    }
-    
-    // === Funzione per aggiornare un tipo di entità ===
-    function updateEntityType(name, data) {
-        fetch(`/api/entity_types/${name}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(err => {
-                    throw new Error(err.message || `Errore HTTP: ${response.status}`);
-                });
-            }
-            return response.json();
-        })
-        .then(responseData => {
-            if (responseData && responseData.status === 'success') {
-                // Usa entity_type o entity, a seconda di quale esiste nella risposta
-                const updatedEntity = responseData.entity_type || responseData.entity;
+                let output = '';
                 
-                showNotification(`Tipo di entità "${name}" aggiornato con successo`, 'success');
+                output += `Pattern: ${data.pattern}\n`;
                 
-                // Se la categoria è stata aggiornata, mostra un messaggio specifico
-                const originalCategory = categorySelect.dataset.originalCategory;
-                if (updatedEntity && updatedEntity.category && originalCategory && 
-                    updatedEntity.category !== originalCategory) {
-                    showNotification(`Categoria aggiornata da "${getCategoryDisplayName(originalCategory)}" a "${getCategoryDisplayName(updatedEntity.category)}"`, 'info');
+                if (data.matches_count === 0) {
+                    output += '  Nessuna corrispondenza trovata\n';
+                } else {
+                    output += `  ${data.matches_count} corrispondenze trovate:\n`;
+                    
+                    data.matches.forEach((match, index) => {
+                        output += `    ${index + 1}. "${match.text}" (indice: ${match.start})\n`;
+                        
+                        if (match.groups.length > 0) {
+                            output += '       Gruppi catturati:\n';
+                            match.groups.forEach((group, groupIndex) => {
+                                if (group) {
+                                    output += `         ${groupIndex + 1}: "${group}"\n`;
+                                }
+                            });
+                        }
+                    });
                 }
                 
-                hideForm();
-                loadEntityTypes();
+                // Mostra i risultati
+                this.elements.testOutput.textContent = output;
+                this.elements.testResults.classList.remove('d-none');
+                
+                // Scorri ai risultati
+                this.elements.testResults.scrollIntoView({behavior: 'smooth'});
             } else {
-                throw new Error(responseData.message || 'Errore durante l\'aggiornamento');
-            }
-            
-            // Ripristina il pulsante di salvataggio
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Aggiorna';
-        })
-        .catch(error => {
-            console.error('Errore:', error);
-            showNotification(`Errore durante l'aggiornamento: ${error.message}`, 'danger');
-            
-            // Ripristina il pulsante di salvataggio
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Aggiorna';
-        });
-    }
-    
-    // === Funzione per mostrare la conferma di eliminazione ===
-    function showDeleteConfirmation(entityType) {
-        entityToDelete = entityType;
-        
-        // Usa il modale di Bootstrap
-        const confirmationModal = new bootstrap.Modal(document.getElementById('confirmation-dialog'));
-        
-        const confirmationMessage = document.getElementById('confirmation-message');
-        confirmationMessage.innerHTML = `Sei sicuro di voler eliminare il tipo di entità <strong>"${entityType.name}"</strong> (${entityType.display_name})?`;
-        
-        // Aggiungiamo un testo aggiuntivo per la categoria
-        if (entityType.category !== 'custom') {
-            const warningText = document.createElement('div');
-            warningText.className = 'alert alert-warning mt-3';
-            warningText.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>Attenzione: Questa è un\'entità predefinita. L\'eliminazione potrebbe non essere possibile.';
-            confirmationMessage.appendChild(warningText);
-        }
-        
-        confirmationModal.show();
-        
-        // Focus sul pulsante di cancellazione
-        setTimeout(() => {
-            if (confirmCancelBtn) confirmCancelBtn.focus();
-        }, 300);
-    }
-    
-    // === Funzione per nascondere la finestra di conferma ===
-    function hideConfirmationDialog() {
-        const confirmationModal = bootstrap.Modal.getInstance(document.getElementById('confirmation-dialog'));
-        if (confirmationModal) confirmationModal.hide();
-        entityToDelete = null;
-    }
-    
-    // === Funzione per confermare l'eliminazione ===
-    function confirmDelete() {
-        if (!entityToDelete) {
-            hideConfirmationDialog();
-            return;
-        }
-        
-        const name = entityToDelete.name;
-        
-        // Disabilita i pulsanti di conferma
-        confirmDeleteBtn.disabled = true;
-        confirmCancelBtn.disabled = true;
-        confirmDeleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> Eliminazione...';
-        
-        fetch(`/api/entity_types/${name}`, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(err => {
-                    throw new Error(err.message || `Errore HTTP: ${response.status}`);
-                });
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.status === 'success') {
-                showNotification(`Tipo di entità "${name}" eliminato con successo`, 'success');
-                loadEntityTypes();
-            } else {
-                showNotification(`Errore: ${data.message}`, 'danger');
+                NERGiuridico.showNotification(`Errore: ${data.message}`, 'danger');
             }
         })
         .catch(error => {
-            console.error('Errore durante l\'eliminazione:', error);
-            showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
+            console.error('Errore durante il test:', error);
+            NERGiuridico.showNotification(`Errore durante il test: ${error.message}`, 'danger');
         })
         .finally(() => {
-            hideConfirmationDialog();
-            
-            // Ripristina i pulsanti di conferma
-            confirmDeleteBtn.disabled = false;
-            confirmCancelBtn.disabled = false;
-            confirmDeleteBtn.textContent = 'Elimina';
+            this.endPendingOperation();
+            NERGiuridico.hideLoading(this.elements.testPatternsBtn);
         });
-    }
+    },
     
-    // === Gestione dei tasti di scelta rapida ===
-    document.addEventListener('keydown', function(e) {
-        // Escape per chiudere il form o la finestra di conferma
-        if (e.key === 'Escape') {
-            const confirmationModal = bootstrap.Modal.getInstance(document.getElementById('confirmation-dialog'));
-            if (confirmationModal) {
-                confirmationModal.hide();
-            } else if (!entityTypeFormContainer.classList.contains('d-none')) {
-                hideForm();
+    /**
+     * Valida il nome dell'entità
+     * @returns {boolean} True se il nome è valido, false altrimenti
+     */
+    validateEntityName: function() {
+        const name = this.elements.nameInput.value;
+        
+        // Resetta il campo
+        this.elements.nameInput.classList.remove('is-valid', 'is-invalid');
+        
+        // Se il campo è disabilitato (in modalità modifica), ritorna true
+        if (this.elements.nameInput.disabled) return true;
+        
+        // Controlla se il nome è vuoto
+        if (!name) {
+            this.elements.nameInput.classList.add('is-invalid');
+            const feedback = this.elements.nameInput.nextElementSibling?.nextElementSibling;
+            if (feedback) feedback.textContent = 'Il nome è obbligatorio';
+            return false;
+        }
+        
+        // Controlla se il nome è in maiuscolo
+        if (name !== name.toUpperCase()) {
+            this.elements.nameInput.classList.add('is-invalid');
+            const feedback = this.elements.nameInput.nextElementSibling?.nextElementSibling;
+            if (feedback) feedback.textContent = 'Il nome deve essere in maiuscolo';
+            return false;
+        }
+        
+        // Controlla se il nome contiene spazi
+        if (name.includes(' ')) {
+            this.elements.nameInput.classList.add('is-invalid');
+            const feedback = this.elements.nameInput.nextElementSibling?.nextElementSibling;
+            if (feedback) feedback.textContent = 'Il nome non deve contenere spazi';
+            return false;
+        }
+        
+        // Controlla se il nome è già utilizzato (solo in modalità creazione)
+        if (this.elements.editMode.value === 'create') {
+            const existingEntity = this.state.entityTypes.find(entity => entity.name === name);
+            if (existingEntity) {
+                this.elements.nameInput.classList.add('is-invalid');
+                const feedback = this.elements.nameInput.nextElementSibling?.nextElementSibling;
+                if (feedback) feedback.textContent = 'Questo nome è già in uso';
+                return false;
             }
         }
-    });
-
-    // === Aggiungi gestione del cambiamento della categoria ===
-    if (categorySelect) {
-        categorySelect.addEventListener('change', function() {
-            // Salva la categoria originale quando si carica l'entità
-            if (!this.dataset.originalCategory && editMode.value === 'edit') {
-                this.dataset.originalCategory = this.value;
-            }
-            
-            // Evidenzia visivamente il cambio di categoria
-            if (editMode.value === 'edit' && this.value !== this.dataset.originalCategory) {
-                this.classList.add('border-warning', 'bg-warning', 'bg-opacity-10');
-            } else {
-                this.classList.remove('border-warning', 'bg-warning', 'bg-opacity-10');
-            }
-        });
-    }
+        
+        this.elements.nameInput.classList.add('is-valid');
+        return true;
+    },
     
-    // === Esponi funzioni globali ===
-    window.showNotification = showNotification;
-    window.setLoading = setLoading;
-    window.renderEntityTypes = renderEntityTypes;
-    window.showCreateForm = showCreateForm;
-    window.hideForm = hideForm;
-    window.updateColorPreview = updateColorPreview;
-    window.validateEntityName = validateEntityName;
-    window.validateMetadataSchema = validateMetadataSchema;
-    window.validatePatterns = validatePatterns;
-    window.showDeleteConfirmation = showDeleteConfirmation;
+    /**
+     * Valida lo schema dei metadati
+     * @returns {boolean} True se lo schema è valido, false altrimenti
+     */
+    validateMetadataSchema: function() {
+        const schema = this.elements.metadataSchemaInput.value.trim();
+        
+        // Resetta il campo
+        this.elements.metadataSchemaInput.classList.remove('is-valid', 'is-invalid');
+        
+        // Se lo schema è vuoto, è valido
+        if (!schema) {
+            return true;
+        }
+        
+        // Prova a parsare lo schema JSON
+        try {
+            JSON.parse(schema);
+            this.elements.metadataSchemaInput.classList.add('is-valid');
+            return true;
+        } catch (error) {
+            this.elements.metadataSchemaInput.classList.add('is-invalid');
+            const feedback = this.elements.metadataSchemaInput.nextElementSibling?.nextElementSibling;
+            if (feedback) feedback.textContent = `Schema JSON non valido: ${error.message}`;
+            return false;
+        }
+    },
+    
+    /**
+     * Valida i pattern regex
+     * @returns {boolean} True se i pattern sono validi, false altrimenti
+     */
+    validatePatterns: function() {
+        const patterns = this.elements.patternsInput.value.trim();
+        
+        // Resetta il campo
+        this.elements.patternsInput.classList.remove('is-valid', 'is-invalid');
+        
+        // Se non ci sono pattern, è valido
+        if (!patterns) {
+            return true;
+        }
+        
+        // Dividi i pattern in righe
+        const patternLines = patterns.split('\n').filter(line => line.trim() !== '');
+        
+        // Prova a compilare ogni pattern regex
+        let allValid = true;
+        let invalidPattern = null;
+        let errorMessage = null;
+        
+        for (const pattern of patternLines) {
+            try {
+                new RegExp(pattern);
+            } catch (error) {
+                allValid = false;
+                invalidPattern = pattern;
+                errorMessage = error.message;
+                break;
+            }
+        }
+        
+        if (allValid) {
+            this.elements.patternsInput.classList.add('is-valid');
+            return true;
+        } else {
+            this.elements.patternsInput.classList.add('is-invalid');
+            const feedback = this.elements.patternsInput.nextElementSibling?.nextElementSibling;
+            if (feedback) feedback.textContent = `Pattern non valido: "${invalidPattern}" - ${errorMessage}`;
+            return false;
+        }
+    },
+    
+    /**
+     * Aggiorna l'anteprima del colore
+     */
+    updateColorPreview: function() {
+        const colorValue = this.elements.colorInput.value;
+        this.elements.colorPreview.textContent = colorValue;
+        this.elements.colorSample.style.backgroundColor = colorValue;
+        
+        // Calcola il colore del testo in base al colore di sfondo
+        const textColor = NERGiuridico.getTextColorForBackground(colorValue);
+        this.elements.colorSample.style.color = textColor;
+    },
+    
+    /**
+     * Incrementa il contatore delle operazioni in corso
+     */
+    startPendingOperation: function() {
+        this.state.pendingOperations++;
+        if (this.state.pendingOperations === 1) {
+            // Potrebbe essere aggiunto un indicatore di caricamento globale
+            document.body.classList.add('loading');
+        }
+    },
+    
+    /**
+     * Decrementa il contatore delle operazioni in corso
+     */
+    endPendingOperation: function() {
+        this.state.pendingOperations = Math.max(0, this.state.pendingOperations - 1);
+        if (this.state.pendingOperations === 0) {
+            document.body.classList.remove('loading');
+        }
+    }
+};
+
+// Inizializzazione all'avvio
+document.addEventListener('DOMContentLoaded', function() {
+    // Inizializza il gestore dei tipi di entità
+    EntityManager.init();
+    
+    // Esponi funzioni per compatibilità con il codice esistente
+    window.setLoading = loading => EntityManager.setLoading(loading);
+    window.renderEntityTypes = entityTypes => EntityManager.renderEntityTypes(entityTypes);
+    window.showCreateForm = () => EntityManager.showCreateForm();
+    window.hideForm = () => EntityManager.hideForm();
+    window.updateColorPreview = () => EntityManager.updateColorPreview();
+    window.validateEntityName = () => EntityManager.validateEntityName();
+    window.validateMetadataSchema = () => EntityManager.validateMetadataSchema();
+    window.validatePatterns = () => EntityManager.validatePatterns();
+    window.showDeleteConfirmation = entityType => EntityManager.showDeleteConfirmation(entityType);
 });

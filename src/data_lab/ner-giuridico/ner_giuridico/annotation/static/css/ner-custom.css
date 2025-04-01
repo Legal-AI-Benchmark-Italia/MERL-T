@@ -1,42 +1,69 @@
-/* ner-custom.css - Stili personalizzati per l'app NER-Giuridico */
+/* ner-custom.css - Stili migliorati per l'app NER-Giuridico */
 
 :root {
     --primary: #2563eb;
     --primary-dark: #1d4ed8;
+    --primary-light: #3b82f6;
+    --primary-bg: #f0f9ff;
     --success: #10b981;
+    --success-dark: #059669;
+    --success-light: #d1fae5;
     --danger: #ef4444;
+    --danger-dark: #dc2626;
+    --danger-light: #fee2e2;
     --warning: #f59e0b;
+    --warning-dark: #d97706;
+    --warning-light: #fef3c7;
     --info: #3b82f6;
+    --info-dark: #2563eb;
+    --info-light: #e0f2fe;
     --light: #f9fafb;
     --dark: #1f2937;
     --gray: #6b7280;
+    --gray-light: #e5e7eb;
+    --gray-dark: #4b5563;
+    
+    --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.4);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    
+    --transition-base: all 0.2s ease;
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    --font-sans: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    
+    --border-radius-sm: 0.125rem;
+    --border-radius: 0.375rem;
+    --border-radius-md: 0.5rem;
+    --border-radius-lg: 0.75rem;
+    --border-radius-full: 9999px;
 }
 
 /* ===== Layout e stili generali ===== */
 body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     background-color: #f8fafc;
     color: #374151;
-}
-
-/* Aumenta l'altezza minima per layout a schermo intero */
-.min-h-screen {
-    min-height: 100vh;
+    overflow-x: hidden;
 }
 
 /* Effetti hover e di transizione generalizzati */
 .hover-lift {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: var(--transition-base);
 }
 
 .hover-lift:hover {
     transform: translateY(-3px);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    box-shadow: var(--shadow-md);
 }
 
 /* ===== Miglioramenti per navbar e navigazione ===== */
 .navbar {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow);
+    padding: 0.75rem 1rem;
 }
 
 .navbar-brand {
@@ -47,47 +74,90 @@ body {
 .nav-link {
     font-weight: 500;
     padding: 0.5rem 1rem;
-    border-radius: 0.25rem;
-    transition: all 0.2s ease;
+    border-radius: var(--border-radius);
+    transition: var(--transition-base);
 }
 
 .navbar-dark .nav-link:hover {
     background-color: rgba(255, 255, 255, 0.1);
 }
 
+.navbar-dark .nav-link.active {
+    background-color: rgba(255, 255, 255, 0.15);
+    font-weight: 600;
+}
+
 /* ===== Cards e contenitori ===== */
 .card {
     border: none;
-    border-radius: 0.5rem;
+    border-radius: var(--border-radius-md);
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
+    box-shadow: var(--shadow);
+    transition: var(--transition-base);
 }
 
 .card:hover {
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-md);
 }
 
 .card-header {
     font-weight: 600;
     padding: 1rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 /* ===== Bottoni e controlli ===== */
 .btn {
     font-weight: 500;
     padding: 0.5rem 1rem;
-    border-radius: 0.375rem;
-    transition: all 0.2s ease;
+    border-radius: var(--border-radius);
+    transition: var(--transition-base);
+    border: none;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    border-radius: 100%;
+    transform: scale(1, 1) translate(-50%, -50%);
+    transform-origin: 50% 50%;
+}
+
+.btn:active::after {
+    animation: ripple 0.6s ease-out;
+}
+
+@keyframes ripple {
+    0% {
+        transform: scale(0, 0);
+        opacity: 0.5;
+    }
+    100% {
+        transform: scale(80, 80);
+        opacity: 0;
+    }
 }
 
 .btn:hover {
     transform: translateY(-1px);
 }
 
+.btn:active {
+    transform: translateY(1px);
+}
+
 .btn-primary {
     background-color: var(--primary);
     border-color: var(--primary);
+    color: white;
 }
 
 .btn-primary:hover, .btn-primary:focus {
@@ -97,7 +167,7 @@ body {
 
 .btn-outline-primary {
     color: var(--primary);
-    border-color: var(--primary);
+    border: 1px solid var(--primary);
 }
 
 .btn-outline-primary:hover {
@@ -105,28 +175,107 @@ body {
     color: white;
 }
 
+.btn-success {
+    background-color: var(--success);
+    border-color: var(--success);
+}
+
+.btn-success:hover, .btn-success:focus {
+    background-color: var(--success-dark);
+    border-color: var(--success-dark);
+}
+
+.btn-danger {
+    background-color: var(--danger);
+    border-color: var(--danger);
+}
+
+.btn-danger:hover, .btn-danger:focus {
+    background-color: var(--danger-dark);
+    border-color: var(--danger-dark);
+}
+
+.btn i {
+    margin-right: 0.5rem;
+}
+
+.btn-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius);
+}
+
+.btn-icon i {
+    margin-right: 0;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+}
+
 /* ===== Stili per entità e annotazione ===== */
 .entity-type {
-    transition: all 0.2s ease;
+    transition: var(--transition-base);
     cursor: pointer;
     font-weight: 500;
-    border-radius: 0.375rem;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    padding: 0.75rem 1rem;
 }
 
 .entity-type:hover {
     transform: translateY(-2px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-md);
+}
+
+.entity-type.selected {
+    transform: translateY(-2px);
+    box-shadow: 0 0 0 2px var(--primary), var(--shadow-md);
+}
+
+.entity-type .entity-name {
+    transition: var(--transition-base);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.entity-type:hover .entity-name {
+    max-width: 100%;
 }
 
 .annotation-item {
-    transition: all 0.2s ease;
+    transition: var(--transition-smooth);
     border-left: 3px solid transparent;
+    position: relative;
+    margin-bottom: 0.75rem;
 }
 
 .annotation-item:hover {
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-md);
     transform: translateX(2px);
+}
+
+.annotation-item.selected {
+    border-left-color: var(--primary);
+    background-color: var(--primary-bg);
+}
+
+.annotation-item.highlight {
+    animation: highlight-pulse 2s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+    0% { box-shadow: 0 0 0 2px var(--primary); }
+    50% { box-shadow: 0 0 0 3px var(--primary); }
+    100% { box-shadow: 0 0 0 0 var(--primary); }
 }
 
 /* Badge circolari per contatori */
@@ -139,29 +288,53 @@ body {
 /* ===== Pagina di annotazione ===== */
 .annotation-area {
     gap: 1rem;
+    position: relative;
 }
 
 .entity-sidebar, .annotations-sidebar {
     flex-shrink: 0;
+    transition: var(--transition-smooth);
+    position: relative;
+    border-radius: var(--border-radius-md);
+    box-shadow: var(--shadow);
+    background-color: white;
+    display: flex;
+    flex-direction: column;
+}
+
+.entity-sidebar::before, .annotations-sidebar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: 3px;
+    background: linear-gradient(to bottom, var(--primary), var(--info));
+    opacity: 0.7;
+}
+
+.entity-sidebar::before {
+    left: 0;
+    border-radius: 3px 0 0 3px;
+}
+
+.annotations-sidebar::before {
+    right: 0;
+    border-radius: 0 3px 3px 0;
 }
 
 #text-content {
     font-size: 1.05rem;
     line-height: 1.8;
+    padding: 1.5rem;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
-/* Stili per lo stato hover nell'interfaccia di annotazione */
-.entity-sidebar .entity-type:hover {
-    opacity: 0.9;
-}
-
-/* Modifiche agli stili per gli elementi di evidenziazione */
-
-/* Stile migliorato per l'highlighting del testo */
+/* Stili migliorati per l'highlighting del testo */
 .entity-highlight {
     display: inline !important;
     padding: 0.1em 0.1em !important;
-    border-radius: 0.2em;
+    border-radius: var(--border-radius-sm);
     position: relative;
     white-space: pre-wrap;
     line-height: inherit;
@@ -170,55 +343,29 @@ body {
     -webkit-box-decoration-break: clone;
     cursor: pointer;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    transition: all 0.2s ease;
+    transition: var(--transition-base);
     color: white;
     text-shadow: 0px 0px 1px rgba(0, 0, 0, 0.4);
 }
 
-.entity-highlight .tooltip {
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    z-index: 1000;
-    white-space: nowrap;
-    background-color: rgba(0, 0, 0, 0.8);
-    color: white;
-    text-align: center;
-    padding: 4px 8px;
-    border-radius: 3px;
-    font-size: 0.8rem;
-    margin-bottom: 5px;
-}
-
-.entity-highlight:hover .tooltip {
-    opacity: 1;
+.entity-highlight:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16);
+    z-index: 10;
 }
 
 .entity-highlight.overlap {
-    outline: 1px solid rgba(255, 255, 255, 0.5);
+    outline: 2px dashed rgba(255, 255, 255, 0.7);
     z-index: 2;
     box-shadow: 0 0 0 1px #ff9800, 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
-.entity-highlight > span:not(.tooltip) {
-    display: inline !important;
-    background-color: transparent !important;
+.entity-highlight.focused {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    z-index: 3;
 }
 
-#text-content span {
-    background-color: initial;
-}
-
-/* Miglioramento della visualizzazione quando si sovrappongono le etichette */
-.entity-highlight.overlap {
-    box-shadow: 0 0 0 1px #ff9800, 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-/* Miglioramento del tooltip */
 .entity-highlight .tooltip {
     position: absolute;
     bottom: 100%;
@@ -229,7 +376,7 @@ body {
     color: white;
     text-align: center;
     padding: 4px 8px;
-    border-radius: 3px;
+    border-radius: var(--border-radius-sm);
     font-size: 0.8rem;
     white-space: nowrap;
     z-index: 1000;
@@ -238,24 +385,31 @@ body {
     transition: opacity 0.3s;
 }
 
-/* Miglioramento stile hover */
-.entity-highlight:hover {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.16);
-    transform: translateY(-1px);
-}
-
 .entity-highlight:hover .tooltip {
     opacity: 1;
 }
 
 /* ===== Personalizzazione Toast Notifications ===== */
+.toast-container {
+    z-index: 9999;
+}
+
 .toast {
     min-width: 250px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-lg);
+    border: none;
+    border-radius: var(--border-radius);
+    overflow: hidden;
 }
 
 .toast-body {
     font-weight: 500;
+    padding: 0.75rem 1rem;
+}
+
+.toast .btn-close {
+    margin-right: 0.5rem;
+    margin-left: 0;
 }
 
 /* ===== Paginazione e tabelle ===== */
@@ -276,10 +430,10 @@ body {
 
 /* ===== Stile per gli input e form controls ===== */
 .form-control, .form-select {
-    border-radius: 0.375rem;
+    border-radius: var(--border-radius);
     padding: 0.5rem 0.75rem;
     border-color: #d1d5db;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: var(--transition-base);
 }
 
 .form-control:focus, .form-select:focus {
@@ -298,10 +452,12 @@ kbd {
     background-color: #e5e7eb;
     color: #374151;
     padding: 0.1rem 0.4rem;
-    border-radius: 0.25rem;
+    border-radius: var(--border-radius-sm);
     font-size: 0.8rem;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
     margin: 0 0.2rem;
+    display: inline-block;
+    font-family: var(--font-mono);
 }
 
 /* ===== Effetti di animazione ===== */
@@ -312,6 +468,16 @@ kbd {
 
 .pulse {
     animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Animazione per rimozione di elementi */
+@keyframes fadeOut {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-10px); }
+}
+
+.fade-out {
+    animation: fadeOut 0.3s forwards;
 }
 
 /* ===== Personalizzazione degli spinners ===== */
@@ -362,6 +528,16 @@ kbd {
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
+    border-radius: var(--border-radius-md);
+    box-shadow: var(--shadow);
+    background-color: white;
+    transition: var(--transition-smooth);
+}
+
+#text-content.editing {
+    background-color: #f8f9fa;
+    border: 2px dashed var(--primary) !important;
+    padding: 1.5rem;
 }
 
 .edit-controls {
@@ -369,6 +545,142 @@ kbd {
     top: 10px;
     right: 10px;
     z-index: 100;
+}
+
+/* ===== Stili per la modalità clean ===== */
+body.clean-mode .navbar,
+body.clean-mode .footer,
+body.clean-mode .document-info {
+    display: none !important;
+}
+
+body.clean-mode {
+    overflow: hidden;
+    height: 100vh;
+}
+
+body.clean-mode .container-fluid {
+    padding: 0 !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+}
+
+body.clean-mode .annotation-area {
+    height: 100vh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    display: flex !important;
+}
+
+body.clean-mode .entity-sidebar,
+body.clean-mode .annotations-sidebar {
+    flex: 0 0 0 !important;
+    width: 0 !important; 
+    padding: 0 !important;
+    margin: 0 !important;
+    opacity: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    top: 0 !important;
+    height: 100% !important;
+    z-index: 100 !important;
+}
+
+body.clean-mode .entity-sidebar {
+    left: 0 !important;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1) !important;
+}
+
+body.clean-mode .annotations-sidebar {
+    right: 0 !important;
+    box-shadow: -2px 0 10px rgba(0,0,0,0.1) !important;
+}
+
+body.clean-mode .entity-sidebar:hover,
+body.clean-mode .annotations-sidebar:hover {
+    flex: 0 0 280px !important;
+    width: 280px !important;
+    padding: 1rem !important;
+    opacity: 1 !important;
+    background-color: white !important;
+}
+
+body.clean-mode .text-container {
+    flex: 1 !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+}
+
+body.clean-mode #clean-mode-toggle {
+    position: fixed !important;
+    top: 10px;
+    right: 10px;
+    z-index: 1000 !important;
+    opacity: 0.7 !important;
+    transition: opacity 0.2s ease !important;
+}
+
+body.clean-mode #clean-mode-toggle:hover {
+    opacity: 1 !important;
+}
+
+body.clean-mode #clean-mode-toggle .fa-expand:before {
+    content: "\f066"; /* icona compress */
+}
+
+/* ===== Miglioramenti per l'accessibilità ===== */
+.btn:focus, 
+.form-control:focus,
+.form-select:focus,
+.entity-type:focus {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+/* Accessibilità migliorata per elementi interattivi */
+.entity-highlight:focus, 
+.entity-highlight.focused {
+    outline: 2px solid var(--primary) !important;
+    outline-offset: 2px !important;
+}
+
+.annotation-item:focus-within,
+.annotation-item.focused {
+    box-shadow: 0 0 0 2px var(--primary) !important;
+}
+
+/* Aumenta la dimensione di clic per i piccoli bottoni */
+.btn-sm {
+    min-height: 38px;
+    min-width: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ===== Indicatore globale di operazioni in corso ===== */
+body.loading {
+    position: relative;
+}
+
+body.loading::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(to right, transparent, var(--primary), transparent);
+    animation: loadingBar 2s infinite;
+    z-index: 9999;
+}
+
+@keyframes loadingBar {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
 }
 
 /* ===== Layout responsive ===== */
@@ -394,6 +706,30 @@ kbd {
     .annotations-sidebar {
         order: 2;
     }
+    
+    /* Layout a tabs per mobile */
+    .mobile-tabs {
+        display: flex !important;
+        background: white;
+        border-radius: var(--border-radius);
+        margin-bottom: 1rem;
+        overflow: hidden;
+    }
+    
+    .mobile-tab {
+        flex: 1;
+        text-align: center;
+        padding: 0.75rem;
+        cursor: pointer;
+        border-bottom: 3px solid transparent;
+        font-weight: 500;
+    }
+    
+    /* Nascondi il pannello non attivo */
+    .entity-sidebar.tab-hidden,
+    .annotations-sidebar.tab-hidden {
+        display: none !important;
+    }
 }
 
 @media (max-width: 768px) {
@@ -406,270 +742,366 @@ kbd {
     .d-sm-none {
         display: none !important;
     }
+    
+    .document-info h2 {
+        font-size: 1.25rem !important;
+    }
+    
+    .text-container {
+        font-size: 0.9rem !important;
+    }
+    
+    .entity-type {
+        padding: 0.5rem !important;
+    }
+    
+    /* Semplifico l'interfaccia su mobile */
+    .keyboard-shortcuts,
+    .annotation-stats {
+        display: none !important;
+    }
 }
 
-/* ===== Dark mode (opzionale, da implementare in seguito) ===== */
+/* ===== Dark mode (tema scuro) ===== */
 @media (prefers-color-scheme: dark) {
-    /* Implementare in una versione futura */
+    body.dark-mode {
+        background-color: #121826;
+        color: #e2e8f0;
+    }
+    
+    body.dark-mode .card,
+    body.dark-mode .navbar,
+    body.dark-mode .text-container,
+    body.dark-mode .entity-sidebar,
+    body.dark-mode .annotations-sidebar {
+        background-color: #1e293b;
+        color: #e2e8f0;
+    }
+    
+    body.dark-mode .card-header,
+    body.dark-mode .table th {
+        background-color: #0f172a;
+        color: #e2e8f0;
+    }
+    
+    body.dark-mode .table td {
+        color: #e2e8f0;
+        border-color: #334155;
+    }
+    
+    body.dark-mode .text-muted {
+        color: #94a3b8 !important;
+    }
+    
+    body.dark-mode .form-control,
+    body.dark-mode .form-select,
+    body.dark-mode .input-group-text {
+        background-color: #334155;
+        border-color: #475569;
+        color: #e2e8f0;
+    }
+    
+    body.dark-mode .btn-outline-secondary {
+        color: #cbd5e1;
+        border-color: #475569;
+    }
+    
+    body.dark-mode .btn-outline-secondary:hover {
+        background-color: #475569;
+        color: #f8fafc;
+    }
+    
+    body.dark-mode kbd {
+        background-color: #1e293b;
+        color: #cbd5e1;
+        border-color: #475569;
+    }
+    
+    body.dark-mode #text-content.editing {
+        background-color: #0f172a;
+    }
+    
+    body.dark-mode .alert-info {
+        background-color: rgba(59, 130, 246, 0.2);
+        color: #93c5fd;
+        border-color: rgba(59, 130, 246, 0.3);
+    }
+    
+    body.dark-mode .alert-danger {
+        background-color: rgba(239, 68, 68, 0.2);
+        color: #fca5a5;
+        border-color: rgba(239, 68, 68, 0.3);
+    }
 }
 
-.text-container {
-    /* Miglioramento dello spacing del testo per garantire leggibilità */
-    line-height: 1.8;
-    letter-spacing: 0.01em;
-    padding: 2rem;
+/* Effetto di focus globale per accessibilità */
+*:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
 }
 
-#text-content {
-    /* Garanzia di un corretto wrapping delle parole */
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    word-break: normal;
-    hyphens: auto;
+/* Stile per lo stato attivo di pulsanti e controlli */
+.btn:active,
+.form-control:active,
+.form-select:active {
+    transform: scale(0.98);
 }
 
-/* Miglioramento per garantire che le annotazioni non disturbino il layout */
-.entity-highlight {
-    /* Evita problemi di line-height e allineamento verticale */
-    line-height: inherit;
-    vertical-align: baseline;
-    /* Migliora display rispetto a inline-block che può causare spazi */
-    display: inline;
-}
-
-/* Garanzia che le evidenziazioni non si estendano oltre i limiti del testo */
-#text-content span {
-    max-width: 100%;
-    display: inline;
-}
-
-/* Aggiunta di uno stile elegante quando si passa sopra le entità nel testo */
-.entity-highlight:hover {
-    transform: translateY(-1px);
-    z-index: 2; /* Porta l'elemento in primo piano su hover */
-}
-
-/* Miglioramento della visualizzazione nelle situazioni di sovrapposizione */
-.overlap-container {
+/* ===== Ripple effect per pulsanti ===== */
+.ripple {
     position: relative;
-    display: inline;
-}
-
-/* Stile per il debug delle annotazioni se necessario */
-.debug-highlight-boundaries {
-    box-shadow: 0 0 0 1px red;
-}
-
-/* Miglioramento per la visualizzazione in differenti browser */
-@supports (-webkit-touch-callout: none) {
-    /* Correzioni specifiche per Safari */
-    .entity-highlight {
-        -webkit-box-decoration-break: clone;
-    }
-}
-
-@supports (-moz-appearance: none) {
-    /* Correzioni specifiche per Firefox */
-    .entity-highlight {
-        box-decoration-break: clone;
-    }
-}
-/* ===== Modalità Clean/Schermo Intero ===== */
-body.clean-mode {
     overflow: hidden;
-    height: 100vh;
 }
 
-body.clean-mode .navbar,
-body.clean-mode .footer,
-body.clean-mode .document-info {
-    display: none !important;
-}
-
-body.clean-mode .container-fluid {
-    padding: 0 !important;
-    height: 100vh !important;
-    max-height: 100vh !important;
-}
-
-body.clean-mode .annotation-area {
-    height: 100vh !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    display: flex !important;
-}
-
-/* Riduzione sidebars in modalità clean */
-body.clean-mode .entity-sidebar,
-body.clean-mode .annotations-sidebar {
-    flex: 0 0 0 !important;
-    width: 0 !important; 
-    padding: 0 !important;
-    margin: 0 !important;
-    opacity: 0 !important;
-    overflow: hidden !important;
-    position: absolute !important;
-    top: 0 !important;
-    height: 100% !important;
-    transition: all 0.3s ease !important;
-    z-index: 100 !important;
-}
-
-body.clean-mode .entity-sidebar {
-    left: 0 !important;
-    box-shadow: 2px 0 10px rgba(0,0,0,0.1) !important;
-}
-
-body.clean-mode .annotations-sidebar {
-    right: 0 !important;
-    box-shadow: -2px 0 10px rgba(0,0,0,0.1) !important;
-}
-
-/* Espansione sidebar al passaggio del mouse */
-body.clean-mode .entity-sidebar:hover,
-body.clean-mode .annotations-sidebar:hover {
-    flex: 0 0 280px !important;
-    width: 280px !important;
-    padding: 1rem !important;
-    opacity: 1 !important;
-    background-color: white !important;
-}
-
-/* Espansione contenuto centrale */
-body.clean-mode .text-container {
-    flex: 1 !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    border: none !important;
-    max-width: 100% !important;
-    width: 100% !important;
-}
-
-/* Pulsante toggle clean mode */
-body.clean-mode #clean-mode-toggle {
-    position: fixed !important;
-    z-index: 1000 !important;
-    opacity: 0.7 !important;
-    transition: opacity 0.2s ease !important;
-}
-
-body.clean-mode #clean-mode-toggle:hover {
-    opacity: 1 !important;
-}
-
-/* Indicatori tabs laterali in modalità clean */
-body.clean-mode .entity-sidebar::after,
-body.clean-mode .annotations-sidebar::after {
+.ripple::after {
     content: "";
+    display: block;
     position: absolute;
-    top: 50%;
-    width: 10px;
-    height: 80px;
-    background-color: rgba(0,0,0,0.1);
-    border-radius: 0 5px 5px 0;
-    transform: translateY(-50%);
-    transition: background-color 0.2s ease;
-}
-
-body.clean-mode .entity-sidebar::after {
-    right: -10px;
-}
-
-body.clean-mode .annotations-sidebar::after {
-    left: -10px;
-    border-radius: 5px 0 0 5px;
-}
-
-body.clean-mode .entity-sidebar:hover::after,
-body.clean-mode .annotations-sidebar:hover::after {
-    background-color: transparent;
-}
-
-/* Indicatori di contenuto per i tab laterali */
-body.clean-mode .entity-sidebar::before {
-    content: "Tipi";
-    position: absolute;
-    top: 50%;
-    right: -10px;
-    transform: translateY(-50%) rotate(90deg);
-    transform-origin: center right;
-    color: #555;
-    font-weight: bold;
-    font-size: 12px;
-    white-space: nowrap;
-    text-transform: uppercase;
-}
-
-body.clean-mode .annotations-sidebar::before {
-    content: "Annotazioni";
-    position: absolute;
-    top: 50%;
-    left: -10px;
-    transform: translateY(-50%) rotate(-90deg);
-    transform-origin: center left;
-    color: #555;
-    font-weight: bold;
-    font-size: 12px;
-    white-space: nowrap;
-    text-transform: uppercase;
-}
-
-body.clean-mode .entity-sidebar:hover::before,
-body.clean-mode .annotations-sidebar:hover::before {
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    background-image: radial-gradient(circle, #fff 10%, transparent 10.01%);
+    background-repeat: no-repeat;
+    background-position: 50%;
+    transform: scale(10, 10);
     opacity: 0;
+    transition: transform 0.5s, opacity 1s;
 }
 
-/* ===== Scorciatoie da tastiera ===== */
-/* Badge per scorciatoie */
+.ripple:active::after {
+    transform: scale(0, 0);
+    opacity: 0.3;
+    transition: 0s;
+}
+
+/* ===== Animazioni di entrata per elementi ===== */
+.fade-in {
+    opacity: 0;
+    animation: fadeIn 0.5s forwards;
+}
+
+@keyframes fadeIn {
+    to { opacity: 1; }
+}
+
+/* ===== Miglioramenti per il layout a pagina piena ===== */
+@media (min-width: 992px) {
+    body.annotate-page {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    body.annotate-page .navbar {
+        flex-shrink: 0;
+    }
+
+    body.annotate-page .container-fluid {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding-bottom: 0;
+    }
+
+    body.annotate-page .document-info {
+        flex-shrink: 0;
+    }
+    
+    body.annotate-page .annotation-area {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+    }
+    
+    body.annotate-page .footer {
+        display: none;
+    }
+    
+    /* Layout fixed per documenti lunghi */
+    body.annotate-page .entity-sidebar,
+    body.annotate-page .annotations-sidebar {
+        height: calc(100vh - 180px);
+        overflow-y: auto;
+    }
+}
+
+/* ===== Miglioramenti per la interfaccia di home ===== */
+.doc-card {
+    transition: var(--transition-base);
+    border: 1px solid rgba(0,0,0,0.1);
+}
+
+.doc-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--shadow-lg);
+}
+
+.document-metadata {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.document-preview {
+    height: 3em;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* ===== Progress Bar migliorata ===== */
+.progress {
+    height: 8px;
+    overflow: hidden;
+    background-color: #e5e7eb;
+    border-radius: var(--border-radius-full);
+}
+
+.progress-bar {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow: hidden;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    transition: width 0.6s ease;
+    border-radius: var(--border-radius-full);
+}
+
+/* ===== Tooltip migliorato ===== */
+[data-tooltip] {
+    position: relative;
+    cursor: pointer;
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 8px;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    border-radius: var(--border-radius-sm);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.3s ease;
+}
+
+[data-tooltip]:hover::after {
+    opacity: 1;
+    bottom: calc(100% + 5px);
+}
+
+/* ===== Animazione di notifica per gli elementi salvati ===== */
+@keyframes saved {
+    0%, 100% { box-shadow: 0 0 0 transparent; }
+    50% { box-shadow: 0 0 15px rgba(16, 185, 129, 0.5); }
+}
+
+.save-animation {
+    animation: saved 1s ease-in-out forwards;
+}
+
+/* ===== Nuovo tema per le entità ===== */
+.entity-type {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.entity-counter {
+    font-size: 0.75rem;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ===== Shortcut highlighting ===== */
+.shortcut-highlight {
+    animation: shortcutPulse 0.5s ease-in-out;
+}
+
+@keyframes shortcutPulse {
+    0%, 100% { transform: scale(1); box-shadow: var(--shadow); }
+    50% { transform: scale(1.05); box-shadow: var(--shadow-lg); }
+}
+
 .shortcut-badge {
     font-size: 0.7rem;
     background-color: rgba(0,0,0,0.2);
     color: white;
     border-radius: 3px;
     padding: 1px 3px;
-    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family: var(--font-mono);
 }
 
-/* Effetto di evidenziazione quando si usa una scorciatoia */
-.shortcut-highlight {
-    animation: shortcutPulse 0.5s ease-in-out;
+/* ===== Animazioni avanzate ===== */
+.shake {
+    animation: shake 0.8s cubic-bezier(.36,.07,.19,.97) both;
 }
 
-@keyframes shortcutPulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.05); box-shadow: 0 0 15px rgba(255,255,255,0.8); }
-    100% { transform: scale(1); }
+@keyframes shake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
 }
 
-/* Miglioramento stile kbd per le scorciatoie */
-kbd {
-    display: inline-block;
-    padding: 2px 4px;
-    font-size: 0.8rem;
-    font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    color: #555;
-    background-color: #f7f7f7;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    box-shadow: 0 1px 0 rgba(0,0,0,0.2), inset 0 0 0 2px #fff;
-    margin: 0 0.1rem;
+/* ===== Stile per notifiche inline ===== */
+.notification-inline {
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--border-radius);
+    font-size: 0.875rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    animation: slideInFromTop 0.5s ease-out forwards;
 }
 
-/* Focus migliorato per accessibilità tastiera */
-.entity-type:focus {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.6);
+.notification-inline i {
+    margin-right: 0.5rem;
 }
 
-/* Indici numerici visibili accanto ai tipi di entità */
-.entity-type::before {
-    content: attr(data-shortcut);
-    position: absolute;
-    left: -20px;
-    opacity: 0.5;
-    font-size: 0.8rem;
+@keyframes slideInFromTop {
+    0% { transform: translateY(-20px); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
 }
 
-.entity-type {
-    position: relative;
+/* ===== Interfaccia di annotazione migliorata ===== */
+.text-container {
+    letter-spacing: 0.01em;
+    padding: 2rem;
+    background-color: white;
+    max-height: 100%;
+    overflow-y: auto;
 }
+
+.annotations-container {
+    max-height: calc(100% - 200px);
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+/* ===== Stili per temi caratteristici delle entità legali ===== */
+/* Colori predefiniti per tipi di entità legali */
+.entity-ARTICOLO_CODICE .entity-badge { background-color: #FFA39E; }
+.entity-LEGGE .entity-badge { background-color: #D4380D; }
+.entity-DECRETO .entity-badge { background-color: #FFC069; }
+.entity-REGOLAMENTO_UE .entity-badge { background-color: #AD8B00; }
+.entity-SENTENZA .entity-badge { background-color: #D3F261; }
+.entity-ORDINANZA .entity-badge { background-color: #389E0D; }
+.entity-CONCETTO_GIURIDICO .entity-badge { background-color: #5CDBD3; }

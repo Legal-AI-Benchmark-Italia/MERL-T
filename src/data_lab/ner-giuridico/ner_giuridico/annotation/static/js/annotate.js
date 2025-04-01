@@ -467,62 +467,89 @@ document.addEventListener('DOMContentLoaded', function() {
         // Ordina le annotazioni per posizione di inizio e poi per lunghezza (più lunghe prima)
         const annotations = sortAnnotationsByPosition(existingAnnotations);
         
-        // Crea un array di oggetti che rappresentano ogni carattere del testo
-        const charObjects = Array.from(text).map((char, index) => ({
-            char: char,
-            annotations: []
-        }));
+        // Creazione di array di segmenti di testo
+        // Ogni elemento rappresenta un segmento del testo, con info se fa parte di un'annotazione
+        const segments = [];
+        let currentPos = 0;
         
-        // Aggiungi informazioni su quali annotazioni coprono ogni carattere
+        // Assicuriamoci che le posizioni non si sovrappongano
+        const sortedBreakpoints = [];
+        
+        // Raccogli tutti i punti di inizio e fine
         annotations.forEach(ann => {
-            for (let i = ann.start; i < ann.end; i++) {
-                if (i >= 0 && i < charObjects.length) {
-                    charObjects[i].annotations.push(ann);
-                }
-            }
+            sortedBreakpoints.push({ position: ann.start, isStart: true, annotation: ann });
+            sortedBreakpoints.push({ position: ann.end, isStart: false, annotation: ann });
         });
         
-        // Costruisci l'HTML per evidenziare le annotazioni
-        let htmlContent = '';
-        let currentAnnotations = [];
+        // Ordina i breakpoint per posizione
+        sortedBreakpoints.sort((a, b) => {
+            if (a.position !== b.position) return a.position - b.position;
+            // Se stessa posizione, prima gli endpoint (fine annotazione)
+            return a.isStart ? 1 : -1;
+        });
         
-        for (let i = 0; i < charObjects.length; i++) {
-            const charObj = charObjects[i];
-            const char = charObj.char;
+        // Mantieni traccia delle annotazioni attive
+        const activeAnnotations = new Set();
+        
+        // Processa i breakpoint
+        let lastPosition = 0;
+        
+        sortedBreakpoints.forEach(breakpoint => {
+            // Se c'è del testo prima di questo breakpoint, creane un segmento
+            if (breakpoint.position > lastPosition) {
+                const segmentText = text.substring(lastPosition, breakpoint.position);
+                if (segmentText) {
+                    segments.push({
+                        text: segmentText,
+                        annotations: Array.from(activeAnnotations)
+                    });
+                }
+            }
             
-            // Controlla se dobbiamo chiudere tag di entità
-            const toClose = currentAnnotations.filter(ann => ann.end === i);
+            // Aggiorna lo stato delle annotazioni attive
+            if (breakpoint.isStart) {
+                activeAnnotations.add(breakpoint.annotation);
+            } else {
+                activeAnnotations.delete(breakpoint.annotation);
+            }
             
-            // Chiudi i tag in ordine inverso (l'ultimo aperto è il primo chiuso)
-            toClose.sort((a, b) => b.start - a.start).forEach(ann => {
-                htmlContent += '</span>';
-                currentAnnotations = currentAnnotations.filter(a => a.id !== ann.id);
+            // Aggiorna l'ultima posizione
+            lastPosition = breakpoint.position;
+        });
+        
+        // Aggiungi il testo rimanente dopo l'ultima annotazione
+        if (lastPosition < text.length) {
+            segments.push({
+                text: text.substring(lastPosition),
+                annotations: []
             });
-            
-            // Controlla se dobbiamo aprire nuovi tag di entità
-            const toOpen = charObj.annotations.filter(ann => ann.start === i);
-            
-            // Apri nuovi tag
-            toOpen.forEach(ann => {
-                const isOverlap = currentAnnotations.length > 0;
-                const entityName = getEntityNameById(ann.type);
-                
-                // Modificato il markup HTML per migliorare la visualizzazione
-                htmlContent += `<span class="entity-highlight ${isOverlap ? 'overlap' : ''}" 
-                      style="background-color: ${ann.color};" 
-                      data-id="${ann.id}" 
-                      data-type="${ann.type}"><span class="tooltip">${entityName}: ${ann.text}</span><span>`;
-                          
-                currentAnnotations.push(ann);
-            });
-            
-            // Aggiungi il carattere
-            htmlContent += char;
         }
         
-        // Chiudi tutti i tag rimanenti alla fine
-        currentAnnotations.sort((a, b) => b.start - a.start).forEach(ann => {
-            htmlContent += '</span></span>';
+        // Costruisci l'HTML con i segmenti
+        let htmlContent = '';
+        
+        segments.forEach(segment => {
+            if (segment.annotations.length === 0) {
+                // Testo semplice senza annotazioni
+                htmlContent += segment.text;
+            } else {
+                // Determina quale annotazione usare (in caso di sovrapposizioni)
+                // Per sovrapposizioni, usiamo la prima nell'ordine (che è quella più lunga)
+                const primaryAnnotation = segment.annotations[0];
+                
+                // Prepara la classe per evidenziare sovrapposizioni
+                const isOverlap = segment.annotations.length > 1 ? 'overlap' : '';
+                
+                // Crea l'elemento di evidenziazione
+                const entityName = getEntityNameById(primaryAnnotation.type);
+                htmlContent += `<span class="entity-highlight ${isOverlap}" 
+                      style="background-color: ${primaryAnnotation.color};" 
+                      data-id="${primaryAnnotation.id}" 
+                      data-type="${primaryAnnotation.type}">
+                      <span class="tooltip">${entityName}: ${primaryAnnotation.text}</span>
+                      ${segment.text}
+                      </span>`;
+            }
         });
         
         // Sostituisci il contenuto
@@ -832,6 +859,16 @@ document.addEventListener('DOMContentLoaded', function() {
             
             updateStatus('Eliminazione in corso...');
             
+            // Immediatamente rimuovi l'evidenziazione dal testo per feedback visivo immediato
+            const highlightElement = document.querySelector(`.entity-highlight[data-id="${annotationId}"]`);
+            if (highlightElement) {
+                highlightElement.classList.add('removing');
+                // Sostituisci l'elemento mantenendo il testo interno
+                const textContent = highlightElement.textContent;
+                const textNode = document.createTextNode(textContent);
+                highlightElement.parentNode.replaceChild(textNode, highlightElement);
+            }
+            
             fetch('/api/delete_annotation', {
                 method: 'POST',
                 headers: {
@@ -854,54 +891,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.status === 'success') {
                     AnnotationLogger.debug(`Eliminazione completata per ID: ${annotationId}`);
                     
-                    // Rimuovi l'annotazione dalla lista con animazione
+                    // Rimuovi immediatamente l'annotazione dalla struttura dati in memoria
+                    existingAnnotations = existingAnnotations.filter(ann => ann.id !== annotationId);
+                    
+                    // Rimuovi l'annotazione dalla lista senza attendere
                     const annotationItem = document.querySelector(`.annotation-item[data-id="${annotationId}"]`);
                     if (annotationItem) {
-                        annotationItem.style.transition = 'all 0.3s ease';
-                        annotationItem.style.opacity = '0';
-                        annotationItem.style.height = '0';
-                        annotationItem.style.overflow = 'hidden';
+                        annotationItem.remove();
                         
-                        setTimeout(() => {
-                            annotationItem.remove();
-                            
-                            // Aggiorna la lista delle annotazioni esistenti
-                            loadExistingAnnotations();
-                            
-                            // Riesegui l'highlighting con la nuova lista
-                            highlightExistingAnnotations();
-                            
-                            // Mostra il messaggio "nessuna annotazione" se non ci sono più annotazioni
-                            if (document.querySelectorAll('.annotation-item').length === 0) {
-                                if (noAnnotationsMsg) noAnnotationsMsg.classList.remove('d-none');
-                            }
-                            
-                            // Aggiorna contatori e statistiche
-                            updateAnnotationCount();
-                            updateEntityCounters();
-                            updateAnnotationProgress();
-                            updateVisibleCount();
-                        }, 300);
-                    } else {
-                        AnnotationLogger.warn(`Elemento annotazione non trovato nel DOM: ${annotationId}`);
-                        // Se l'elemento non è stato trovato, ricarica comunque le annotazioni
-                        loadExistingAnnotations();
-                        highlightExistingAnnotations();
-                        
-                        // Aggiorna contatori e statistiche
+                        // Aggiorna contatori e statistiche immediatamente
                         updateAnnotationCount();
                         updateEntityCounters();
                         updateAnnotationProgress();
                         updateVisibleCount();
+                        
+                        // Mostra il messaggio "nessuna annotazione" se non ci sono più annotazioni
+                        if (document.querySelectorAll('.annotation-item').length === 0) {
+                            if (noAnnotationsMsg) noAnnotationsMsg.classList.remove('d-none');
+                        }
                     }
+                    
+                    // Riesegui l'highlighting completo per assicurare consistenza
+                    highlightExistingAnnotations();
                     
                     // Mostra notifica
                     showNotification('Annotazione eliminata', 'success');
                     updateStatus('Annotazione eliminata con successo');
                 } else {
+                    // Se c'è un errore, ripristina l'evidenziazione
                     AnnotationLogger.error(`Errore nell'eliminazione: ${data.message}`, data);
                     showNotification(`Errore: ${data.message}`, 'danger');
                     updateStatus(`Errore: ${data.message}`, true);
+                    highlightExistingAnnotations(); // Ripristina lo stato originale
                 }
             })
             .catch(error => {
@@ -909,6 +930,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 AnnotationLogger.error('Errore durante l\'eliminazione', error);
                 showNotification('Errore durante l\'eliminazione', 'danger');
                 updateStatus('Errore durante l\'eliminazione', true);
+                highlightExistingAnnotations(); // Ripristina lo stato originale
             })
             .finally(() => {
                 endPendingOperation();
@@ -1120,27 +1142,198 @@ document.addEventListener('DOMContentLoaded', function() {
         
         AnnotationLogger.debug(`Modalità clean ${isCleanMode ? 'attivata' : 'disattivata'}`);
         
+        // Gestione dell'icona
         const icon = cleanModeToggle.querySelector('i');
         if (icon) {
             if (isCleanMode) {
                 icon.className = 'fas fa-compress';
                 cleanModeToggle.title = "Esci dalla modalità a schermo intero";
-                showNotification('Modalità a schermo intero attivata. Passa con il mouse sui bordi per vedere i pannelli.', 'info');
             } else {
                 icon.className = 'fas fa-expand';
                 cleanModeToggle.title = "Modalità a schermo intero";
-                showNotification('Modalità a schermo intero disattivata', 'info');
             }
         }
         
+        // Gestisci visibilità delle sidebar
+        const entitySidebar = document.querySelector('.entity-sidebar');
+        const annotationsSidebar = document.querySelector('.annotations-sidebar');
+        
         if (isCleanMode) {
+            // Aggiungi le classi per la modalità pulita alle sidebar
+            if (entitySidebar) {
+                entitySidebar.classList.add('clean-mode-sidebar', 'clean-mode-left');
+                // Aggiungi indicatore visivo
+                createSidebarIndicator(entitySidebar, 'left', 'Tipi');
+            }
+            
+            if (annotationsSidebar) {
+                annotationsSidebar.classList.add('clean-mode-sidebar', 'clean-mode-right');
+                // Aggiungi indicatore visivo
+                createSidebarIndicator(annotationsSidebar, 'right', 'Annotazioni');
+            }
+            
+            // Focus sul contenuto
             setTimeout(() => {
-                if (textContent) textContent.focus();
+                if (textContent) {
+                    textContent.focus();
+                    // Garantisci che il contenuto occupi lo spazio massimo
+                    textContent.parentElement.classList.add('clean-mode-content');
+                }
             }, 300);
+            
+            showNotification('Modalità a schermo intero attivata. Passa con il mouse sui bordi per vedere i pannelli.', 'info');
+        } else {
+            // Rimuovi le classi per la modalità pulita
+            if (entitySidebar) {
+                entitySidebar.classList.remove('clean-mode-sidebar', 'clean-mode-left');
+                // Rimuovi indicatore
+                const indicator = entitySidebar.querySelector('.sidebar-indicator');
+                if (indicator) indicator.remove();
+            }
+            
+            if (annotationsSidebar) {
+                annotationsSidebar.classList.remove('clean-mode-sidebar', 'clean-mode-right');
+                // Rimuovi indicatore
+                const indicator = annotationsSidebar.querySelector('.sidebar-indicator');
+                if (indicator) indicator.remove();
+            }
+            
+            // Ripristina lo stile del contenuto
+            if (textContent) {
+                textContent.parentElement.classList.remove('clean-mode-content');
+            }
+            
+            showNotification('Modalità a schermo intero disattivata', 'info');
         }
 
         // Salva lo stato
         localStorage.setItem('ner-clean-mode', isCleanMode);
+    }
+    
+    /**
+     * Crea un indicatore visivo per le sidebar in modalità schermo intero
+     * @param {HTMLElement} sidebar - Elemento della sidebar
+     * @param {string} position - Posizione ('left' o 'right')
+     * @param {string} label - Etichetta da mostrare
+     */
+    function createSidebarIndicator(sidebar, position, label) {
+        // Rimuovi eventuali indicatori esistenti
+        const existingIndicator = sidebar.querySelector('.sidebar-indicator');
+        if (existingIndicator) existingIndicator.remove();
+        
+        // Crea il nuovo indicatore
+        const indicator = document.createElement('div');
+        indicator.className = `sidebar-indicator sidebar-${position}`;
+        indicator.innerHTML = `<span>${label}</span>`;
+        
+        // Aggiungi l'indicatore alla sidebar
+        sidebar.appendChild(indicator);
+        
+        // Aggiungi evento per mostrare/nascondere la sidebar
+        indicator.addEventListener('click', function() {
+            sidebar.classList.toggle('show-sidebar');
+        });
+        
+        // Aggiungi le regole CSS necessarie se non esistono già
+        if (!document.getElementById('clean-mode-styles')) {
+            const styleElement = document.createElement('style');
+            styleElement.id = 'clean-mode-styles';
+            styleElement.textContent = `
+                .clean-mode-sidebar {
+                    position: fixed !important;
+                    top: 0 !important;
+                    height: 100vh !important;
+                    z-index: 1000 !important;
+                    transition: transform 0.3s ease, opacity 0.3s ease !important;
+                    background-color: white !important;
+                    box-shadow: 0 0 15px rgba(0,0,0,0.1) !important;
+                    opacity: 0;
+                    width: 300px !important;
+                    padding: 1rem !important;
+                    overflow-y: auto !important;
+                }
+                
+                .clean-mode-left {
+                    left: 0 !important;
+                    transform: translateX(-100%) !important;
+                    border-radius: 0 0.5rem 0.5rem 0 !important;
+                }
+                
+                .clean-mode-right {
+                    right: 0 !important;
+                    transform: translateX(100%) !important;
+                    border-radius: 0.5rem 0 0 0.5rem !important;
+                }
+                
+                .clean-mode-sidebar:hover,
+                .clean-mode-sidebar.show-sidebar {
+                    transform: translateX(0) !important;
+                    opacity: 1;
+                }
+                
+                .sidebar-indicator {
+                    position: absolute;
+                    top: 50%;
+                    cursor: pointer;
+                    padding: 15px 5px;
+                    background-color: rgba(255,255,255,0.9);
+                    border-radius: 5px;
+                    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                    transform: translateY(-50%);
+                    z-index: 1001;
+                    transition: all 0.2s ease;
+                }
+                
+                .sidebar-indicator:hover {
+                    background-color: white;
+                    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+                }
+                
+                .sidebar-left {
+                    right: -25px;
+                    border-radius: 0 5px 5px 0;
+                }
+                
+                .sidebar-right {
+                    left: -25px;
+                    border-radius: 5px 0 0 5px;
+                }
+                
+                .sidebar-indicator span {
+                    writing-mode: vertical-rl;
+                    text-orientation: mixed;
+                    font-weight: bold;
+                    font-size: 0.9rem;
+                    color: #555;
+                }
+                
+                .clean-mode-sidebar:hover .sidebar-indicator {
+                    opacity: 0;
+                }
+                
+                .clean-mode-content {
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    margin: 0 !important;
+                    padding: 2rem !important;
+                }
+                
+                /* Stile per il pulsante toggle in clean mode */
+                body.clean-mode #clean-mode-toggle {
+                    position: fixed;
+                    z-index: 2000;
+                    top: 10px;
+                    right: 10px;
+                    opacity: 0.7;
+                    transition: opacity 0.2s ease;
+                }
+                
+                body.clean-mode #clean-mode-toggle:hover {
+                    opacity: 1;
+                }
+            `;
+            document.head.appendChild(styleElement);
+        }
     }
     
     // === EVENTI DI SISTEMA ===
@@ -1289,7 +1482,60 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // === INIZIALIZZAZIONE ===
+    // === SINCRONIZZAZIONE E PULIZIA DELLO STATO ===
+    
+    /**
+     * Sincronizza lo stato visuale con i dati delle annotazioni
+     * Assicura che tutte le evidenziazioni nel testo corrispondano alle annotazioni nell'elenco
+     */
+    function syncAnnotationState() {
+        AnnotationLogger.startOperation('syncAnnotationState');
+        
+        // Ottieni tutte le evidenziazioni attualmente nel testo
+        const highlights = document.querySelectorAll('.entity-highlight');
+        const annotationItems = document.querySelectorAll('.annotation-item');
+        
+        // Crea un set di ID validi dalle annotazioni nella lista
+        const validAnnotationIds = new Set();
+        annotationItems.forEach(item => {
+            validAnnotationIds.add(item.dataset.id);
+        });
+        
+        // Verifica se ci sono evidenziazioni orfane (senza corrispondenza nella lista)
+        let orphanedHighlights = 0;
+        highlights.forEach(highlight => {
+            const highlightId = highlight.dataset.id;
+            if (!validAnnotationIds.has(highlightId)) {
+                // Questa è un'evidenziazione orfana - rimuovila
+                orphanedHighlights++;
+                const textContent = highlight.textContent;
+                const textNode = document.createTextNode(textContent);
+                highlight.parentNode.replaceChild(textNode, highlight);
+            }
+        });
+        
+        if (orphanedHighlights > 0) {
+            AnnotationLogger.debug(`Rimosse ${orphanedHighlights} evidenziazioni orfane`);
+        }
+        
+        // Verifica se ci sono annotazioni senza evidenziazione
+        let missingHighlights = 0;
+        annotationItems.forEach(item => {
+            const annotationId = item.dataset.id;
+            const highlight = document.querySelector(`.entity-highlight[data-id="${annotationId}"]`);
+            if (!highlight) {
+                missingHighlights++;
+            }
+        });
+        
+        if (missingHighlights > 0) {
+            AnnotationLogger.debug(`Trovate ${missingHighlights} annotazioni senza evidenziazione`);
+            // In questo caso, meglio rifare completamente l'evidenziazione
+            highlightExistingAnnotations();
+        }
+        
+        AnnotationLogger.endOperation('syncAnnotationState');
+    }
     
     /**
      * Elimina tutte le annotazioni del documento o di un tipo specifico
@@ -1567,11 +1813,11 @@ document.addEventListener('DOMContentLoaded', function() {
     if (cleanModeToggle) {
         cleanModeToggle.addEventListener('click', toggleCleanMode);
         
-        // Ripristina lo stato della modalità clean
-        const savedCleanMode = localStorage.getItem('ner-clean-mode') === 'true';
-        if (savedCleanMode) {
-            toggleCleanMode();
-        }
+        // NON attiviamo automaticamente la modalità clean all'avvio
+    // La modalità clean deve essere attivata solo dall'utente
+    // Il valore savedCleanMode viene usato solo per ripristinare lo stato
+    // tra sessioni di lavoro sulla stessa pagina, non all'inizio della sessione
+    localStorage.removeItem('ner-clean-mode');
     }
     
     // === FUNZIONI ESPOSTE GLOBALMENTE ===
@@ -1603,6 +1849,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Configura gli handler di eventi delegati
         setupDelegatedEventHandlers();
         
+        // Esegui una sincronizzazione iniziale per rimuovere eventuali evidenziazioni orfane
+        setTimeout(syncAnnotationState, 1000);
+        
+        // Esegui sincronizzazione periodica (ogni 30 secondi) per assicurare coerenza
+        setInterval(syncAnnotationState, 30000);
+        
+        // Aggiungi stili CSS per migliorare l'effetto di rimozione
+        addRemovalStyles();
+        
         // Aggiungi un osservatore per monitorare le modifiche al contenuto del testo
         const observer = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
@@ -1621,6 +1876,35 @@ document.addEventListener('DOMContentLoaded', function() {
         
         AnnotationLogger.endOperation('inizializzazione');
         AnnotationLogger.info('Applicazione di annotazione inizializzata con successo');
+    }
+    
+    /**
+     * Aggiunge stili CSS per l'effetto di rimozione delle annotazioni
+     */
+    function addRemovalStyles() {
+        // Verifica se gli stili sono già stati aggiunti
+        if (document.getElementById('annotation-removal-styles')) return;
+        
+        const styleElement = document.createElement('style');
+        styleElement.id = 'annotation-removal-styles';
+        styleElement.textContent = `
+            .entity-highlight.removing {
+                opacity: 0.5;
+                text-decoration: line-through;
+                background-color: rgba(255, 0, 0, 0.2) !important;
+                transition: all 0.3s ease;
+            }
+            
+            @keyframes fadeOut {
+                from { opacity: 1; background-color: inherit; }
+                to { opacity: 0; background-color: rgba(255, 0, 0, 0.1); }
+            }
+            
+            .removing-highlight {
+                animation: fadeOut 0.3s ease forwards;
+            }
+        `;
+        document.head.appendChild(styleElement);
     }
     
     // Avvia l'inizializzazione

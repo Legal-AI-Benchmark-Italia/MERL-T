@@ -54,16 +54,10 @@ document.addEventListener('DOMContentLoaded', function() {
         updateAnnotationProgress();
         updateVisibleCount();
         
-        // Aggiorna visibilità del messaggio "nessuna annotazione"
-        if (existingAnnotations.length === 0) {
-            if (noAnnotationsMsg) noAnnotationsMsg.classList.remove('d-none');
-        } else {
-            if (noAnnotationsMsg) noAnnotationsMsg.classList.add('d-none');
-        }
+        // Chiama le nuove utility di debug e gestione eventi
+        debugEventHandlers();
+        setupDelegatedEventHandlers();
     }
-    
-    // Esegui il caricamento iniziale
-    loadExistingAnnotations();
     
     function optimizeTextDisplay() {
         // Verifica e corregge eventuali problemi di visualizzazione dopo il rendering
@@ -745,6 +739,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 confirmModal.hide();
                 
                 if (data.status === 'success') {
+                    // DEBUG: Registra lo stato prima dell'eliminazione
+                    console.log('Eliminazione avviata per ID:', annotationId);
+                    console.log('Elementi trovati:', document.querySelectorAll(`.entity-highlight[data-id="${annotationId}"]`).length);
+                    console.log('Elemento annotazione:', document.querySelector(`.annotation-item[data-id="${annotationId}"]`));
+                    
                     // Rimuovi l'annotazione dalla lista con animazione
                     const annotationItem = document.querySelector(`.annotation-item[data-id="${annotationId}"]`);
                     if (annotationItem) {
@@ -756,17 +755,34 @@ document.addEventListener('DOMContentLoaded', function() {
                         setTimeout(() => {
                             annotationItem.remove();
                             
-                            // Riesegui l'highlighting
+                            // Aggiorna la lista delle annotazioni esistenti
+                            loadExistingAnnotations();
+                            
+                            // Riesegui l'highlighting con la nuova lista
                             highlightExistingAnnotations();
                             
                             // Mostra il messaggio "nessuna annotazione" se non ci sono più annotazioni
                             if (document.querySelectorAll('.annotation-item').length === 0) {
                                 if (noAnnotationsMsg) noAnnotationsMsg.classList.remove('d-none');
                             }
+                            
+                            // Aggiorna contatori e statistiche
+                            updateAnnotationCount();
+                            updateEntityCounters();
+                            updateAnnotationProgress();
+                            updateVisibleCount();
                         }, 300);
                     } else {
+                        console.warn('Elemento annotazione non trovato nel DOM:', annotationId);
                         // Se l'elemento non è stato trovato, ricarica comunque le annotazioni
+                        loadExistingAnnotations();
                         highlightExistingAnnotations();
+                        
+                        // Aggiorna contatori e statistiche
+                        updateAnnotationCount();
+                        updateEntityCounters();
+                        updateAnnotationProgress();
+                        updateVisibleCount();
                     }
                     
                     // Mostra notifica
@@ -787,6 +803,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         confirmModal.show();
     }
+    
     
     // === Gestione degli eventi di eliminazione per le annotazioni esistenti ===
     document.querySelectorAll('.delete-annotation').forEach(btn => {
@@ -1147,3 +1164,7 @@ document.addEventListener('DOMContentLoaded', function() {
     optimizeTextDisplay();
     
 });
+
+// === Nuove funzioni aggiunte ===
+debugEventHandlers();
+setupDelegatedEventHandlers();

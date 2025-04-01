@@ -1,955 +1,153 @@
-<!-- annotate.html - Pagina di annotazione migliorata -->
 {% extends "base.html" %}
 
-{% block title %}NER-Giuridico - Annotazione{% endblock %}
-
-{% block styles %}
-<style>
-    /* Stili per l'highlighting del testo */
-    .entity-highlight {
-        display: inline;
-        border-radius: 2px;
-        cursor: pointer;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-        transition: all 0.2s ease;
-        padding: 0 2px;
-        margin: 0;
-        color: white;
-        text-shadow: 0px 0px 1px rgba(0, 0, 0, 0.4);
-        position: relative;
-    }
-
-    .entity-highlight:hover {
-        box-shadow: 0 3px 6px rgba(0, 0, 0, 0.16);
-        transform: translateY(-1px);
-    }
-
-    .entity-highlight.overlap {
-        box-shadow: 0 0 0 2px #ff9800, 0 1px 2px rgba(0, 0, 0, 0.08);
-    }
-
-    .entity-highlight .tooltip {
-        position: absolute;
-        bottom: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-        margin-bottom: 5px;
-        background-color: rgba(0, 0, 0, 0.8);
-        color: white;
-        text-align: center;
-        padding: 4px 8px;
-        border-radius: 3px;
-        font-size: 0.8rem;
-        white-space: nowrap;
-        z-index: 1000;
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.3s;
-    }
-
-    .entity-highlight:hover .tooltip {
-        opacity: 1;
-    }
-    
-    /* Layout a schermo intero per l'annotazione */
-    @media (min-width: 992px) {
-        body.annotate-page {
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        body.annotate-page .navbar {
-            flex-shrink: 0;
-        }
-
-        body.annotate-page .container-fluid {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            padding-bottom: 0;
-        }
-
-        body.annotate-page .document-info {
-            flex-shrink: 0;
-        }
-        
-        body.annotate-page .annotation-area {
-            flex: 1;
-            display: flex;
-            overflow: hidden;
-        }
-        
-        body.annotate-page .footer {
-            display: none;
-        }
-    }
-    
-    /* Evidenziazione dell'elemento selezionato */
-    .entity-type.selected {
-        transform: translateY(-2px);
-        box-shadow: 0 0 0 3px var(--bs-primary), 0 4px 8px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* Effetto pulsazione per elementi evidenziati */
-    @keyframes highlight-pulse {
-        0% { box-shadow: 0 0 0 2px var(--bs-primary); }
-        50% { box-shadow: 0 0 0 3px var(--bs-primary); }
-        100% { box-shadow: 0 0 0 2px var(--bs-primary); }
-    }
-    
-    .highlight {
-        animation: highlight-pulse 2s ease-in-out;
-    }
-    
-    /* Stile per l'area di testo quando è in editing */
-    #text-content.editing {
-        background-color: #f8f9fa;
-        border: 2px dashed var(--bs-primary) !important;
-        padding: 1rem;
-    }
-    
-    /* Text content con dimensioni fisse in desktop */
-    #text-content {
-        white-space: pre-wrap;
-        line-height: 1.8;
-        padding-top: 1.5rem;
-        word-break: break-word;
-    }
-
-    /* Stili per la modalità clean */
-    body.clean-mode .navbar,
-    body.clean-mode .footer,
-    body.clean-mode .document-info {
-        display: none !important;
-    }
-    
-    body.clean-mode {
-        overflow: hidden;
-        height: 100vh;
-    }
-    
-    body.clean-mode .container-fluid {
-        padding: 0;
-        height: 100vh;
-    }
-    
-    body.clean-mode .annotation-area {
-        height: 100vh;
-        border-radius: 0;
-    }
-    
-    body.clean-mode .entity-sidebar,
-    body.clean-mode .annotations-sidebar {
-        width: 0;
-        padding: 0;
-        margin: 0;
-        opacity: 0;
-        overflow: hidden;
-        transition: all 0.3s ease;
-    }
-    
-    body.clean-mode .entity-sidebar:hover,
-    body.clean-mode .annotations-sidebar:hover {
-        width: 280px;
-        padding: 1rem;
-        opacity: 1;
-    }
-    
-    body.clean-mode .text-container {
-        flex-grow: 1;
-        margin: 0;
-        border-radius: 0;
-        border: none;
-    }
-    
-    /* Feedback visivo quando viene selezionata un'entità con scorciatoia */
-    .shortcut-highlight {
-        animation: shortcutPulse 0.5s ease-in-out;
-    }
-    
-    @keyframes shortcutPulse {
-        0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.05); }
-    }
-    
-    /* Stile per le etichette delle scorciatoie */
-    .shortcut-badge {
-        font-size: 0.7rem;
-        background-color: rgba(0,0,0,0.2);
-        color: white;
-        border-radius: 3px;
-        padding: 1px 3px;
-        font-family: monospace;
-    }
-    
-    /* Mostra sidebars solo al hover in modalità clean */
-    body.clean-mode .entity-sidebar {
-        position: absolute;
-        left: 0;
-        top: 0;
-        height: 100%;
-        z-index: 100;
-        background-color: white;
-        box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-    }
-    
-    body.clean-mode .annotations-sidebar {
-        position: absolute;
-        right: 0;
-        top: 0;
-        height: 100%;
-        z-index: 100;
-        background-color: white;
-        box-shadow: -2px 0 10px rgba(0,0,0,0.1);
-    }
-    
-    /* Pulsante per uscire dalla modalità clean */
-    body.clean-mode #clean-mode-toggle {
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 1000;
-        opacity: 0.7;
-    }
-    
-    body.clean-mode #clean-mode-toggle:hover {
-        opacity: 1;
-    }
-    
-    body.clean-mode #clean-mode-toggle .fa-expand:before {
-        content: "\f066"; /* icona compress */
-    }
-</style>
-{% endblock %}
+{% block title %}Annotazione - {{ document.title }}{% endblock %}
+{% block page_id %}annotate{% endblock %}
 
 {% block content %}
-<!-- Aggiungiamo la classe annotate-page al body -->
-<script>document.body.classList.add('annotate-page');</script>
-
-<!-- Intestazione documento -->
-<div class="document-info mb-3">
-    <div class="d-flex justify-content-between align-items-center flex-wrap">
-        <div>
-            <h2 class="mb-1">{{ document.title }}</h2>
-            <div class="document-metadata text-muted">
-                <span><i class="fas fa-file-word me-1"></i> {{ document.word_count }} parole</span>
-                <span><i class="fas fa-calendar-alt me-1"></i> {{ document.date_created.split('T')[0] if document.date_created else 'N/A' }}</span>
-            </div>
-        </div>
-        <div class="mt-2 mt-md-0">
-            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm me-2">
-                <i class="fas fa-arrow-left me-1"></i> Torna alla lista
-            </a>
-            <div class="btn-group dropstart">
-                <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fas fa-cog me-1"></i> Azioni
-                </button>
-                <ul class="dropdown-menu">
-                    <li>
-                        <button id="edit-text" class="dropdown-item">
-                            <i class="fas fa-edit me-2"></i> Modifica documento
-                        </button>
-                    </li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li>
-                        <button id="clear-all-annotations" class="dropdown-item text-danger">
-                            <i class="fas fa-trash-alt me-2"></i> Elimina tutte le annotazioni
-                        </button>
-                    </li>
-                    <li>
-                        <button id="clear-type-dropdown" class="dropdown-item text-warning" data-bs-toggle="modal" data-bs-target="#clearTypeModal">
-                            <i class="fas fa-filter me-2"></i> Elimina per tipo
-                        </button>
-                    </li>
-                </ul>
-            </div>
-        </div>
+<!-- Document Info Header -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+    <div>
+        <h4 class="mb-0">{{ document.title }}</h4>
+        <small class="text-muted">
+            <i class="fas fa-file-word me-1"></i> {{ document.word_count }} parole |
+            <i class="fas fa-calendar-alt me-1"></i> {{ document.date_created.split('T')[0] if document.date_created else 'N/A' }}
+        </small>
     </div>
-</div>
-
-<!-- Area di annotazione principale -->
-<div class="annotation-area">
-    <!-- Pannello sinistro: Tipi di entità -->
-    <div class="entity-sidebar d-flex flex-column bg-white shadow-sm rounded p-3" style="width: 280px; overflow-y: auto;">
-        <h5 class="border-bottom pb-2 mb-3">
-            <i class="fas fa-tags me-2"></i>Tipi di entità
-        </h5>
-        
-        <div class="entity-type-list mb-3">
-            {% for entity_type in entity_types %}
-            <div class="entity-type d-flex align-items-center p-2 mb-2 rounded text-white" 
-                 data-type="{{ entity_type.id }}" 
-                 data-shortcut="{{ loop.index }}"
-                 style="background-color: {{ entity_type.color or '#ffffff' }}; cursor: pointer;">
-                <span class="entity-name flex-grow-1">{{ entity_type.name }}</span>
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-light bg-opacity-25 text-white rounded-pill ms-2 entity-counter" data-type="{{ entity_type.id }}">0</span>
-                    <kbd class="ms-2 shortcut-badge">⌘{{ loop.index }}</kbd>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        
-        <div class="annotation-controls">
-            <button id="auto-annotate" class="btn btn-primary w-100 mb-3">
-                <i class="fas fa-magic me-2"></i> Riconoscimento automatico
+    <div class="mt-2 mt-md-0">
+        <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary me-2">
+            <i class="fas fa-arrow-left me-1"></i> Lista Documenti
+        </a>
+        <!-- Add other actions like edit/clear here if needed, perhaps in a dropdown -->
+         <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-cog"></i> Azioni
             </button>
-            <button id="clear-selection" class="btn btn-outline-secondary w-100 mb-3">
-                <i class="fas fa-times me-2"></i> Annulla selezione
-            </button>
-            
-            <div id="annotation-status" class="alert alert-info d-none mb-3">
-                Seleziona un tipo di entità e poi evidenzia il testo da annotare
-            </div>
-        </div>
-        
-        <!-- Contatori e statistiche -->
-        <div class="annotation-stats bg-light p-3 rounded mb-3">
-            <h6 class="mb-2">Statistiche</h6>
-            <div class="d-flex justify-content-between mb-2">
-                <span>Totale annotazioni:</span>
-                <strong id="annotation-count">({{ annotations|length }})</strong>
-            </div>
-            <div class="progress" style="height: 5px;">
-                <div class="progress-bar" role="progressbar" style="width: 0%;" id="annotation-progress"></div>
-            </div>
-        </div>
-        
-        <!-- Scorciatoie da tastiera -->
-        <div class="keyboard-shortcuts bg-light p-3 rounded mt-auto">
-            <h6 class="mb-2">
-                <i class="fas fa-keyboard me-2"></i>Scorciatoie da tastiera
-            </h6>
-            <ul class="list-unstyled small mb-0">
-                <li><kbd>Esc</kbd> Annulla selezione</li>
-                <li><kbd>Alt</kbd> + <kbd>A</kbd> Riconoscimento automatico</li>
-                <li><kbd>⌘</kbd> + <kbd>numero</kbd> Seleziona tipo entità</li>
-                <li><kbd>⌘</kbd> + <kbd>F</kbd> Modalità a schermo intero</li>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><button class="dropdown-item" id="edit-text-btn"><i class="fas fa-edit fa-fw me-2"></i>Modifica Testo</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><button class="dropdown-item text-danger" id="clear-all-annotations-btn"><i class="fas fa-trash-alt fa-fw me-2"></i>Elimina Tutte</button></li>
+                <li><button class="dropdown-item text-warning" data-bs-toggle="modal" data-bs-target="#clearByTypeModal"><i class="fas fa-filter fa-fw me-2"></i>Elimina per Tipo</button></li>
             </ul>
         </div>
     </div>
-    
-    <!-- Contenitore centrale: Testo del documento -->
-    <div class="text-container flex-grow-1 bg-white shadow-sm rounded mx-3 position-relative" style="overflow-y: auto;">
-        <div class="text-controls position-absolute top-0 end-0 p-2 bg-light bg-opacity-75 rounded m-2">
-            <div class="btn-group me-2">
-                <button id="clean-mode-toggle" class="btn btn-sm btn-outline-primary" title="Modalità a schermo intero">
-                    <i class="fas fa-expand"></i>
-                </button>
-            </div>
-            
-            <div class="btn-group">
-                <button id="zoom-in" class="btn btn-sm btn-outline-secondary" title="Aumenta zoom">
-                    <i class="fas fa-search-plus"></i>
-                </button>
-                <button id="zoom-out" class="btn btn-sm btn-outline-secondary" title="Diminuisci zoom">
-                    <i class="fas fa-search-minus"></i>
-                </button>
-                <button id="reset-zoom" class="btn btn-sm btn-outline-secondary" title="Ripristina zoom">
-                    <i class="fas fa-undo"></i>
-                </button>
-            </div>
-            
-            <!-- Pulsanti per la modifica del testo (inizialmente nascosti) -->
-            <div class="btn-group ms-2 edit-controls" style="display:none;">
-                <button id="save-text" class="btn btn-sm btn-success" title="Salva modifiche">
-                    <i class="fas fa-save"></i>
-                </button>
-                <button id="cancel-edit" class="btn btn-sm btn-danger" title="Annulla modifiche">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        </div>
-        
-        <div id="text-content" class="p-4" data-doc-id="{{ document.id }}">{{ document.text }}</div>
-    </div>
-    
-    <!-- Pannello destro: Lista annotazioni -->
-    <div class="annotations-sidebar d-flex flex-column bg-white shadow-sm rounded p-3" style="width: 320px; overflow-y: auto;">
-        <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3">
-            <h5 class="mb-0">
-                <i class="fas fa-list-ul me-2"></i>Annotazioni
-                <span id="visible-count" class="badge bg-primary rounded-pill"></span>
-            </h5>
-            <div class="btn-group">
-                <button class="btn btn-sm btn-outline-secondary sort-annotations" data-sort="position" title="Ordina per posizione">
-                    <i class="fas fa-sort-numeric-down"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-secondary sort-annotations" data-sort="type" title="Ordina per tipo">
-                    <i class="fas fa-sort-alpha-down"></i>
-                </button>
-            </div>
-        </div>
-        
-        <div class="search-box mb-3">
-            <div class="input-group">
-                <span class="input-group-text bg-light">
-                    <i class="fas fa-search"></i>
-                </span>
-                <input type="text" id="search-annotations" class="form-control" placeholder="Cerca nelle annotazioni...">
-            </div>
-        </div>
-        
-        <div id="annotations-container">
-            {% for annotation in annotations %}
-            <div class="annotation-item card mb-2" 
-                 data-id="{{ annotation.id }}"
-                 data-start="{{ annotation.start }}"
-                 data-end="{{ annotation.end }}"
-                 data-type="{{ annotation.type }}">
-                <div class="card-body p-2">
-                    <div class="d-flex align-items-start mb-2">
-                        {% for entity_type in entity_types %}
-                            {% if entity_type.id == annotation.type %}
-                            <span class="annotation-type badge me-2" 
-                                style="background-color: {{ entity_type.color }}">
-                                {{ entity_type.name }}
-                            </span>
-                            {% endif %}
-                        {% endfor %}
-                        <span class="annotation-text flex-grow-1 small">{{ annotation.text }}</span>
-                    </div>
-                    <div class="annotation-actions d-flex justify-content-end">
-                        <button class="btn btn-sm btn-outline-primary jump-to-annotation me-1" data-id="{{ annotation.id }}" title="Vai al testo">
-                            <i class="fas fa-search"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger delete-annotation" data-id="{{ annotation.id }}" title="Elimina">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                    </div>
-                </div>
+</div>
+
+<!-- Annotation Area -->
+<div class="annotation-area" id="annotationArea">
+    <!-- Entity Types Sidebar -->
+    <div class="entity-sidebar">
+        <h6 class="mb-3 border-bottom pb-2"><i class="fas fa-tags me-2"></i>Tipi di Entità</h6>
+        <div class="entity-type-list mb-auto" id="entityTypeList">
+            {% for entity_type in entity_types %}
+            <div class="entity-type"
+                 data-entity-type="{{ entity_type.id }}"
+                 style="background-color: {{ entity_type.color or '#6c757d' }}; border-left: 5px solid {{ entity_type.color or '#6c757d' }};"
+                 title="{{ entity_type.name }} (Shortcut: Alt+{{ loop.index }})">
+                <span class="entity-name">{{ entity_type.name }}</span>
+                <span class="badge bg-light text-dark rounded-pill ms-2 entity-counter" data-count-type="{{ entity_type.id }}">0</span>
+                <kbd class="shortcut-badge d-none d-lg-inline">Alt+{{ loop.index }}</kbd> <!-- Hide on smaller screens -->
             </div>
             {% endfor %}
         </div>
-        
-        <!-- Messaggio "Nessuna annotazione" -->
-        <div id="no-annotations" class="text-center py-5 {% if annotations %}d-none{% endif %}">
-            <i class="fas fa-tag text-muted" style="font-size: 3rem;"></i>
-            <h5 class="mt-3">Nessuna annotazione</h5>
-            <p class="text-muted">Seleziona un tipo di entità e poi evidenzia del testo per creare un'annotazione</p>
+         <div class="mt-3">
+             <button id="auto-annotate-btn" class="btn btn-sm btn-primary w-100 mb-2">
+                <i class="fas fa-magic me-1"></i> Riconoscimento Auto
+            </button>
+             <button id="clear-selection-btn" class="btn btn-sm btn-outline-secondary w-100">
+                <i class="fas fa-times me-1"></i> Annulla Selezione
+            </button>
+         </div>
+    </div>
+
+    <!-- Text Container -->
+    <div class="text-container">
+         <div class="text-controls btn-toolbar mb-2" role="toolbar">
+            <div class="btn-group btn-group-sm me-2" role="group">
+                <button class="btn btn-outline-secondary" id="zoom-in-btn" title="Aumenta Zoom"><i class="fas fa-search-plus"></i></button>
+                <button class="btn btn-outline-secondary" id="zoom-out-btn" title="Diminuisci Zoom"><i class="fas fa-search-minus"></i></button>
+                <button class="btn btn-outline-secondary" id="zoom-reset-btn" title="Reset Zoom"><i class="fas fa-undo"></i></button>
+            </div>
+             <div class="btn-group btn-group-sm d-none" id="edit-controls">
+                 <button class="btn btn-success" id="save-text-btn" title="Salva Modifiche"><i class="fas fa-save"></i> Salva</button>
+                 <button class="btn btn-danger" id="cancel-edit-btn" title="Annulla Modifiche"><i class="fas fa-times"></i> Annulla</button>
+             </div>
+        </div>
+        <div id="text-content"
+             contenteditable="false"
+             data-doc-id="{{ document.id }}"
+             data-word-count="{{ document.word_count }}">
+            {{- document.text -}} {# Use '-' to strip whitespace for contenteditable #}
+        </div>
+    </div>
+
+    <!-- Annotations Sidebar -->
+    <div class="annotations-sidebar">
+        <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
+             <h6 class="mb-0"><i class="fas fa-list-ul me-2"></i>Annotazioni (<span id="annotation-count">0</span>)</h6>
+             <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary sort-annotations-btn" data-sort="position" title="Ordina per Posizione"><i class="fas fa-sort-numeric-down"></i></button>
+                <button class="btn btn-outline-secondary sort-annotations-btn" data-sort="type" title="Ordina per Tipo"><i class="fas fa-sort-alpha-down"></i></button>
+            </div>
+        </div>
+        <div class="mb-2">
+            <input type="search" id="search-annotations-input" class="form-control form-control-sm" placeholder="Cerca annotazioni...">
+        </div>
+        <div class="annotations-container" id="annotationsContainer">
+            <!-- Annotations will be loaded here by JS -->
+            <div id="no-annotations-message" class="text-center text-muted mt-4 d-none">
+                <i class="fas fa-tag fa-2x mb-2"></i><br>Nessuna annotazione.
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Modale per l'eliminazione per tipo -->
-<div class="modal fade" id="clearTypeModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Elimina annotazioni per tipo</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<!-- Annotation Item Template (for JS) -->
+<template id="annotation-item-template">
+    <div class="annotation-item card mb-2" data-annotation-id="" data-start="" data-end="" data-type="">
+        <div class="card-body p-2">
+            <div class="d-flex justify-content-between align-items-start mb-1">
+                <span class="annotation-type badge me-2">Tipo</span>
+                <span class="annotation-text small flex-grow-1">Testo annotazione...</span>
             </div>
-            <div class="modal-body">
-                <form>
-                    <div class="mb-3">
-                        <label for="entity-type-filter" class="form-label">Seleziona un tipo di entità</label>
-                        <select id="entity-type-filter" class="form-select">
-                            <option value="">Seleziona un tipo di entità</option>
-                            {% for entity_type in entity_types %}
-                            <option value="{{ entity_type.id }}">{{ entity_type.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-                <button type="button" id="clear-type-annotations" class="btn btn-warning" disabled>
-                    <i class="fas fa-trash-alt me-2"></i>Elimina annotazioni
-                </button>
+            <div class="annotation-actions text-end">
+                <button class="btn btn-sm btn-outline-secondary jump-to-btn" title="Vai al testo"><i class="fas fa-crosshairs"></i></button>
+                <button class="btn btn-sm btn-outline-danger delete-annotation-btn" title="Elimina"><i class="fas fa-trash-alt"></i></button>
             </div>
         </div>
     </div>
+</template>
+
+<!-- Clear By Type Modal -->
+<div class="modal fade" id="clearByTypeModal" tabindex="-1" aria-labelledby="clearByTypeModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="clearByTypeModalLabel">Elimina Annotazioni per Tipo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Seleziona il tipo di entità le cui annotazioni vuoi eliminare da questo documento.</p>
+        <select id="clear-entity-type-select" class="form-select">
+            <option value="" selected disabled>-- Seleziona Tipo --</option>
+            {% for entity_type in entity_types %}
+            <option value="{{ entity_type.id }}">{{ entity_type.name }}</option>
+            {% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+        <button type="button" class="btn btn-warning" id="confirm-clear-type-btn" disabled>Elimina Selezionate</button>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/annotate.js') }}"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // Mostra lo stato di annotazione all'avvio
-        const annotationStatus = document.getElementById('annotation-status');
-        annotationStatus.textContent = 'Seleziona un tipo di entità e poi evidenzia il testo da annotare';
-        annotationStatus.classList.remove('d-none');
-        setTimeout(() => {
-            annotationStatus.classList.add('d-none');
-        }, 5000);
-        
-        // Aggiorna i contatori per tipo di entità
-        updateEntityCounters();
-        
-        // Aggiorna il progresso delle annotazioni
-        updateAnnotationProgress();
-        
-        // Mostra il conteggio delle annotazioni visibili
-        updateVisibleCount();
-        
-        // Collega gli eventi di ordinamento
-        document.querySelectorAll('.sort-annotations').forEach(button => {
-            button.addEventListener('click', function() {
-                sortAnnotations(this.dataset.sort);
-                
-                // Aggiorna lo stato dei pulsanti
-                document.querySelectorAll('.sort-annotations').forEach(btn => {
-                    btn.classList.remove('active');
-                });
-                this.classList.add('active');
-            });
-        });
-        
-        // Implementazione della funzione di ordinamento
-        function sortAnnotations(sortBy) {
-            const container = document.getElementById('annotations-container');
-            const items = Array.from(container.querySelectorAll('.annotation-item'));
-            
-            if (items.length === 0) return;
-            
-            items.sort((a, b) => {
-                if (sortBy === 'position') {
-                    return parseInt(a.dataset.start) - parseInt(b.dataset.start);
-                } else if (sortBy === 'type') {
-                    const typeA = a.dataset.type;
-                    const typeB = b.dataset.type;
-                    return typeA.localeCompare(typeB);
-                }
-                return 0;
-            });
-            
-            // Rimuovi gli elementi esistenti
-            items.forEach(item => item.remove());
-            
-            // Aggiungi gli elementi ordinati
-            items.forEach(item => container.appendChild(item));
-        }
-        
-        // Funzione per aggiornare i contatori per tipo di entità
-        function updateEntityCounters() {
-            // Resetta tutti i contatori
-            document.querySelectorAll('.entity-counter').forEach(counter => {
-                counter.textContent = '0';
-            });
-            
-            // Conta le annotazioni per tipo
-            const annotations = document.querySelectorAll('.annotation-item');
-            const counts = {};
-            
-            annotations.forEach(item => {
-                const type = item.dataset.type;
-                counts[type] = (counts[type] || 0) + 1;
-            });
-            
-            // Aggiorna i contatori
-            for (const [type, count] of Object.entries(counts)) {
-                const counter = document.querySelector(`.entity-counter[data-type="${type}"]`);
-                if (counter) {
-                    counter.textContent = count;
-                }
-            }
-        }
-        
-        // Funzione per aggiornare il progresso delle annotazioni
-        function updateAnnotationProgress() {
-            const totalWords = {{ document.word_count }};
-            const annotationCount = document.querySelectorAll('.annotation-item').length;
-            
-            // Calcola una stima della copertura (puramente visiva)
-            const coverage = Math.min(annotationCount / (totalWords / 20) * 100, 100);
-            
-            const progressBar = document.getElementById('annotation-progress');
-            progressBar.style.width = `${coverage}%`;
-            
-            // Aggiorna il colore in base alla copertura
-            if (coverage < 30) {
-                progressBar.className = 'progress-bar bg-danger';
-            } else if (coverage < 70) {
-                progressBar.className = 'progress-bar bg-warning';
-            } else {
-                progressBar.className = 'progress-bar bg-success';
-            }
-        }
-        
-        // Funzione per aggiornare il conteggio delle annotazioni visibili
-        function updateVisibleCount() {
-            const total = document.querySelectorAll('.annotation-item').length;
-            const visible = document.querySelectorAll('.annotation-item:not(.d-none)').length;
-            
-            const visibleCount = document.getElementById('visible-count');
-            visibleCount.textContent = visible === total ? total : `${visible}/${total}`;
-            
-            // Mostra/nascondi il messaggio "Nessuna annotazione"
-            const noAnnotations = document.getElementById('no-annotations');
-            if (noAnnotations) {
-                if (total === 0) {
-                    noAnnotations.classList.remove('d-none');
-                } else {
-                    noAnnotations.classList.add('d-none');
-                }
-            }
-        }
-        
-        // Sovrascrivi la funzione per mostrare le notifiche
-        window.showNotification = function(message, type = 'primary') {
-            const toast = new bootstrap.Toast(document.getElementById('notification-toast'));
-            document.getElementById('notification-message').textContent = message;
-            
-            // Imposta il tipo/colore
-            const toastElement = document.getElementById('notification-toast');
-            toastElement.className = toastElement.className.replace(/bg-\w+/, '');
-            toastElement.classList.add(`bg-${type}`);
-            
-            toast.show();
-        };
-        
-        // Sovrascrivi la funzione per visualizzare lo stato
-        window.updateStatus = function(message, isError = false) {
-            if (!message) return;
-            
-            const annotationStatus = document.getElementById('annotation-status');
-            annotationStatus.textContent = message;
-            annotationStatus.className = `alert ${isError ? 'alert-danger' : 'alert-info'}`;
-            annotationStatus.classList.remove('d-none');
-            
-            setTimeout(() => {
-                annotationStatus.classList.add('d-none');
-            }, 5000);
-        };
-        
-        // Sovrascrivi la funzione per aggiornare il conteggio
-        window.updateAnnotationCount = function() {
-            const count = document.querySelectorAll('.annotation-item').length;
-            document.getElementById('annotation-count').textContent = `(${count})`;
-            
-            // Aggiorna anche i contatori per tipo e il progresso
-            updateEntityCounters();
-            updateAnnotationProgress();
-            updateVisibleCount();
-        };
-        
-        // Sovrascrivi la funzione per aggiungere un'annotazione
-        const originalAddAnnotationToList = window.addAnnotationToList;
-        window.addAnnotationToList = function(annotation) {
-            // Chiamato l'implementazione originale
-            originalAddAnnotationToList(annotation);
-            
-            // Aggiorna i contatori e il progresso
-            updateEntityCounters();
-            updateAnnotationProgress();
-            updateVisibleCount();
-        };
-        
-        // Sovrascrivi la funzione per eliminare un'annotazione
-        const originalDeleteAnnotation = window.deleteAnnotation;
-        window.deleteAnnotation = function(annotationId) {
-            // Mostra una conferma con Bootstrap
-            const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
-            document.getElementById('confirm-title').textContent = 'Elimina annotazione';
-            document.getElementById('confirm-message').textContent = 'Sei sicuro di voler eliminare questa annotazione?';
-            
-            const confirmBtn = document.getElementById('confirm-action-btn');
-            confirmBtn.textContent = 'Elimina';
-            confirmBtn.className = 'btn btn-danger';
-            
-            confirmBtn.onclick = function() {
-                confirmModal.hide();
-                originalDeleteAnnotation(annotationId);
-            };
-            
-            confirmModal.show();
-            return false; // Interrompe l'esecuzione normale
-        };
-        
-        // Gestione del filtro per tipo nel modale
-        const entityTypeFilter = document.getElementById('entity-type-filter');
-        const clearTypeBtn = document.getElementById('clear-type-annotations');
-        
-        entityTypeFilter.addEventListener('change', function() {
-            clearTypeBtn.disabled = !this.value;
-        });
-        
-        // Gestione dell'eliminazione per tipo
-        clearTypeBtn.addEventListener('click', function() {
-            const entityType = entityTypeFilter.value;
-            if (!entityType) return;
-            
-            const docId = document.getElementById('text-content').dataset.docId;
-            const modal = bootstrap.Modal.getInstance(document.getElementById('clearTypeModal'));
-            
-            // Mostra spinner
-            this.disabled = true;
-            this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
-            
-            if (typeof window.clearAnnotations === 'function') {
-                window.clearAnnotations(docId, entityType)
-                    .then(() => {
-                        modal.hide();
-                        // Il reload sarà gestito dalla funzione clearAnnotations
-                    })
-                    .catch(() => {
-                        this.disabled = false;
-                        this.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Elimina annotazioni';
-                    });
-            } else {
-                // Implementazione di fallback
-                fetch('/api/clear_annotations', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        doc_id: docId,
-                        entity_type: entityType
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    modal.hide();
-                    if (data.status === 'success') {
-                        showNotification(data.message || `Annotazioni di tipo "${entityType}" eliminate con successo`, 'success');
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1500);
-                    } else {
-                        showNotification('Errore: ' + data.message, 'danger');
-                        this.disabled = false;
-                        this.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Elimina annotazioni';
-                    }
-                })
-                .catch(error => {
-                    modal.hide();
-                    console.error('Errore:', error);
-                    showNotification('Si è verificato un errore durante l\'eliminazione', 'danger');
-                    this.disabled = false;
-                    this.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Elimina annotazioni';
-                });
-            }
-        });
-        
-        // Gestione dell'eliminazione di tutte le annotazioni
-        document.getElementById('clear-all-annotations').addEventListener('click', function() {
-            const docId = document.getElementById('text-content').dataset.docId;
-            
-            const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
-            document.getElementById('confirm-title').textContent = 'Elimina tutte le annotazioni';
-            document.getElementById('confirm-message').textContent = 'Sei sicuro di voler eliminare tutte le annotazioni di questo documento?';
-            
-            const confirmBtn = document.getElementById('confirm-action-btn');
-            confirmBtn.textContent = 'Elimina tutto';
-            confirmBtn.className = 'btn btn-danger';
-            
-            confirmBtn.onclick = function() {
-                this.disabled = true;
-                this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
-                
-                if (typeof window.clearAnnotations === 'function') {
-                    window.clearAnnotations(docId);
-                } else {
-                    fetch('/api/clear_annotations', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({doc_id: docId})
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        confirmModal.hide();
-                        if (data.status === 'success') {
-                            showNotification('Tutte le annotazioni eliminate con successo', 'success');
-                            setTimeout(() => {
-                                window.location.reload();
-                            }, 1500);
-                        } else {
-                            showNotification('Errore: ' + data.message, 'danger');
-                        }
-                    })
-                    .catch(error => {
-                        confirmModal.hide();
-                        console.error('Errore:', error);
-                        showNotification('Si è verificato un errore durante l\'eliminazione', 'danger');
-                    });
-                }
-            };
-            
-            confirmModal.show();
-        });
-        
-        // Gestione della modifica del testo
-        const editBtn = document.getElementById('edit-text');
-        const saveBtn = document.getElementById('save-text');
-        const cancelBtn = document.getElementById('cancel-edit');
-        const textContent = document.getElementById('text-content');
-        const editControls = document.querySelector('.edit-controls');
-        
-        let originalText = '';
-        
-        editBtn.addEventListener('click', function() {
-            // Salva il testo originale
-            originalText = textContent.innerHTML;
-            
-            // Rendi il testo modificabile
-            textContent.contentEditable = true;
-            textContent.focus();
-            textContent.classList.add('editing');
-            
-            // Mostra i pulsanti di modifica
-            editControls.style.display = 'inline-flex';
-            
-            // Disabilita la selezione del testo per l'annotazione
-            textContent.addEventListener('mouseup', preventDefaultHandler);
-            
-            // Mostra un messaggio di aiuto
-            showNotification('Stai modificando il testo. Le annotazioni saranno temporaneamente disabilitate.', 'info');
-        });
-        
-        saveBtn.addEventListener('click', function() {
-            // Ottieni il nuovo testo
-            const newText = textContent.innerText;
-            
-            // Verifica che ci siano modifiche
-            if (newText === originalText) {
-                exitEditMode();
-                return;
-            }
-            
-            // Chiedi conferma
-            const confirmModal = new bootstrap.Modal(document.getElementById('confirm-modal'));
-            document.getElementById('confirm-title').textContent = 'Salva modifiche';
-            document.getElementById('confirm-message').textContent = 
-                'Sei sicuro di voler salvare le modifiche? Questo potrebbe influire sulle annotazioni esistenti.';
-            
-            const confirmBtn = document.getElementById('confirm-action-btn');
-            confirmBtn.textContent = 'Salva';
-            confirmBtn.className = 'btn btn-success';
-            
-            confirmBtn.onclick = function() {
-                this.disabled = true;
-                this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvataggio...';
-                
-                const docId = textContent.dataset.docId;
-                
-                fetch('/api/update_document', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        doc_id: docId,
-                        content: newText
-                    })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    confirmModal.hide();
-                    if (data.status === 'success') {
-                        showNotification('Documento aggiornato con successo', 'success');
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1500);
-                    } else {
-                        showNotification('Errore: ' + data.message, 'danger');
-                        exitEditMode();
-                    }
-                })
-                .catch(error => {
-                    confirmModal.hide();
-                    console.error('Errore:', error);
-                    showNotification('Si è verificato un errore durante l\'aggiornamento', 'danger');
-                    exitEditMode();
-                });
-            };
-            
-            confirmModal.show();
-        });
-        
-        cancelBtn.addEventListener('click', function() {
-            // Ripristina il testo originale
-            textContent.innerHTML = originalText;
-            exitEditMode();
-        });
-        
-        function exitEditMode() {
-            textContent.contentEditable = false;
-            textContent.classList.remove('editing');
-            editControls.style.display = 'none';
-            textContent.removeEventListener('mouseup', preventDefaultHandler);
-        }
-        
-        function preventDefaultHandler(e) {
-            e.stopPropagation();
-        }
-
-        // Gestione della modalità clean (a schermo intero)
-        const cleanModeToggle = document.getElementById('clean-mode-toggle');
-        
-        if (cleanModeToggle) {
-            cleanModeToggle.addEventListener('click', function() {
-                document.body.classList.toggle('clean-mode');
-                
-                if (document.body.classList.contains('clean-mode')) {
-                    this.title = "Esci dalla modalità a schermo intero";
-                    showNotification('Modalità a schermo intero attivata. Passa con il mouse sui bordi per vedere i pannelli.', 'info');
-                } else {
-                    this.title = "Modalità a schermo intero";
-                    showNotification('Modalità a schermo intero disattivata', 'info');
-                }
-            });
-        }
-        
-        // Gestione delle scorciatoie da tastiera
-        document.addEventListener('keydown', function(e) {
-            if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
-                e.preventDefault();
-                
-                const index = parseInt(e.key) - 1;
-                const entityTypes = document.querySelectorAll('.entity-type');
-                
-                if (index < entityTypes.length) {
-                    entityTypes[index].click();
-                    entityTypes[index].classList.add('shortcut-highlight');
-                    setTimeout(() => {
-                        entityTypes[index].classList.remove('shortcut-highlight');
-                    }, 500);
-                    
-                    const entityName = entityTypes[index].querySelector('.entity-name').textContent;
-                    updateStatus(`Tipo selezionato: ${entityName} tramite scorciatoia da tastiera`);
-                }
-            }
-            
-            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-                e.preventDefault();
-                if (cleanModeToggle) cleanModeToggle.click();
-            }
-        });
-        
-        // Sistema operativo specifico testi per scorciatoie
-        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-        document.querySelectorAll('.shortcut-badge').forEach(badge => {
-            if (!isMac) {
-                badge.textContent = badge.textContent.replace('⌘', 'Ctrl+');
-            }
-        });
-        
-        const keyboardShortcuts = document.querySelector('.keyboard-shortcuts');
-        if (keyboardShortcuts && !isMac) {
-            keyboardShortcuts.innerHTML = keyboardShortcuts.innerHTML.replace(/⌘/g, 'Ctrl');
-        }
-    });
+<!-- Store initial data for JS -->
+<script id="initial-annotations" type="application/json">
+    {{ annotations | tojson }}
 </script>
-<script src="{{ url_for('static', filename='js/ui-enhancements.js') }}"></script>
+<script id="entity-types-data" type="application/json">
+    {{ entity_types | tojson }}
+</script>
 
-<!-- Modale di conferma -->
-<div class="modal fade" id="confirm-modal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="confirm-title">Conferma azione</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p id="confirm-message">Sei sicuro di voler procedere?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-                <button type="button" class="btn btn-primary" id="confirm-action-btn">Conferma</button>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}

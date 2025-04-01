@@ -771,14 +771,17 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(responseData => {
             console.log('Risposta aggiornamento:', responseData);
-            if (responseData && responseData.status === 'success' && responseData.entity) {
+            if (responseData && responseData.status === 'success') {
+                // Usa entity_type o entity, a seconda di quale esiste nella risposta
+                const updatedEntity = responseData.entity_type || responseData.entity;
+                
                 showNotification(`Tipo di entità "${name}" aggiornato con successo`, 'success');
                 
                 // Se la categoria è stata aggiornata, mostra un messaggio specifico
                 const originalCategory = categorySelect.dataset.originalCategory;
-                if (responseData.entity.category && originalCategory && 
-                    responseData.entity.category !== originalCategory) {
-                    showNotification(`Categoria aggiornata da "${getCategoryDisplayName(originalCategory)}" a "${getCategoryDisplayName(responseData.entity.category)}"`, 'info');
+                if (updatedEntity && updatedEntity.category && originalCategory && 
+                    updatedEntity.category !== originalCategory) {
+                    showNotification(`Categoria aggiornata da "${getCategoryDisplayName(originalCategory)}" a "${getCategoryDisplayName(updatedEntity.category)}"`, 'info');
                 }
                 
                 hideForm();
@@ -790,15 +793,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Ripristina il pulsante di salvataggio
             saveBtn.disabled = false;
             saveBtn.textContent = 'Aggiorna';
-        })
-        .catch(error => {
-            console.error('Errore durante l\'aggiornamento:', error);
-            showNotification(`Errore durante l'aggiornamento: ${error.message}`, 'error');
-            
-            // Ripristina il pulsante di salvataggio
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Aggiorna';
-        });
+        })        
     }
 
     

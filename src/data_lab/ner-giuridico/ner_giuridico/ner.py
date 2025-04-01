@@ -149,10 +149,10 @@ class BaseNERGiuridico:
             Lista unificata di entità.
         """
         # Se uno dei riconoscitori non ha trovato entità, restituisci le entità dell'altro
-        if not rule_entities:
-            return transformer_entities
         if not transformer_entities:
             return rule_entities
+        if not rule_entities:
+            return transformer_entities
         
         # Crea una mappa delle entità transformer per posizione
         transformer_map = {}

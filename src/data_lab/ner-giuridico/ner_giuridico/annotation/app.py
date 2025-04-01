@@ -17,6 +17,9 @@ from pathlib import Path
 from typing import List, Dict, Any
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 from werkzeug.utils import secure_filename
+import configparser
+from pathlib import Path
+from .db_manager import AnnotationDBManager
 
 # -----------------------------------------------------------------------------
 # Configurazione del logger
@@ -164,7 +167,6 @@ except Exception as e:
 # Inizializzazione dell'app Flask e configurazione
 # -----------------------------------------------------------------------------
 app = Flask(__name__, template_folder='templates', static_folder='static')
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB
 
 # Directory per i dati e i backup
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -172,120 +174,93 @@ os.makedirs(DATA_DIR, exist_ok=True)
 BACKUP_DIR = os.path.join(DATA_DIR, 'backup')
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
+# --- Aggiungi questa sezione dopo la definizione di app Flask ---
+# Carica la configurazione
+def load_config():
+    config = configparser.ConfigParser()
+    config_path = os.environ.get('NER_CONFIG', 'config.ini')
+    
+    # Crea la configurazione predefinita se non esiste
+    if not os.path.exists(config_path):
+        config['Database'] = {
+            'path': os.path.join(DATA_DIR, 'annotations.db'),
+            'backups': os.path.join(BACKUP_DIR),
+            'max_backups': '10'
+        }
+        
+        with open(config_path, 'w') as f:
+            config.write(f)
+        
+        annotation_logger.info(f"Creato file di configurazione predefinito: {config_path}")
+    
+    config.read(config_path)
+    return config
+
+# Carica la configurazione
+config = load_config()
+
+# Inizializza il database manager
+db_path = config.get('Database', 'path', fallback=os.path.join(DATA_DIR, 'annotations.db'))
+backup_dir = config.get('Database', 'backups', fallback=BACKUP_DIR)
+max_backups = config.getint('Database', 'max_backups', fallback=10)
+
+annotation_logger.info(f"Utilizzo database in: {db_path}")
+annotation_logger.info(f"Directory backup: {backup_dir}")
+
+db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
+
+# Directory per i dati e i backup
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+os.makedirs(DATA_DIR, exist_ok=True)
+BACKUP_DIR = os.path.join(DATA_DIR, 'backup')
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+
 # -----------------------------------------------------------------------------
 # Funzioni helper per la persistenza dei documenti e delle annotazioni
 # -----------------------------------------------------------------------------
 def load_documents() -> List[Dict[str, Any]]:
-    documents_file = os.path.join(DATA_DIR, 'documents.json')
-    if not os.path.exists(documents_file):
-        save_documents([])
-        return []
     try:
-        with open(documents_file, 'r', encoding='utf-8') as f:
-            documents = json.load(f)
-        annotation_logger.debug(f"Caricati {len(documents)} documenti")
-        return documents
-    except json.JSONDecodeError:
-        annotation_logger.error(f"Errore nella decodifica del file JSON: {documents_file}")
-        backup_file = os.path.join(BACKUP_DIR, f'documents_corrupt_{int(datetime.datetime.now().timestamp())}.json')
-        try:
-            import shutil
-            shutil.copy(documents_file, backup_file)
-            annotation_logger.info(f"Backup del file corrotto salvato in: {backup_file}")
-        except Exception as e:
-            annotation_logger.warning(f"Impossibile creare backup: {e}")
-        save_documents([])
-        return []
+        return db_manager.get_documents()
     except Exception as e:
         annotation_logger.error(f"Errore nel caricamento dei documenti: {e}")
         return []
 
 def save_documents(documents: List[Dict[str, Any]]) -> bool:
-    documents_file = os.path.join(DATA_DIR, 'documents.json')
-    if os.path.exists(documents_file):
-        backup_file = os.path.join(BACKUP_DIR, f'documents_backup_{int(datetime.datetime.now().timestamp())}.json')
-        try:
-            import shutil
-            shutil.copy(documents_file, backup_file)
-            annotation_logger.debug(f"Backup creato: {backup_file}")
-        except Exception as e:
-            annotation_logger.warning(f"Impossibile creare backup: {e}")
     try:
-        temp_file = f"{documents_file}.tmp"
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(documents, f, indent=2, ensure_ascii=False)
-        os.replace(temp_file, documents_file)
-        annotation_logger.debug(f"Salvati {len(documents)} documenti")
+        for doc in documents:
+            db_manager.save_document(doc)
         return True
     except Exception as e:
         annotation_logger.error(f"Errore nel salvataggio dei documenti: {e}")
         return False
-
+    
 def load_annotations() -> Dict[str, List[Dict[str, Any]]]:
-    annotations_file = os.path.join(DATA_DIR, 'annotations.json')
-    if not os.path.exists(annotations_file):
-        save_annotations({})
-        return {}
     try:
-        with open(annotations_file, 'r', encoding='utf-8') as f:
-            annotations = json.load(f)
-        total_annotations = sum(len(anns) for anns in annotations.values())
-        annotation_logger.debug(f"Caricate {total_annotations} annotazioni per {len(annotations)} documenti")
-        return annotations
-    except json.JSONDecodeError:
-        annotation_logger.error(f"Errore nella decodifica del file JSON: {annotations_file}")
-        backup_file = os.path.join(BACKUP_DIR, f'annotations_corrupt_{int(datetime.datetime.now().timestamp())}.json')
-        try:
-            import shutil
-            shutil.copy(annotations_file, backup_file)
-            annotation_logger.info(f"Backup del file corrotto salvato in: {backup_file}")
-        except Exception as e:
-            annotation_logger.warning(f"Impossibile creare backup: {e}")
-        save_annotations({})
-        return {}
+        return db_manager.get_annotations()
     except Exception as e:
         annotation_logger.error(f"Errore nel caricamento delle annotazioni: {e}")
         return {}
 
 def save_annotations(annotations: Dict[str, List[Dict[str, Any]]]) -> bool:
-    annotations_file = os.path.join(DATA_DIR, 'annotations.json')
-    if os.path.exists(annotations_file):
-        backup_file = os.path.join(BACKUP_DIR, f'annotations_backup_{int(datetime.datetime.now().timestamp())}.json')
-        try:
-            import shutil
-            shutil.copy(annotations_file, backup_file)
-            annotation_logger.debug(f"Backup creato: {backup_file}")
-        except Exception as e:
-            annotation_logger.warning(f"Impossibile creare backup: {e}")
     try:
-        temp_file = f"{annotations_file}.tmp"
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(annotations, f, indent=2, ensure_ascii=False)
-        os.replace(temp_file, annotations_file)
-        total_annotations = sum(len(anns) for anns in annotations.values())
-        annotation_logger.debug(f"Salvate {total_annotations} annotazioni per {len(annotations)} documenti")
+        for doc_id, doc_annotations in annotations.items():
+            for annotation in doc_annotations:
+                db_manager.save_annotation(doc_id, annotation)
         return True
     except Exception as e:
         annotation_logger.error(f"Errore nel salvataggio delle annotazioni: {e}")
         return False
 
-def cleanup_backups(max_backups: int = 10):
+def cleanup_backups(max_backups: int = None):
+    if max_backups is None:
+        max_backups = config.getint('Database', 'max_backups', fallback=10)
+    
     try:
-        backup_files = {'documents': [], 'annotations': []}
-        for filename in os.listdir(BACKUP_DIR):
-            filepath = os.path.join(BACKUP_DIR, filename)
-            if filename.startswith('documents_backup_'):
-                backup_files['documents'].append((filepath, os.path.getmtime(filepath)))
-            elif filename.startswith('annotations_backup_'):
-                backup_files['annotations'].append((filepath, os.path.getmtime(filepath)))
-        for key in backup_files:
-            backup_files[key].sort(key=lambda x: x[1], reverse=True)
-            if len(backup_files[key]) > max_backups:
-                for filepath, _ in backup_files[key][max_backups:]:
-                    os.remove(filepath)
-                    annotation_logger.debug(f"Rimosso backup vecchio: {filepath}")
+        db_manager.cleanup_backups(max_backups)
     except Exception as e:
         annotation_logger.error(f"Errore nella pulizia dei backup: {e}")
+
 
 # -----------------------------------------------------------------------------
 # Gestori di errori e middleware per il logging
@@ -334,25 +309,18 @@ def save_annotation():
         annotation = data.get('annotation')
         if not doc_id or not annotation:
             return jsonify({"status": "error", "message": "Dati mancanti"}), 400
-        annotations = load_annotations()
-        if doc_id not in annotations:
-            annotations[doc_id] = []
-        annotation_id = annotation.get('id')
-        if annotation_id:
-            for i, ann in enumerate(annotations[doc_id]):
-                if ann.get('id') == annotation_id:
-                    annotations[doc_id][i] = annotation
-                    break
-        else:
-            annotation['id'] = f"ann_{len(annotations[doc_id]) + 1}"
-            annotations[doc_id].append(annotation)
-        save_annotations(annotations)
+        
+        saved_annotation = db_manager.save_annotation(doc_id, annotation)
+        if not saved_annotation:
+            return jsonify({"status": "error", "message": "Errore nel salvataggio dell'annotazione"}), 500
+        
         cleanup_backups()
-        return jsonify({"status": "success", "annotation": annotation})
+        return jsonify({"status": "success", "annotation": saved_annotation})
     except Exception as e:
         annotation_logger.error(f"Errore nel salvataggio dell'annotazione: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# Modifica la route '/api/delete_annotation'
 @app.route('/api/delete_annotation', methods=['POST'])
 def delete_annotation():
     try:
@@ -361,15 +329,17 @@ def delete_annotation():
         annotation_id = data.get('annotation_id')
         if not doc_id or not annotation_id:
             return jsonify({"status": "error", "message": "Dati mancanti"}), 400
-        annotations = load_annotations()
-        if doc_id in annotations:
-            annotations[doc_id] = [ann for ann in annotations[doc_id] if ann.get('id') != annotation_id]
-            save_annotations(annotations)
+        
+        success = db_manager.delete_annotation(annotation_id)
+        if not success:
+            return jsonify({"status": "error", "message": "Errore nell'eliminazione dell'annotazione"}), 500
+        
         return jsonify({"status": "success"})
     except Exception as e:
         annotation_logger.error(f"Errore nell'eliminazione dell'annotazione: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-        
+
+# Modifica la route '/api/update_annotation'
 @app.route('/api/update_annotation', methods=['POST'])
 def update_annotation():
     try:
@@ -382,23 +352,11 @@ def update_annotation():
         annotation_id = annotation.get('id')
         if not annotation_id:
             return jsonify({"status": "error", "message": "ID annotazione mancante"}), 400
-            
-        annotations = load_annotations()
-        if doc_id not in annotations:
-            return jsonify({"status": "error", "message": f"Documento {doc_id} non trovato"}), 404
-            
-        # Cerca e aggiorna l'annotazione
-        updated = False
-        for i, ann in enumerate(annotations[doc_id]):
-            if ann.get('id') == annotation_id:
-                annotations[doc_id][i] = annotation
-                updated = True
-                break
-                
-        if not updated:
-            return jsonify({"status": "error", "message": f"Annotazione {annotation_id} non trovata"}), 404
-            
-        save_annotations(annotations)
+        
+        saved_annotation = db_manager.save_annotation(doc_id, annotation)
+        if not saved_annotation:
+            return jsonify({"status": "error", "message": f"Errore nell'aggiornamento dell'annotazione {annotation_id}"}), 500
+        
         cleanup_backups()
         return jsonify({"status": "success", "message": "Annotazione aggiornata con successo"})
     except Exception as e:
@@ -420,6 +378,7 @@ def upload_document():
         file_content = file.read().decode('utf-8')
         if len(file_content) > 1000000:
             return jsonify({"status": "error", "message": "Il documento è troppo grande. Il limite è di circa 1MB di testo."}), 400
+        
         documents = load_documents()
         doc_id = f"doc_{len(documents) + 1}"
         document = {
@@ -429,8 +388,11 @@ def upload_document():
             "date_created": datetime.datetime.now().isoformat(),
             "word_count": len(file_content.split())
         }
-        documents.append(document)
-        save_documents(documents)
+        
+        success = db_manager.save_document(document)
+        if not success:
+            return jsonify({"status": "error", "message": "Errore nel salvataggio del documento"}), 500
+        
         return jsonify({"status": "success", "message": "Documento caricato con successo", "document": document})
     except UnicodeDecodeError:
         return jsonify({"status": "error", "message": "Impossibile decodificare il file. Assicurati che sia un file di testo valido in formato UTF-8."}), 400
@@ -438,22 +400,66 @@ def upload_document():
         annotation_logger.error(f"Errore nell'upload del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+# Modifica la route '/api/delete_document'
+@app.route('/api/delete_document', methods=['POST'])
+def delete_document():
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')
+        if not doc_id:
+            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
+        
+        success = db_manager.delete_document(doc_id)
+        if not success:
+            return jsonify({"status": "error", "message": f"Errore nell'eliminazione del documento {doc_id}"}), 500
+        
+        cleanup_backups()
+        return jsonify({
+            "status": "success", 
+            "message": f"Documento {doc_id} e relative annotazioni eliminati con successo"
+        })
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'eliminazione del documento: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# Modifica la route '/api/update_document'
+@app.route('/api/update_document', methods=['POST'])
+def update_document():
+    try:
+        data = request.json
+        doc_id = data.get('doc_id')
+        new_content = data.get('content')
+        new_title = data.get('title')
+        
+        if not doc_id:
+            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
+        
+        updates = {}
+        if new_content is not None:
+            updates['text'] = new_content
+        if new_title is not None:
+            updates['title'] = new_title
+        
+        success = db_manager.update_document(doc_id, updates)
+        if not success:
+            return jsonify({"status": "error", "message": f"Errore nell'aggiornamento del documento {doc_id}"}), 500
+        
+        return jsonify({
+            "status": "success", 
+            "message": "Documento aggiornato con successo"
+        })
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'aggiornamento del documento: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route('/api/export_annotations', methods=['GET'])
 def export_annotations():
     try:
         format_type = request.args.get('format', 'json')
-        annotations = load_annotations()
-        documents = load_documents()
+        
         if format_type == 'spacy':
-            spacy_data = []
-            for doc_id, doc_annotations in annotations.items():
-                document = next((doc for doc in documents if doc['id'] == doc_id), None)
-                if document:
-                    text = document['text']
-                    entities = []
-                    for ann in doc_annotations:
-                        entities.append((ann['start'], ann['end'], ann['type']))
-                    spacy_data.append({"text": text, "entities": entities})
+            spacy_data = db_manager.export_spacy()
             output_file = os.path.join(DATA_DIR, 'spacy_annotations.json')
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(spacy_data, f, indent=2, ensure_ascii=False)
@@ -461,6 +467,7 @@ def export_annotations():
                 return send_file(output_file, as_attachment=True, download_name='spacy_annotations.json')
             return jsonify({"status": "success", "file": output_file, "data": spacy_data})
         else:
+            annotations = db_manager.export_json()
             if request.args.get('download', 'false').lower() == 'true':
                 output_file = os.path.join(DATA_DIR, 'annotations_export.json')
                 with open(output_file, 'w', encoding='utf-8') as f:
@@ -520,91 +527,6 @@ def train_model():
         annotation_logger.error(f"Errore nell'esportazione dei dati di addestramento: {e}")
         return jsonify({"status": "error", "message": f"Errore: {str(e)}"}), 500
 
-@app.route('/api/delete_document', methods=['POST'])
-def delete_document():
-    try:
-        data = request.json
-        doc_id = data.get('doc_id')
-        if not doc_id:
-            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
-        
-        documents = load_documents()
-        annotations = load_annotations()
-        
-        # Verifica se il documento esiste
-        if not any(doc['id'] == doc_id for doc in documents):
-            return jsonify({"status": "error", "message": f"Documento {doc_id} non trovato"}), 404
-        
-        # Rimuovi il documento dalla lista
-        documents = [doc for doc in documents if doc['id'] != doc_id]
-        save_result = save_documents(documents)
-        
-        # Rimuovi anche le annotazioni associate
-        if doc_id in annotations:
-            del annotations[doc_id]
-            annotations_result = save_annotations(annotations)
-        else:
-            annotations_result = True
-        
-        if save_result and annotations_result:
-            cleanup_backups()
-            return jsonify({
-                "status": "success", 
-                "message": f"Documento {doc_id} e relative annotazioni eliminati con successo"
-            })
-        else:
-            return jsonify({
-                "status": "error", 
-                "message": "Errore nel salvataggio dopo l'eliminazione"
-            }), 500
-    except Exception as e:
-        annotation_logger.error(f"Errore nell'eliminazione del documento: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-        
-@app.route('/api/update_document', methods=['POST'])
-def update_document():
-    try:
-        data = request.json
-        doc_id = data.get('doc_id')
-        new_content = data.get('content')
-        new_title = data.get('title')
-        
-        if not doc_id:
-            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
-        
-        # Carica i documenti
-        documents = load_documents()
-        
-        # Trova e aggiorna il documento
-        document_found = False
-        for doc in documents:
-            if doc['id'] == doc_id:
-                if new_content is not None:
-                    doc['text'] = new_content
-                if new_title is not None:
-                    doc['title'] = new_title
-                doc['date_modified'] = datetime.datetime.now().isoformat()
-                document_found = True
-                break
-        
-        if not document_found:
-            return jsonify({"status": "error", "message": f"Documento {doc_id} non trovato"}), 404
-        
-        # Salva i documenti aggiornati
-        if save_documents(documents):
-            return jsonify({
-                "status": "success", 
-                "message": "Documento aggiornato con successo"
-            })
-        else:
-            return jsonify({
-                "status": "error", 
-                "message": "Errore nel salvataggio del documento"
-            }), 500
-    except Exception as e:
-        annotation_logger.error(f"Errore nell'aggiornamento del documento: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
 @app.route('/api/clear_annotations', methods=['POST'])
 def clear_annotations():
     try:
@@ -615,34 +537,24 @@ def clear_annotations():
         if not doc_id:
             return jsonify({"status": "error", "message": "ID documento mancante"}), 400
         
-        annotations = load_annotations()
-        
-        if doc_id not in annotations:
-            return jsonify({"status": "success", "message": "Nessuna annotazione da eliminare"})
+        success = db_manager.clear_annotations(doc_id, entity_type)
+        if not success:
+            return jsonify({"status": "error", "message": f"Errore nell'eliminazione delle annotazioni per {doc_id}"}), 500
         
         if entity_type:
-            # Elimina solo le annotazioni del tipo specificato
-            annotations[doc_id] = [ann for ann in annotations[doc_id] if ann.get('type') != entity_type]
             message = f"Annotazioni di tipo {entity_type} eliminate con successo"
         else:
-            # Elimina tutte le annotazioni
-            annotations[doc_id] = []
             message = "Tutte le annotazioni eliminate con successo"
         
-        if save_annotations(annotations):
-            cleanup_backups()
-            return jsonify({
-                "status": "success", 
-                "message": message
-            })
-        else:
-            return jsonify({
-                "status": "error", 
-                "message": "Errore nel salvataggio dopo l'eliminazione delle annotazioni"
-            }), 500
+        cleanup_backups()
+        return jsonify({
+            "status": "success", 
+            "message": message
+        })
     except Exception as e:
         annotation_logger.error(f"Errore nell'eliminazione delle annotazioni: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 @app.route('/api/annotation_stats', methods=['GET'])
 def annotation_stats():

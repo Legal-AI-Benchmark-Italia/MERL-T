@@ -4,7 +4,7 @@
 general:
   language: "it"
   debug: false
-  log_level: "INFO"
+  log_level: "DEBUG"
   cache_dir: "/Users/guglielmo/Desktop/CODE/MERL-T/ner_giuridico.data/ner/cache"
 
 # Configurazione dei modelli

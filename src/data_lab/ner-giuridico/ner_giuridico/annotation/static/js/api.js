@@ -51,6 +51,27 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
+    // Auth Endpoints
+    login: (username, password, remember) => request('/login', { 
+        method: 'POST', 
+        body: { username, password, remember } 
+    }),
+    logout: () => request('/logout', { method: 'POST' }),
+    register: (userData) => request('/register', { method: 'POST', body: userData }),
+
+    // Profile Management
+    updateProfile: (data) => request('/profile/edit', { method: 'POST', body: data }),
+    changePassword: (currentPassword, newPassword) => request('/profile/change_password', { 
+        method: 'POST', 
+        body: { current_password: currentPassword, new_password: newPassword } 
+    }),
+
+    // User Management (Admin)
+    getUsers: () => request('/admin/users'),
+    createUser: (userData) => request('/admin/users', { method: 'POST', body: userData }),
+    updateUser: (userId, userData) => request(`/admin/users/${userId}`, { method: 'PUT', body: userData }),
+    deleteUser: (userId) => request(`/admin/users/${userId}`, { method: 'DELETE' }),
+    
     // Document Endpoints
     uploadDocument: (formData) => request('/upload_document', { method: 'POST', body: formData, headers: {} }), // Let browser set Content-Type for FormData
     deleteDocument: (docId) => request('/delete_document', { method: 'POST', body: { doc_id: docId } }),
@@ -70,4 +91,42 @@ export const api = {
     updateEntityType: (name, data) => request(`/entity_types/${name}`, { method: 'PUT', body: data }),
     deleteEntityType: (name) => request(`/entity_types/${name}`, { method: 'DELETE' }),
     testPattern: (pattern, text) => request('/test_pattern', { method: 'POST', body: { pattern, text } }),
+
+    // Stats & Analytics
+    getStats: (filters = {}) => request('/annotation_stats', { 
+        method: 'GET', 
+        params: new URLSearchParams(filters)
+    }),
+    getUserStats: (userId = null) => request(`/user_stats${userId ? `?user_id=${userId}` : ''}`),
+    getProjectProgress: () => request('/project_progress'),
+    getEntityDistribution: () => request('/entity_distribution'),
+
+    // Assignment Management
+    assignDocument: (docId, userId) => request('/assign_document', { 
+        method: 'POST', 
+        body: { doc_id: docId, user_id: userId } 
+    }),
+    getAssignments: (userId = null) => request(`/assignments${userId ? `?user_id=${userId}` : ''}`),
+    removeAssignment: (docId, userId) => request('/remove_assignment', { 
+        method: 'POST', 
+        body: { doc_id: docId, user_id: userId } 
+    }),
+
+    // Helper Functions
+    isAuthenticated: () => Boolean(document.body.dataset.userAuthenticated === 'true'),
+    getUserRole: () => document.body.dataset.userRole || '',
+    isAdmin: () => document.body.dataset.userRole === 'admin',
+    getCurrentUserId: () => document.body.dataset.userId || '',
+    refreshPage: () => window.location.reload(),
+
+    // Error Handling Helper
+    handleError: (error) => {
+        console.error('API Error:', error);
+        if (error.message.includes('Autenticazione richiesta')) {
+            window.location.href = '/login';
+            return;
+        }
+        // You can add custom error handling here
+        throw error;
+    }
 };

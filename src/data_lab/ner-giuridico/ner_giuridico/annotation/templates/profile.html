@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+
+{% block title %}NER-Giuridico - Profilo Utente{% endblock %}
+{% block page_id %}profile{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-4 mb-4">
+        <!-- Profilo Utente Card -->
+        <div class="card shadow-sm h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Profilo Utente</h5>
+            </div>
+            <div class="card-body">
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+                
+                <div class="text-center mb-4">
+                    <div class="avatar avatar-xl mb-3">
+                        <span class="avatar-icon bg-primary text-white">
+                            <i class="fas fa-user fa-2x"></i>
+                        </span>
+                    </div>
+                    <h4 class="mb-0">{{ user.full_name or user.username }}</h4>
+                    <p class="text-muted">{{ user.username }}</p>
+                    <div class="badge bg-{% if user.role == 'admin' %}danger{% else %}primary{% endif %} mb-2">
+                        {{ user.role }}
+                    </div>
+                </div>
+                
+                <ul class="list-group list-group-flush mb-4">
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-envelope fa-fw me-2"></i> Email</span>
+                        <span>{{ user.email or 'Non impostata' }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-calendar-alt fa-fw me-2"></i> Registrato il</span>
+                        <span>{{ format_date(user.date_created) }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span><i class="fas fa-clock fa-fw me-2"></i> Ultimo accesso</span>
+                        <span>{{ format_date(user.date_last_login) if user.date_last_login else 'Mai' }}</span>
+                    </li>
+                </ul>
+                
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('edit_profile') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-edit me-1"></i> Modifica Profilo
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-8">
+        <!-- Statistiche Card -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Le tue statistiche</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-sm-6 col-lg-3">
+                        <div class="card h-100 border-0 shadow-sm">
+                            <div class="card-body text-center">
+                                <div class="display-5 text-primary mb-2">{{ stats.total_annotations or 0 }}</div>
+                                <div class="text-muted">Annotazioni totali</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <div class="card h-100 border-0 shadow-sm">
+                            <div class="card-body text-center">
+                                <div class="display-5 text-success mb-2">{{ stats.documents_modified or 0 }}</div>
+                                <div class="text-muted">Documenti modificati</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <div class="card h-100 border-0 shadow-sm">
+                            <div class="card-body text-center">
+                                <div class="display-5 text-info mb-2">
+                                    {{ stats.actions_by_type.create_annotation|default(0) }}
+                                </div>
+                                <div class="text-muted">Nuove annotazioni</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <div class="card h-100 border-0 shadow-sm">
+                            <div class="card-body text-center">
+                                <div class="display-5 text-warning mb-2">
+                                    {{ stats.annotations_by_type|length }}
+                                </div>
+                                <div class="text-muted">Tipi di entità usati</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Distribuzione per tipo di entità -->
+                {% if stats.annotations_by_type %}
+                <div class="mt-4">
+                    <h6 class="card-subtitle mb-3">Distribuzione per Tipo di Entità</h6>
+                    <div class="row">
+                        {% for type, count in stats.annotations_by_type.items() %}
+                        <div class="col-lg-6 mb-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span>{{ type }}</span>
+                                <span class="badge bg-primary rounded-pill">{{ count }}</span>
+                            </div>
+                            <div class="progress" style="height: 10px;">
+                                <div class="progress-bar" role="progressbar" 
+                                     style="width: {{ (count / stats.total_annotations * 100)|round }}%;" 
+                                     aria-valuenow="{{ count }}" aria-valuemin="0" aria-valuemax="{{ stats.total_annotations }}">
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Attività recente -->
+                {% if stats.activity_by_day %}
+                <div class="mt-4">
+                    <h6 class="card-subtitle mb-3">Attività Recente</h6>
+                    <div class="chart-container" style="position: relative; height:200px; width:100%">
+                        <canvas id="activityChart"></canvas>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-footer bg-light text-center">
+                <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-chart-line me-1"></i> Visualizza statistiche dettagliate
+                </a>
+            </div>
+        </div>
+        
+        <!-- Documenti Assegnati Card -->
+        <div class="card shadow-sm">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">Documenti Assegnati</h5>
+            </div>
+            <div class="card-body">
+                <div id="assignmentsContainer">
+                    <!-- Caricato da API tramite JavaScript -->
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Caricamento...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script type="module">
+import { api } from "{{ url_for('static', filename='js/api.js') }}";
+import { showNotification } from "{{ url_for('static', filename='js/ui.js') }}";
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Carica documenti assegnati
+    loadAssignedDocuments();
+    
+    // Inizializza grafico attività
+    initActivityChart();
+});
+
+async function loadAssignedDocuments() {
+    const container = document.getElementById('assignmentsContainer');
+    
+    try {
+        const response = await fetch('/assignments');
+        const data = await response.json();
+        
+        if (data.documents && data.documents.length > 0) {
+            let html = '<div class="list-group">';
+            
+            data.documents.forEach(doc => {
+                html += `
+                <a href="/annotate/${doc.id}" class="list-group-item list-group-item-action">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">${doc.title}</h6>
+                        <small>${formatDate(doc.date_modified)}</small>
+                    </div>
+                    <p class="mb-1 small text-truncate">${doc.text ? doc.text.substring(0, 100) + '...' : ''}</p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                            <i class="fas fa-file-word me-1"></i> ${doc.word_count || 0} parole
+                        </small>
+                        <span class="badge bg-primary rounded-pill">
+                            <i class="fas fa-tag me-1"></i> ${doc.annotation_count || 0}
+                        </span>
+                    </div>
+                </a>`;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = `
+            <div class="text-center py-4 text-muted">
+                <i class="fas fa-clipboard-list fa-3x mb-3"></i>
+                <p class="mb-0">Nessun documento assegnato.</p>
+            </div>`;
+        }
+    } catch (error) {
+        console.error('Errore nel caricamento dei documenti assegnati:', error);
+        container.innerHTML = `
+        <div class="alert alert-danger">
+            Errore nel caricamento dei documenti assegnati.
+        </div>`;
+    }
+}
+
+function initActivityChart() {
+    const activityCanvas = document.getElementById('activityChart');
+    if (!activityCanvas) return;
+    
+    // Prepara i dati dal backend
+    const activityData = {{ stats.activity_by_day|tojson }};
+    
+    if (!activityData || Object.keys(activityData).length === 0) return;
+    
+    const labels = Object.keys(activityData).sort();
+    const data = labels.map(label => activityData[label]);
+    
+    new Chart(activityCanvas, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Attività Giornaliera',
+                data: data,
+                backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                borderColor: 'rgba(37, 99, 235, 1)',
+                borderWidth: 2,
+                pointBackgroundColor: 'rgba(37, 99, 235, 1)',
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        title: function(tooltipItems) {
+                            // Formatta la data per il tooltip
+                            const date = new Date(tooltipItems[0].label);
+                            return date.toLocaleDateString('it-IT', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return 'N/A';
+    
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('it-IT', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        });
+    } catch (e) {
+        return dateStr;
+    }
+}
+</script>
+
+<style>
+.avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.avatar-icon {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+</style>
+{% endblock %}

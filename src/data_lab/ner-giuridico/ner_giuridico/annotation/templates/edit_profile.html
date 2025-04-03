@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}NER-Giuridico - Modifica Profilo{% endblock %}
+{% block page_id %}edit_profile{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Modifica Profilo</h5>
+                </div>
+                <div class="card-body p-4">
+                    
+                    <!-- Flash messages -->
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                      {% if messages %}
+                        {% for category, message in messages %}
+                          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                          </div>
+                        {% endfor %}
+                      {% endif %}
+                    {% endwith %}
+                    
+                    <form method="post" class="needs-validation" novalidate>
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Nome utente</label>
+                            <input type="text" class="form-control" id="username" value="{{ user.username }}" disabled readonly>
+                            <div class="form-text text-muted small">Il nome utente non può essere modificato</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="full_name" class="form-label">Nome Completo</label>
+                            <input type="text" class="form-control" id="full_name" name="full_name" value="{{ user.full_name or '' }}">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email" name="email" value="{{ user.email or '' }}">
+                            <div class="invalid-feedback">Formato email non valido</div>
+                        </div>
+                        
+                        <hr class="my-4">
+                        <h5 class="mb-3">Cambia Password</h5>
+                        
+                        <div class="mb-3">
+                            <label for="current_password" class="form-label">Password Attuale</label>
+                            <input type="password" class="form-control" id="current_password" name="current_password">
+                            <div class="form-text text-muted small">Richiesta per modificare la password</div>
+                        </div>
+                        
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label for="new_password" class="form-label">Nuova Password</label>
+                                <input type="password" class="form-control" id="new_password" name="new_password">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="confirm_password" class="form-label">Conferma Password</label>
+                                <input type="password" class="form-control" id="confirm_password" name="confirm_password">
+                                <div class="invalid-feedback">Le password non corrispondono</div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('profile') }}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-1"></i> Indietro
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-1"></i> Salva Modifiche
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Form validation
+(function () {
+  'use strict'
+  
+  // Fetch all the forms we want to apply custom Bootstrap validation styles to
+  var forms = document.querySelectorAll('.needs-validation')
+  
+  // Password matching validation
+  var newPassword = document.getElementById("new_password")
+  var confirmPassword = document.getElementById("confirm_password");
+
+  function validatePassword(){
+    if(newPassword.value && confirmPassword.value && newPassword.value != confirmPassword.value) {
+      confirmPassword.setCustomValidity("Le password non corrispondono");
+    } else {
+      confirmPassword.setCustomValidity('');
+    }
+  }
+
+  newPassword.addEventListener('input', validatePassword);
+  confirmPassword.addEventListener('input', validatePassword);
+
+  // Loop over forms and prevent submission if invalid
+  Array.prototype.slice.call(forms)
+    .forEach(function (form) {
+      form.addEventListener('submit', function (event) {
+        validatePassword();
+        if (!form.checkValidity()) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        form.classList.add('was-validated')
+      }, false)
+    })
+})()
+</script>
+{% endblock %}

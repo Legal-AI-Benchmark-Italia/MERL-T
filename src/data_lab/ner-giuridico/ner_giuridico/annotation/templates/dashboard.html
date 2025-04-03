@@ -1,0 +1,568 @@
+{% extends "base.html" %}
+
+{% block title %}NER-Giuridico - Dashboard{% endblock %}
+{% block page_id %}dashboard{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="fas fa-chart-line me-2"></i>Dashboard</h4>
+    
+    {% if global_view %}
+    <div class="btn-group">
+        <button type="button" class="btn btn-sm btn-outline-primary" id="refreshStats">
+            <i class="fas fa-sync-alt me-1"></i> Aggiorna
+        </button>
+        <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-filter me-1"></i> Filtro
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><h6 class="dropdown-header">Intervallo temporale:</h6></li>
+                <li><a class="dropdown-item period-filter" href="#" data-days="7">Ultima settimana</a></li>
+                <li><a class="dropdown-item period-filter" href="#" data-days="30">Ultimo mese</a></li>
+                <li><a class="dropdown-item period-filter" href="#" data-days="90">Ultimi 3 mesi</a></li>
+                <li><a class="dropdown-item period-filter" href="#" data-days="365">Ultimo anno</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><h6 class="dropdown-header">Utenti:</h6></li>
+                <li><a class="dropdown-item user-filter active" href="#" data-user-id="">Tutti gli utenti</a></li>
+                {% for user in users %}
+                <li><a class="dropdown-item user-filter" href="#" data-user-id="{{ user.id }}">{{ user.username }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<div class="row g-4 mb-4">
+    <!-- Card Stats -->
+    <div class="col-md-6 col-lg-3">
+        <div class="card bg-primary text-white shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">Annotazioni Totali</h6>
+                        <h2 id="totalAnnotationsCount">{{ stats.total_annotations or 0 }}</h2>
+                    </div>
+                    <div class="bg-white bg-opacity-25 p-3 rounded">
+                        <i class="fas fa-tag fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-primary bg-opacity-75 text-white">
+                <small>
+                    {% if global_view %}
+                        <i class="fas fa-users me-1"></i> Da {{ stats.users|length }} utente/i
+                    {% else %}
+                        <i class="fas fa-calendar-alt me-1"></i> Ultimi 30 giorni
+                    {% endif %}
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 col-lg-3">
+        <div class="card bg-success text-white shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">Documenti Modificati</h6>
+                        <h2 id="documentsCount">{{ stats.documents_modified or 0 }}</h2>
+                    </div>
+                    <div class="bg-white bg-opacity-25 p-3 rounded">
+                        <i class="fas fa-file-alt fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-success bg-opacity-75 text-white">
+                <small><i class="fas fa-pencil-alt me-1"></i> Con almeno una annotazione</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 col-lg-3">
+        <div class="card bg-info text-white shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">Tipi di Entità</h6>
+                        <h2 id="entityTypesCount">{{ stats.annotations_by_type|length }}</h2>
+                    </div>
+                    <div class="bg-white bg-opacity-25 p-3 rounded">
+                        <i class="fas fa-list fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-info bg-opacity-75 text-white">
+                <small><i class="fas fa-palette me-1"></i> Utilizzati nelle annotazioni</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 col-lg-3">
+        <div class="card bg-warning text-dark shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="card-title">Azioni Totali</h6>
+                        <h2 id="actionsCount">
+                            {% set total_actions = 0 %}
+                            {% for action, count in stats.actions_by_type.items() %}
+                                {% set total_actions = total_actions + count %}
+                            {% endfor %}
+                            {{ total_actions }}
+                        </h2>
+                    </div>
+                    <div class="bg-white bg-opacity-25 p-3 rounded">
+                        <i class="fas fa-bolt fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-warning bg-opacity-75 text-dark">
+                <small><i class="fas fa-history me-1"></i> Login, annotazioni, modifiche</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Chart: Attività Giornaliera -->
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Attività Giornaliera</h5>
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary active chart-type-btn" data-chart-type="line">
+                        <i class="fas fa-chart-line"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary chart-type-btn" data-chart-type="bar">
+                        <i class="fas fa-chart-bar"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-container" style="position: relative; height:300px; width:100%">
+                    <canvas id="activityChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Chart: Distribuzione Tipi di Entità -->
+    <div class="col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Distribuzione Tipi di Entità</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container" style="position: relative; height:300px; width:100%">
+                    <canvas id="entityTypeChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if global_view %}
+    <!-- Tabella Utenti -->
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">Prestazioni Utenti</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Utente</th>
+                            <th>Annotazioni</th>
+                            <th>% del Totale</th>
+                            <th>Media Giornaliera</th>
+                            <th>Ultimo Accesso</th>
+                            <th>Stato</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        {% if stats.users %}
+                            {% for user_stat in stats.users %}
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-primary text-white rounded-circle p-2 me-2" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+                                            <i class="fas fa-user"></i>
+                                        </div>
+                                        <div>
+                                            <div>{{ user_stat.full_name or user_stat.username }}</div>
+                                            <small class="text-muted">{{ user_stat.username }}</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>{{ user_stat.annotations_count }}</td>
+                                <td>
+                                    {% if stats.total_annotations > 0 %}
+                                        {{ ((user_stat.annotations_count / stats.total_annotations) * 100)|round(1) }}%
+                                    {% else %}
+                                        0%
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% set days = 30 %}
+                                    {{ (user_stat.annotations_count / days)|round(1) }}
+                                </td>
+                                <td>
+                                    <!-- In un'implementazione reale questo verrebbe dal backend -->
+                                    <!-- Per ora usiamo un placeholder statico -->
+                                    <span class="text-muted">N/A</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-success">Attivo</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center py-3">Nessun dato disponibile</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script type="module">
+import { api } from "{{ url_for('static', filename='js/api.js') }}";
+import { showNotification, showLoading, hideLoading } from "{{ url_for('static', filename='js/ui.js') }}";
+
+let activityChart = null;
+let entityTypeChart = null;
+let currentUserId = "{{ g.user.id if g.user else '' }}";
+let currentDays = 30;
+let chartType = 'line';
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize charts with the data from the template
+    initActivityChart();
+    initEntityTypeChart();
+    
+    // Set up event listeners
+    setupEventListeners();
+});
+
+function setupEventListeners() {
+    // Refresh button
+    const refreshBtn = document.getElementById('refreshStats');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+            loadStats(currentUserId, currentDays);
+        });
+    }
+    
+    // Period filters
+    const periodFilters = document.querySelectorAll('.period-filter');
+    periodFilters.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            periodFilters.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            const days = parseInt(this.dataset.days);
+            currentDays = days;
+            loadStats(currentUserId, days);
+        });
+    });
+    
+    // User filters
+    const userFilters = document.querySelectorAll('.user-filter');
+    userFilters.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            userFilters.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            const userId = this.dataset.userId;
+            currentUserId = userId;
+            loadStats(userId, currentDays);
+        });
+    });
+    
+    // Chart type switchers
+    const chartTypeBtns = document.querySelectorAll('.chart-type-btn');
+    chartTypeBtns.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            chartTypeBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            chartType = this.dataset.chartType;
+            updateChartType();
+        });
+    });
+}
+
+async function loadStats(userId = '', days = 30) {
+    showLoading();
+    
+    try {
+        const stats = await api.getUserStats(userId, days);
+        
+        // Update counters
+        document.getElementById('totalAnnotationsCount').textContent = stats.total_annotations || 0;
+        document.getElementById('documentsCount').textContent = stats.documents_modified || 0;
+        document.getElementById('entityTypesCount').textContent = stats.annotations_by_type ? Object.keys(stats.annotations_by_type).length : 0;
+        
+        // Calculate total actions
+        let totalActions = 0;
+        if (stats.actions_by_type) {
+            for (const action in stats.actions_by_type) {
+                totalActions += stats.actions_by_type[action];
+            }
+        }
+        document.getElementById('actionsCount').textContent = totalActions;
+        
+        // Update charts
+        updateActivityChart(stats.activity_by_day);
+        updateEntityTypeChart(stats.annotations_by_type);
+        
+        // Update users table if global view
+        if (stats.users) {
+            updateUsersTable(stats.users, stats.total_annotations, days);
+        }
+        
+        hideLoading();
+    } catch (error) {
+        console.error('Error loading stats:', error);
+        showNotification('Errore nel caricamento delle statistiche', 'danger');
+        hideLoading();
+    }
+}
+
+function initActivityChart() {
+    const ctx = document.getElementById('activityChart');
+    if (!ctx) return;
+    
+    // Prepare data
+    const activityData = {{ stats.activity_by_day|tojson }};
+    
+    if (!activityData || Object.keys(activityData).length === 0) {
+        ctx.parentNode.innerHTML = '<div class="text-center py-5 text-muted">Nessun dato disponibile</div>';
+        return;
+    }
+    
+    const labels = Object.keys(activityData).sort();
+    const data = labels.map(label => activityData[label]);
+    
+    activityChart = new Chart(ctx, {
+        type: chartType,
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Attività',
+                data: data,
+                backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                borderColor: 'rgba(37, 99, 235, 1)',
+                borderWidth: 2,
+                pointBackgroundColor: 'rgba(37, 99, 235, 1)',
+                tension: 0.3,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        title: function(tooltipItems) {
+                            const date = new Date(tooltipItems[0].label);
+                            return date.toLocaleDateString('it-IT', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric'
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateActivityChart(activityData) {
+    if (!activityChart || !activityData) return;
+    
+    const labels = Object.keys(activityData).sort();
+    const data = labels.map(label => activityData[label]);
+    
+    activityChart.data.labels = labels;
+    activityChart.data.datasets[0].data = data;
+    activityChart.update();
+}
+
+function initEntityTypeChart() {
+    const ctx = document.getElementById('entityTypeChart');
+    if (!ctx) return;
+    
+    // Prepare data
+    const annotationsByType = {{ stats.annotations_by_type|tojson }};
+    
+    if (!annotationsByType || Object.keys(annotationsByType).length === 0) {
+        ctx.parentNode.innerHTML = '<div class="text-center py-5 text-muted">Nessun dato disponibile</div>';
+        return;
+    }
+    
+    const labels = Object.keys(annotationsByType);
+    const data = labels.map(label => annotationsByType[label]);
+    
+    // Generate colors
+    const colors = generateRandomColors(labels.length);
+    
+    entityTypeChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        boxWidth: 12,
+                        font: {
+                            size: 11
+                        }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.raw;
+                            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                            const percentage = Math.round((value / total) * 100);
+                            return `${label}: ${value} (${percentage}%)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateEntityTypeChart(annotationsByType) {
+    if (!entityTypeChart || !annotationsByType) return;
+    
+    const labels = Object.keys(annotationsByType);
+    const data = labels.map(label => annotationsByType[label]);
+    
+    // Generate new colors if labels have changed
+    if (labels.length !== entityTypeChart.data.labels.length) {
+        entityTypeChart.data.datasets[0].backgroundColor = generateRandomColors(labels.length);
+    }
+    
+    entityTypeChart.data.labels = labels;
+    entityTypeChart.data.datasets[0].data = data;
+    entityTypeChart.update();
+}
+
+function updateChartType() {
+    if (!activityChart) return;
+    
+    activityChart.config.type = chartType;
+    activityChart.update();
+}
+
+function updateUsersTable(users, totalAnnotations, days) {
+    const tableBody = document.getElementById('usersTableBody');
+    if (!tableBody) return;
+    
+    let html = '';
+    
+    if (users && users.length > 0) {
+        users.forEach(user => {
+            const percentage = totalAnnotations > 0 ? ((user.annotations_count / totalAnnotations) * 100).toFixed(1) : 0;
+            const dailyAverage = (user.annotations_count / days).toFixed(1);
+            
+            html += `
+            <tr>
+                <td>
+                    <div class="d-flex align-items-center">
+                        <div class="bg-primary text-white rounded-circle p-2 me-2" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div>
+                            <div>${user.full_name || user.username}</div>
+                            <small class="text-muted">${user.username}</small>
+                        </div>
+                    </div>
+                </td>
+                <td>${user.annotations_count}</td>
+                <td>${percentage}%</td>
+                <td>${dailyAverage}</td>
+                <td>
+                    <span class="text-muted">N/A</span>
+                </td>
+                <td>
+                    <span class="badge bg-success">Attivo</span>
+                </td>
+            </tr>`;
+        });
+    } else {
+        html = '<tr><td colspan="6" class="text-center py-3">Nessun dato disponibile</td></tr>';
+    }
+    
+    tableBody.innerHTML = html;
+}
+
+function generateRandomColors(count) {
+    // Predefined colors for better aesthetics
+    const colors = [
+        '#4299E1', '#48BB78', '#F6AD55', '#F56565', '#9F7AEA',
+        '#ED64A6', '#38B2AC', '#ECC94B', '#667EEA', '#FC8181',
+        '#68D391', '#63B3ED', '#FBD38D', '#B794F4', '#F687B3'
+    ];
+    
+    // If we need more colors than predefined, generate random ones
+    if (count > colors.length) {
+        for (let i = colors.length; i < count; i++) {
+            const r = Math.floor(Math.random() * 255);
+            const g = Math.floor(Math.random() * 255);
+            const b = Math.floor(Math.random() * 255);
+            colors.push(`rgba(${r}, ${g}, ${b}, 0.8)`);
+        }
+    }
+    
+    return colors.slice(0, count);
+}
+</script>
+{% endblock %}

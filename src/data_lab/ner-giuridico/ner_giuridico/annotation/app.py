@@ -4,6 +4,7 @@ Interfaccia web per l'annotazione di entità giuridiche e la gestione dei tipi d
 File completo con implementazioni strutturate e robuste.
 """
 
+import functools
 import os
 import sys
 import json
@@ -15,7 +16,7 @@ import time
 from functools import wraps
 from pathlib import Path
 from typing import List, Dict, Any
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session, flash, g, abort
 from werkzeug.utils import secure_filename
 import configparser
 from pathlib import Path
@@ -168,11 +169,499 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
+# Aggiungi la seguente configurazione dopo l'inizializzazione di Flask
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'chiave_segreta_predefinita')  # In produzione usa una chiave sicura
+app.permanent_session_lifetime = datetime.timedelta(days=1)  # Sessione valida per 1 giorno
+
+
 # Directory per i dati e i backup
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 BACKUP_DIR = os.path.join(DATA_DIR, 'backup')
 os.makedirs(BACKUP_DIR, exist_ok=True)
+
+# --- Funzioni di supporto per l'autenticazione ---
+
+def login_required(view):
+    """
+    Decoratore per richiedere l'accesso a una rotta.
+    """
+    @functools.wraps(view)
+    def wrapped_view(**kwargs):
+        if not session.get('user_id'):
+            # Memorizza l'URL originale per il redirect post-login
+            session['next_url'] = request.url
+            flash('È necessario accedere per visualizzare questa pagina.', 'warning')
+            return redirect(url_for('login'))
+        return view(**kwargs)
+    return wrapped_view
+
+def admin_required(view):
+    """
+    Decoratore per richiedere accesso da amministratore.
+    """
+    @functools.wraps(view)
+    def wrapped_view(**kwargs):
+        if not session.get('user_id'):
+            session['next_url'] = request.url
+            flash('È necessario accedere per visualizzare questa pagina.', 'warning')
+            return redirect(url_for('login'))
+        
+        if session.get('user_role') != 'admin':
+            flash('Accesso non autorizzato. È richiesto un account amministratore.', 'danger')
+            return redirect(url_for('index'))
+        
+        return view(**kwargs)
+    return wrapped_view
+
+@app.before_request
+def load_logged_in_user():
+    """
+    Carica l'utente in base alla sessione prima di ogni richiesta.
+    """
+    user_id = session.get('user_id')
+    if user_id is None:
+        g.user = None
+    else:
+        g.user = db_manager.get_user_by_id(user_id)
+        # Rimuovi la password per sicurezza
+        if g.user and 'password' in g.user:
+            g.user.pop('password', None)
+
+# Aggiungi questi endpoint a app.py
+
+@app.route('/api/user_stats')
+@login_required
+def api_user_stats():
+    """
+    API per le statistiche utente.
+    """
+    user_id = request.args.get('user_id')
+    days = request.args.get('days', 30, type=int)
+    
+    # Solo admin possono vedere statistiche di altri utenti
+    if user_id and user_id != session.get('user_id') and session.get('user_role') != 'admin':
+        return jsonify({"status": "error", "message": "Non autorizzato"}), 403
+    
+    # Se non è specificato un user_id, usa quello dell'utente corrente
+    # a meno che sia admin (in quel caso restituisce statistiche globali)
+    if not user_id and session.get('user_role') != 'admin':
+        user_id = session.get('user_id')
+    
+    stats = db_manager.get_user_stats(user_id, days)
+    return jsonify(stats)
+
+@app.route('/api/documents')
+@login_required
+def api_get_documents():
+    """
+    API per ottenere la lista dei documenti.
+    """
+    documents = load_documents()
+    
+    # Per ogni documento, aggiungi il conteggio delle annotazioni
+    all_annotations = load_annotations()
+    for doc in documents:
+        doc_id = doc['id']
+        doc_annotations = all_annotations.get(doc_id, [])
+        doc['annotation_count'] = len(doc_annotations)
+        
+        # Calcola progresso (esempio semplice: percentuale di parole annotate)
+        try:
+            word_count = doc.get('word_count', 0)
+            if word_count > 0:
+                # Assumiamo che ogni annotazione copra in media 2 parole
+                annotated_words = min(len(doc_annotations) * 2, word_count)
+                doc['annotated_percent'] = round((annotated_words / word_count) * 100)
+            else:
+                doc['annotated_percent'] = 0
+        except Exception as e:
+            logger.error(f"Errore nel calcolo del progresso: {e}")
+            doc['annotated_percent'] = 0
+    
+    return jsonify({"status": "success", "documents": documents})
+
+@app.route('/assignments')
+@login_required
+def api_assignments():
+    """
+    API per ottenere la lista dei documenti assegnati all'utente corrente.
+    """
+    user_id = session.get('user_id')
+    documents = db_manager.get_user_assignments(user_id)
+    
+    # Calcola lo stato di avanzamento per ogni documento
+    all_annotations = load_annotations()
+    for doc in documents:
+        doc_id = doc['id']
+        doc_annotations = all_annotations.get(doc_id, [])
+        doc['annotation_count'] = len(doc_annotations)
+        
+        # Calcola progresso
+        try:
+            word_count = doc.get('word_count', 0)
+            if word_count > 0:
+                # Assumiamo che ogni annotazione copra in media 2 parole
+                annotated_words = min(len(doc_annotations) * 2, word_count)
+                doc['annotated_percent'] = round((annotated_words / word_count) * 100)
+            else:
+                doc['annotated_percent'] = 0
+        except Exception as e:
+            logger.error(f"Errore nel calcolo del progresso: {e}")
+            doc['annotated_percent'] = 0
+    
+    return jsonify({"status": "success", "documents": documents})
+
+# --- Rotte per l'autenticazione ---
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """
+    Gestisce il login degli utenti.
+    """
+    # Utente già autenticato
+    if session.get('user_id'):
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        remember = request.form.get('remember') == 'on'
+        
+        error = None
+        
+        if not username:
+            error = 'Username richiesto.'
+        elif not password:
+            error = 'Password richiesta.'
+        
+        if error is None:
+            user = db_manager.verify_user(username, password)
+            
+            if user:
+                # Configura sessione
+                session.clear()
+                session.permanent = remember
+                session['user_id'] = user['id']
+                session['username'] = user['username']
+                session['user_role'] = user['role']
+                
+                # Log attività
+                db_manager.log_user_activity(
+                    user_id=user['id'],
+                    action_type='login'
+                )
+                
+                # Redirect alla pagina originale o all'indice
+                next_url = session.pop('next_url', None) or url_for('index')
+                flash(f'Benvenuto, {user["username"]}!', 'success')
+                return redirect(next_url)
+            else:
+                error = 'Credenziali non valide.'
+        
+        flash(error, 'danger')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """
+    Gestisce il logout dell'utente.
+    """
+    # Log attività
+    if session.get('user_id'):
+        db_manager.log_user_activity(
+            user_id=session['user_id'],
+            action_type='logout'
+        )
+    
+    # Cancella sessione
+    session.clear()
+    flash('Disconnessione avvenuta con successo.', 'success')
+    return redirect(url_for('login'))
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """
+    Gestisce la registrazione di nuovi utenti (solo admin può accedere).
+    """
+    # Solo gli amministratori possono registrare nuovi utenti
+    if session.get('user_role') != 'admin' and db_manager.get_all_users():
+        flash('Solo gli amministratori possono registrare nuovi utenti.', 'danger')
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        full_name = request.form.get('full_name')
+        email = request.form.get('email')
+        role = request.form.get('role', 'annotator')
+        
+        # Validazione
+        error = None
+        
+        if not username:
+            error = 'Username richiesto.'
+        elif not password:
+            error = 'Password richiesta.'
+        elif password != confirm_password:
+            error = 'Le password non corrispondono.'
+        elif db_manager.get_user_by_username(username):
+            error = f'L\'utente {username} è già registrato.'
+        
+        if error is None:
+            # Il primo utente registrato diventa admin
+            if not db_manager.get_all_users():
+                role = 'admin'
+            
+            # Crea utente
+            user = db_manager.create_user({
+                'username': username,
+                'password': password,
+                'full_name': full_name,
+                'email': email,
+                'role': role,
+                'active': 1
+            })
+            
+            if user:
+                flash('Utente registrato con successo!', 'success')
+                if session.get('user_id'):
+                    # Admin che registra un altro utente
+                    db_manager.log_user_activity(
+                        user_id=session['user_id'],
+                        action_type='create_user',
+                        details=f"Creato utente {username}"
+                    )
+                    return redirect(url_for('admin_users'))
+                else:
+                    # Primo utente o autoiscrizione
+                    return redirect(url_for('login'))
+            else:
+                error = 'Errore durante la registrazione dell\'utente.'
+        
+        flash(error, 'danger')
+    
+    return render_template('register.html')
+
+# --- Rotte per la gestione degli utenti (admin) ---
+
+@app.route('/admin/users')
+@admin_required
+def admin_users():
+    """
+    Visualizza e gestisce gli utenti (solo admin).
+    """
+    users = db_manager.get_all_users()
+    return render_template('admin_users.html', users=users)
+
+@app.route('/admin/users/<user_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def edit_user(user_id):
+    """
+    Modifica un utente esistente (solo admin).
+    """
+    user = db_manager.get_user_by_id(user_id)
+    if not user:
+        flash('Utente non trovato.', 'danger')
+        return redirect(url_for('admin_users'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        full_name = request.form.get('full_name')
+        email = request.form.get('email')
+        role = request.form.get('role')
+        active = request.form.get('active') == 'on'
+        
+        # Validazione
+        error = None
+        
+        if not username:
+            error = 'Username richiesto.'
+        elif username != user['username'] and db_manager.get_user_by_username(username):
+            error = f'L\'utente {username} è già registrato.'
+        
+        if error is None:
+            # Prepara gli aggiornamenti
+            updates = {
+                'username': username,
+                'full_name': full_name,
+                'email': email,
+                'role': role,
+                'active': 1 if active else 0
+            }
+            
+            # Aggiorna password solo se fornita
+            if password:
+                updates['password'] = password
+            
+            if db_manager.update_user(user_id, updates):
+                db_manager.log_user_activity(
+                    user_id=session['user_id'],
+                    action_type='update_user',
+                    details=f"Aggiornato utente {username}"
+                )
+                flash('Utente aggiornato con successo!', 'success')
+                return redirect(url_for('admin_users'))
+            else:
+                error = 'Errore durante l\'aggiornamento dell\'utente.'
+        
+        flash(error, 'danger')
+    
+    return render_template('edit_user.html', user=user)
+
+@app.route('/profile')
+@login_required
+def profile():
+    """
+    Visualizza e modifica il proprio profilo utente.
+    """
+    user_id = session.get('user_id')
+    user = db_manager.get_user_by_id(user_id)
+    
+    if not user:
+        session.clear()
+        flash('Utente non trovato.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Ottieni statistiche dell'utente
+    stats = db_manager.get_user_stats(user_id)
+    
+    return render_template('profile.html', user=user, stats=stats)
+
+@app.route('/profile/edit', methods=['GET', 'POST'])
+@login_required
+def edit_profile():
+    """
+    Modifica il proprio profilo utente.
+    """
+    user_id = session.get('user_id')
+    user = db_manager.get_user_by_id(user_id)
+    
+    if not user:
+        session.clear()
+        flash('Utente non trovato.', 'danger')
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        current_password = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        full_name = request.form.get('full_name')
+        email = request.form.get('email')
+        
+        # Validazione
+        error = None
+        
+        # Per cambiare la password serve la password attuale
+        if new_password:
+            if not current_password:
+                error = 'Password attuale richiesta per cambiarla.'
+            elif new_password != confirm_password:
+                error = 'Le nuove password non corrispondono.'
+            else:
+                # Verifica password attuale
+                import hashlib
+                hashed_current = hashlib.sha256(current_password.encode()).hexdigest()
+                if user['password'] != hashed_current:
+                    error = 'Password attuale non corretta.'
+        
+        if error is None:
+            # Prepara gli aggiornamenti
+            updates = {
+                'full_name': full_name,
+                'email': email
+            }
+            
+            # Aggiorna password solo se fornita e validata
+            if new_password:
+                updates['password'] = new_password
+            
+            if db_manager.update_user(user_id, updates):
+                db_manager.log_user_activity(
+                    user_id=user_id,
+                    action_type='update_profile'
+                )
+                flash('Profilo aggiornato con successo!', 'success')
+                return redirect(url_for('profile'))
+            else:
+                error = 'Errore durante l\'aggiornamento del profilo.'
+        
+        flash(error, 'danger')
+    
+    return render_template('edit_profile.html', user=user)
+
+# --- Rotte per la gestione del lavoro assegnato ---
+
+@app.route('/assignments')
+@login_required
+def assignments():
+    """
+    Visualizza i documenti assegnati all'utente corrente.
+    """
+    user_id = session.get('user_id')
+    docs = db_manager.get_user_assignments(user_id)
+    return render_template('assignments.html', documents=docs)
+
+@app.route('/api/assign_document', methods=['POST'])
+@admin_required
+def api_assign_document():
+    """
+    Assegna un documento a un utente (API).
+    """
+    data = request.json
+    doc_id = data.get('doc_id')
+    user_id = data.get('user_id')
+    
+    if not doc_id or not user_id:
+        return jsonify({"status": "error", "message": "Dati mancanti"}), 400
+    
+    # Verifica che documento e utente esistano
+    document = db_manager.get_document(doc_id)
+    user = db_manager.get_user_by_id(user_id)
+    
+    if not document:
+        return jsonify({"status": "error", "message": "Documento non trovato"}), 404
+    
+    if not user:
+        return jsonify({"status": "error", "message": "Utente non trovato"}), 404
+    
+    success = db_manager.assign_document(doc_id, user_id, session.get('user_id'))
+    
+    if not success:
+        return jsonify({"status": "error", "message": "Errore nell'assegnazione del documento"}), 500
+    
+    return jsonify({
+        "status": "success", 
+        "message": f"Documento assegnato con successo a {user['username']}"
+    })
+
+# --- Dashboard per statistiche ---
+
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    """
+    Dashboard con statistiche globali e per utente.
+    """
+    # Gli admin vedono le statistiche di tutti
+    if session.get('user_role') == 'admin':
+        stats = db_manager.get_user_stats()
+        global_view = True
+    else:
+        # Gli utenti normali vedono solo le proprie
+        user_id = session.get('user_id')
+        stats = db_manager.get_user_stats(user_id)
+        global_view = False
+    
+    # Ottieni tutti gli utenti per il filtro (solo per admin)
+    users = []
+    if global_view:
+        users = db_manager.get_all_users()
+    
+    return render_template('dashboard.html', stats=stats, global_view=global_view, users=users)
 
 # --- Aggiungi questa sezione dopo la definizione di app Flask ---
 # Carica la configurazione
@@ -195,6 +684,25 @@ def load_config():
     
     config.read(config_path)
     return config
+
+# --- Funzioni di supporto per le template ---
+
+@app.context_processor
+def utility_processor():
+    """
+    Aggiunge funzioni di utilità ai template.
+    """
+    def format_date(date_str):
+        """Formatta una data ISO in un formato leggibile."""
+        if not date_str:
+            return "N/A"
+        try:
+            date_obj = datetime.datetime.fromisoformat(date_str)
+            return date_obj.strftime("%d/%m/%Y %H:%M")
+        except:
+            return date_str
+    
+    return dict(format_date=format_date)
 
 # Carica la configurazione
 config = load_config()
@@ -287,11 +795,13 @@ def log_response(response):
 # Endpoints per l'interfaccia di annotazione
 # -----------------------------------------------------------------------------
 @app.route('/')
+@login_required
 def index():
     documents = load_documents()
     return render_template('index.html', documents=documents)
 
 @app.route('/annotate/<doc_id>')
+@login_required
 def annotate(doc_id):
     documents = load_documents()
     annotations = load_annotations()
@@ -301,7 +811,15 @@ def annotate(doc_id):
     doc_annotations = annotations.get(doc_id, [])
     return render_template('annotate.html', document=document, annotations=doc_annotations, entity_types=ENTITY_TYPES)
 
+@app.route('/entity_types')
+@login_required
+def entity_types():
+    return render_template('entity_types.html', entity_types=ENTITY_TYPES)
+
+# Modifica le API per includere l'utente corrente
+
 @app.route('/api/save_annotation', methods=['POST'])
+@login_required
 def save_annotation():
     try:
         data = request.json
@@ -310,7 +828,10 @@ def save_annotation():
         if not doc_id or not annotation:
             return jsonify({"status": "error", "message": "Dati mancanti"}), 400
         
-        saved_annotation = db_manager.save_annotation(doc_id, annotation)
+        # Aggiungi l'ID utente corrente
+        user_id = session.get('user_id')
+        
+        saved_annotation = db_manager.save_annotation(doc_id, annotation, user_id)
         if not saved_annotation:
             return jsonify({"status": "error", "message": "Errore nel salvataggio dell'annotazione"}), 500
         
@@ -318,6 +839,45 @@ def save_annotation():
         return jsonify({"status": "success", "annotation": saved_annotation})
     except Exception as e:
         annotation_logger.error(f"Errore nel salvataggio dell'annotazione: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/upload_document', methods=['POST'])
+@login_required
+def upload_document():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"status": "error", "message": "Nessun file caricato"}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"status": "error", "message": "Nessun file selezionato"}), 400
+        allowed_extensions = {'txt', 'md', 'html', 'xml', 'json', 'csv'}
+        file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+        if file_ext not in allowed_extensions:
+            return jsonify({"status": "error", "message": f"Formato file non supportato. Estensioni consentite: {', '.join(allowed_extensions)}"}), 400
+        file_content = file.read().decode('utf-8')
+        if len(file_content) > 1000000:
+            return jsonify({"status": "error", "message": "Il documento è troppo grande. Il limite è di circa 1MB di testo."}), 400
+        
+        documents = load_documents()
+        doc_id = f"doc_{len(documents) + 1}"
+        document = {
+            "id": doc_id,
+            "title": secure_filename(file.filename),
+            "text": file_content,
+            "date_created": datetime.datetime.now().isoformat(),
+            "word_count": len(file_content.split()),
+            "created_by": session.get('user_id')  # Aggiunto l'utente creatore
+        }
+        
+        success = db_manager.save_document(document, session.get('user_id'))
+        if not success:
+            return jsonify({"status": "error", "message": "Errore nel salvataggio del documento"}), 500
+        
+        return jsonify({"status": "success", "message": "Documento caricato con successo", "document": document})
+    except UnicodeDecodeError:
+        return jsonify({"status": "error", "message": "Impossibile decodificare il file. Assicurati che sia un file di testo valido in formato UTF-8."}), 400
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'upload del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # Modifica la route '/api/delete_annotation'
@@ -361,43 +921,6 @@ def update_annotation():
         return jsonify({"status": "success", "message": "Annotazione aggiornata con successo"})
     except Exception as e:
         annotation_logger.error(f"Errore nell'aggiornamento dell'annotazione: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route('/api/upload_document', methods=['POST'])
-def upload_document():
-    try:
-        if 'file' not in request.files:
-            return jsonify({"status": "error", "message": "Nessun file caricato"}), 400
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({"status": "error", "message": "Nessun file selezionato"}), 400
-        allowed_extensions = {'txt', 'md', 'html', 'xml', 'json', 'csv'}
-        file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-        if file_ext not in allowed_extensions:
-            return jsonify({"status": "error", "message": f"Formato file non supportato. Estensioni consentite: {', '.join(allowed_extensions)}"}), 400
-        file_content = file.read().decode('utf-8')
-        if len(file_content) > 1000000:
-            return jsonify({"status": "error", "message": "Il documento è troppo grande. Il limite è di circa 1MB di testo."}), 400
-        
-        documents = load_documents()
-        doc_id = f"doc_{len(documents) + 1}"
-        document = {
-            "id": doc_id,
-            "title": secure_filename(file.filename),
-            "text": file_content,
-            "date_created": datetime.datetime.now().isoformat(),
-            "word_count": len(file_content.split())
-        }
-        
-        success = db_manager.save_document(document)
-        if not success:
-            return jsonify({"status": "error", "message": "Errore nel salvataggio del documento"}), 500
-        
-        return jsonify({"status": "success", "message": "Documento caricato con successo", "document": document})
-    except UnicodeDecodeError:
-        return jsonify({"status": "error", "message": "Impossibile decodificare il file. Assicurati che sia un file di testo valido in formato UTF-8."}), 400
-    except Exception as e:
-        annotation_logger.error(f"Errore nell'upload del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # Modifica la route '/api/delete_document'

@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}NER-Giuridico - I Miei Compiti{% endblock %}
+{% block page_id %}assignments{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="fas fa-tasks me-2"></i>I Miei Compiti</h4>
+    <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-primary">
+        <i class="fas fa-home me-1"></i> Torna alla Home
+    </a>
+</div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<!-- Assigned Documents -->
+<div class="card shadow-sm">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-clipboard-list me-2"></i>Documenti Assegnati</h5>
+        <span class="badge bg-primary rounded-pill">{{ documents|length }}</span>
+    </div>
+    <div class="card-body">
+        {% if documents %}
+            <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4">
+                {% for doc in documents %}
+                <div class="col">
+                    <div class="card h-100 document-card">
+                        <div class="card-header bg-light">
+                            <h6 class="card-title mb-0 text-truncate" title="{{ doc.title }}">{{ doc.title }}</h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="card-text small document-preview mb-3">{{ doc.text[:150] }}...</p>
+                            <div class="d-flex justify-content-between align-items-center text-muted small mb-2">
+                                <span><i class="fas fa-file-word me-1"></i>{{ doc.word_count }} parole</span>
+                                <span title="Data ultima modifica">
+                                    <i class="fas fa-calendar-alt me-1"></i>{{ format_date(doc.date_modified) }}
+                                </span>
+                            </div>
+                            <!-- Stato completamento (esempio statico, idealmente calcolato dal backend) -->
+                            <div class="progress mb-2" style="height: 10px;">
+                                {% set completion = doc.annotated_percent|default(0) %}
+                                <div class="progress-bar bg-success" role="progressbar" 
+                                     style="width: {{ completion }}%;" 
+                                     aria-valuenow="{{ completion }}" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center small">
+                                <span>Completamento: {{ completion }}%</span>
+                                <span class="badge bg-{% if completion < 50 %}warning{% elif completion < 100 %}info{% else %}success{% endif %}">
+                                    {% if completion < 50 %}Da completare{% elif completion < 100 %}In corso{% else %}Completato{% endif %}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <a href="{{ url_for('annotate', doc_id=doc.id) }}" class="btn btn-sm btn-primary w-100">
+                                <i class="fas fa-tag me-1"></i> Annota Documento
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="fas fa-clipboard-check fa-3x mb-3"></i>
+                <h5 class="mb-1">Nessun documento assegnato</h5>
+                <p>Non hai documenti assegnati in questo momento.</p>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary mt-2">
+                    <i class="fas fa-search me-1"></i> Esplora documenti disponibili
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Completed Documents -->
+<div class="card shadow-sm mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Documenti Completati</h5>
+        <span class="badge bg-success rounded-pill" id="completedCount">0</span>
+    </div>
+    <div class="card-body">
+        <div id="completedDocumentsContainer">
+            <!-- Caricato tramite JavaScript -->
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Caricamento...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+import { api } from "{{ url_for('static', filename='js/api.js') }}";
+import { showNotification } from "{{ url_for('static', filename='js/ui.js') }}";
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Carica documenti completati
+    loadCompletedDocuments();
+});
+
+async function loadCompletedDocuments() {
+    const container = document.getElementById('completedDocumentsContainer');
+    const countBadge = document.getElementById('completedCount');
+    
+    try {
+        // In una implementazione reale, ci sarebbe un endpoint specifico
+        // Per ora, simuliamo con i documenti attuali che hanno progresso 100%
+        const completedDocs = [];
+        
+        {% for doc in documents %}
+            {% if doc.annotated_percent|default(0) == 100 %}
+                completedDocs.push({
+                    id: "{{ doc.id }}",
+                    title: "{{ doc.title }}",
+                    completed_date: "{{ doc.date_modified }}",
+                    word_count: {{ doc.word_count|default(0) }}
+                });
+            {% endif %}
+        {% endfor %}
+        
+        if (completedDocs.length > 0) {
+            let html = '<div class="table-responsive"><table class="table table-hover">';
+            html += `
+                <thead class="table-light">
+                    <tr>
+                        <th>Documento</th>
+                        <th>Data Completamento</th>
+                        <th>Parole</th>
+                        <th>Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            
+            completedDocs.forEach(doc => {
+                html += `
+                <tr>
+                    <td class="text-truncate" style="max-width: 300px;">${doc.title}</td>
+                    <td>${formatDate(doc.completed_date)}</td>
+                    <td>${doc.word_count}</td>
+                    <td>
+                        <a href="/annotate/${doc.id}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-eye"></i> Visualizza
+                        </a>
+                    </td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+            
+            // Aggiorna contatore
+            countBadge.textContent = completedDocs.length;
+        } else {
+            container.innerHTML = `
+            <div class="text-center py-4 text-muted">
+                <i class="fas fa-check-double fa-3x mb-3"></i>
+                <p class="mb-0">Nessun documento completato.</p>
+            </div>`;
+            countBadge.textContent = '0';
+        }
+    } catch (error) {
+        console.error('Errore nel caricamento dei documenti completati:', error);
+        container.innerHTML = `
+        <div class="alert alert-danger">
+            Errore nel caricamento dei documenti completati.
+        </div>`;
+    }
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return 'N/A';
+    
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('it-IT', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric'
+        });
+    } catch (e) {
+        return dateStr;
+    }
+}
+</script>
+{% endblock %}

@@ -86,6 +86,21 @@ class AnnotationDBManager:
         Inizializza lo schema del database se necessario.
         """
         with self._get_db() as (conn, cursor):
+            # Tabella utenti
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                full_name TEXT,
+                role TEXT DEFAULT 'annotator',
+                email TEXT,
+                active INTEGER DEFAULT 1,
+                date_created TEXT,
+                date_last_login TEXT
+            )
+            ''')
+            
             # Tabella documenti
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS documents (
@@ -94,7 +109,11 @@ class AnnotationDBManager:
                 text TEXT NOT NULL,
                 word_count INTEGER,
                 date_created TEXT,
-                date_modified TEXT
+                date_modified TEXT,
+                created_by TEXT,
+                assigned_to TEXT,
+                FOREIGN KEY (created_by) REFERENCES users(id),
+                FOREIGN KEY (assigned_to) REFERENCES users(id)
             )
             ''')
             
@@ -110,128 +129,544 @@ class AnnotationDBManager:
                 metadata TEXT,
                 date_created TEXT,
                 date_modified TEXT,
-                FOREIGN KEY (doc_id) REFERENCES documents(id)
+                created_by TEXT,
+                FOREIGN KEY (doc_id) REFERENCES documents(id),
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            )
+            ''')
+            
+            # Tabella per tracciare le attività degli utenti
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_activity (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                action_type TEXT NOT NULL,
+                document_id TEXT,
+                annotation_id TEXT,
+                timestamp TEXT NOT NULL,
+                details TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (document_id) REFERENCES documents(id),
+                FOREIGN KEY (annotation_id) REFERENCES annotations(id)
             )
             ''')
             
             conn.commit()
             logger.debug("Schema del database inizializzato")
     
-    def create_backup(self) -> str:
+    #--- Operazioni di gestione degli utenti ----
+    def create_user(self, user_data: dict) -> dict:
         """
-        Crea un backup del database.
-        
-        Returns:
-            Percorso del file di backup
-        """
-        if not os.path.exists(self.db_path):
-            logger.warning("Impossibile creare backup: database non esistente")
-            return None
-        
-        timestamp = int(datetime.datetime.now().timestamp())
-        backup_file = os.path.join(self.backup_dir, f"annotations_backup_{timestamp}.db")
-        
-        try:
-            import shutil
-            shutil.copy2(self.db_path, backup_file)
-            logger.info(f"Backup creato: {backup_file}")
-            return backup_file
-        except Exception as e:
-            logger.error(f"Errore nella creazione del backup: {e}")
-            return None
-    
-    def cleanup_backups(self, max_backups: int = 10) -> None:
-        """
-        Pulisce i vecchi backup mantenendo solo i più recenti.
+        Crea un nuovo utente nel database.
         
         Args:
-            max_backups: Numero massimo di backup da mantenere
-        """
-        try:
-            backup_files = []
-            for filename in os.listdir(self.backup_dir):
-                if filename.startswith('annotations_backup_') and filename.endswith('.db'):
-                    filepath = os.path.join(self.backup_dir, filename)
-                    backup_files.append((filepath, os.path.getmtime(filepath)))
-            
-            backup_files.sort(key=lambda x: x[1], reverse=True)
-            
-            if len(backup_files) > max_backups:
-                for filepath, _ in backup_files[max_backups:]:
-                    os.remove(filepath)
-                    logger.debug(f"Backup rimosso: {filepath}")
-        except Exception as e:
-            logger.error(f"Errore nella pulizia dei backup: {e}")
-    
-    # ---- Operazioni sui documenti ----
-    
-    def get_documents(self) -> List[Dict[str, Any]]:
-        """
-        Ottiene tutti i documenti dal database.
-        
+            user_data: Dizionario con i dati dell'utente
+                
         Returns:
-            Lista di documenti
-        """
-        with self._get_db() as (conn, cursor):
-            cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
-            return [dict(row) for row in cursor.fetchall()]
-    
-    def get_document(self, doc_id: str) -> Dict[str, Any]:
-        """
-        Ottiene un documento specifico dal database.
-        
-        Args:
-            doc_id: ID del documento
-            
-        Returns:
-            Documento o None se non trovato
-        """
-        with self._get_db() as (conn, cursor):
-            cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-    
-    def save_document(self, document: Dict[str, Any]) -> bool:
-        """
-        Salva un documento nel database.
-        
-        Args:
-            document: Documento da salvare
-            
-        Returns:
-            True se salvato con successo, False altrimenti
+            Utente creato con ID generato
         """
         try:
             now = datetime.datetime.now().isoformat()
             
-            if 'date_created' not in document:
-                document['date_created'] = now
+            # Genera un ID se non presente
+            if 'id' not in user_data or not user_data['id']:
+                user_data['id'] = f"user_{int(datetime.datetime.now().timestamp())}"
             
-            document['date_modified'] = now
+            # Aggiungi data creazione
+            user_data['date_created'] = now
+            
+            # Hash della password (NOTA: in un ambiente di produzione usare bcrypt o simili)
+            # Questa è una implementazione semplificata
+            import hashlib
+            password = user_data.get('password', '')
+            hashed_password = hashlib.sha256(password.encode()).hexdigest()
+            user_data['password'] = hashed_password
             
             with self._get_db() as (conn, cursor):
                 cursor.execute(
                     """
-                    INSERT OR REPLACE INTO documents 
-                    (id, title, text, word_count, date_created, date_modified)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO users 
+                    (id, username, password, full_name, role, email, active, date_created)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        document['id'],
-                        document['title'],
-                        document['text'],
-                        document.get('word_count', 0),
-                        document['date_created'],
-                        document['date_modified']
+                        user_data['id'],
+                        user_data['username'],
+                        user_data['password'],
+                        user_data.get('full_name', ''),
+                        user_data.get('role', 'annotator'),
+                        user_data.get('email', ''),
+                        user_data.get('active', 1),
+                        user_data['date_created']
                     )
                 )
                 conn.commit()
-                logger.debug(f"Documento salvato: {document['id']}")
+                logger.debug(f"Utente creato: {user_data['username']}")
+                
+                # Non restituire la password
+                user_data.pop('password', None)
+                return user_data
+        except Exception as e:
+            logger.error(f"Errore nella creazione dell'utente: {e}")
+            return None
+
+    def get_user_by_username(self, username: str) -> dict:
+        """
+        Ottiene un utente dal database tramite username.
+        
+        Args:
+            username: Nome utente
+                
+        Returns:
+            Dizionario con i dati dell'utente o None se non trovato
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return dict(row)
+        except Exception as e:
+            logger.error(f"Errore nel recupero dell'utente: {e}")
+            return None
+
+    def verify_user(self, username: str, password: str) -> dict:
+        """
+        Verifica le credenziali di un utente.
+        
+        Args:
+            username: Nome utente
+            password: Password in chiaro
+                
+        Returns:
+            Dizionario con i dati dell'utente (senza password) o None se autenticazione fallita
+        """
+        try:
+            # Hash della password per confronto
+            import hashlib
+            hashed_password = hashlib.sha256(password.encode()).hexdigest()
+            
+            user = self.get_user_by_username(username)
+            if not user:
+                return None
+            
+            if user['password'] != hashed_password:
+                return None
+            
+            # Aggiorna last login
+            now = datetime.datetime.now().isoformat()
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    "UPDATE users SET date_last_login = ? WHERE id = ?",
+                    (now, user['id'])
+                )
+                conn.commit()
+            
+            # Non restituire la password
+            user.pop('password', None)
+            return user
+        except Exception as e:
+            logger.error(f"Errore nella verifica dell'utente: {e}")
+            return None
+
+    def get_all_users(self) -> list:
+        """
+        Ottiene tutti gli utenti.
+        
+        Returns:
+            Lista di utenti (senza password)
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT id, username, full_name, role, email, active, date_created, date_last_login FROM users")
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Errore nel recupero degli utenti: {e}")
+            return []
+
+    def update_user(self, user_id: str, updates: dict) -> bool:
+        """
+        Aggiorna un utente esistente.
+        
+        Args:
+            user_id: ID dell'utente
+            updates: Dizionario con i campi da aggiornare
+                
+        Returns:
+            True se aggiornato con successo, False altrimenti
+        """
+        try:
+            user = self.get_user_by_id(user_id)
+            if not user:
+                return False
+            
+            # Se c'è una password da aggiornare, hashala
+            if 'password' in updates and updates['password']:
+                import hashlib
+                updates['password'] = hashlib.sha256(updates['password'].encode()).hexdigest()
+            
+            # Costruisci query dinamica in base ai campi da aggiornare
+            set_clauses = []
+            values = []
+            
+            for key, value in updates.items():
+                if key in ['username', 'password', 'full_name', 'role', 'email', 'active']:
+                    set_clauses.append(f"{key} = ?")
+                    values.append(value)
+            
+            if not set_clauses:
+                return False  # Nessun campo valido da aggiornare
+            
+            values.append(user_id)  # Per la clausola WHERE
+            
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ?",
+                    tuple(values)
+                )
+                conn.commit()
                 return True
         except Exception as e:
-            logger.error(f"Errore nel salvataggio del documento: {e}")
+            logger.error(f"Errore nell'aggiornamento dell'utente: {e}")
+            return False
+
+    def get_user_by_id(self, user_id: str) -> dict:
+        """
+        Ottiene un utente dal database tramite ID.
+        
+        Args:
+            user_id: ID dell'utente
+                
+        Returns:
+            Dizionario con i dati dell'utente o None se non trovato
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return dict(row)
+        except Exception as e:
+            logger.error(f"Errore nel recupero dell'utente: {e}")
+            return None
+
+    def log_user_activity(self, user_id: str, action_type: str, document_id: str = None, 
+                        annotation_id: str = None, details: str = None) -> bool:
+        """
+        Registra un'attività utente nel log.
+        
+        Args:
+            user_id: ID dell'utente
+            action_type: Tipo di azione (login, create_annotation, delete_annotation, ecc.)
+            document_id: ID del documento coinvolto (opzionale)
+            annotation_id: ID dell'annotazione coinvolta (opzionale)
+            details: Dettagli aggiuntivi (opzionale)
+                
+        Returns:
+            True se registrato con successo, False altrimenti
+        """
+        try:
+            now = datetime.datetime.now().isoformat()
+            activity_id = f"act_{int(datetime.datetime.now().timestamp())}"
+            
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    """
+                    INSERT INTO user_activity 
+                    (id, user_id, action_type, document_id, annotation_id, timestamp, details)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        activity_id,
+                        user_id,
+                        action_type,
+                        document_id,
+                        annotation_id,
+                        now,
+                        details
+                    )
+                )
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Errore nella registrazione dell'attività: {e}")
             return False
     
+    def get_user_stats(self, user_id: str = None, days: int = 30) -> dict:
+        """
+        Ottiene statistiche sull'attività di un utente.
+        
+        Args:
+            user_id: ID dell'utente (opzionale, se None restituisce per tutti gli utenti)
+            days: Numero di giorni precedenti da considerare
+                
+        Returns:
+            Dizionario con statistiche
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                # Data limite per il periodo
+                date_limit = (datetime.datetime.now() - datetime.timedelta(days=days)).isoformat()
+                
+                stats = {}
+                
+                # Query base con il filtro della data
+                base_query = f"WHERE timestamp > '{date_limit}'"
+                
+                # Aggiungi filtro utente se specificato
+                if user_id:
+                    base_query += f" AND user_id = '{user_id}'"
+                
+                # Conteggio totale annotazioni
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM annotations
+                    WHERE date_created > '{date_limit}'
+                    {"AND created_by = ?" if user_id else ""}
+                """, (user_id,) if user_id else ())
+                stats['total_annotations'] = cursor.fetchone()[0]
+                
+                # Conteggio per tipo di entità
+                cursor.execute(f"""
+                    SELECT type, COUNT(*) as count FROM annotations
+                    WHERE date_created > '{date_limit}'
+                    {"AND created_by = ?" if user_id else ""}
+                    GROUP BY type
+                """, (user_id,) if user_id else ())
+                stats['annotations_by_type'] = {row['type']: row['count'] for row in cursor.fetchall()}
+                
+                # Attività per giorno
+                cursor.execute(f"""
+                    SELECT substr(timestamp, 1, 10) as day, COUNT(*) as count
+                    FROM user_activity
+                    {base_query}
+                    GROUP BY day
+                    ORDER BY day
+                """)
+                stats['activity_by_day'] = {row['day']: row['count'] for row in cursor.fetchall()}
+                
+                # Conteggio attività per tipo di azione
+                cursor.execute(f"""
+                    SELECT action_type, COUNT(*) as count
+                    FROM user_activity
+                    {base_query}
+                    GROUP BY action_type
+                """)
+                stats['actions_by_type'] = {row['action_type']: row['count'] for row in cursor.fetchall()}
+                
+                # Documenti modificati
+                cursor.execute(f"""
+                    SELECT COUNT(DISTINCT document_id) as count
+                    FROM user_activity
+                    WHERE document_id IS NOT NULL
+                    AND timestamp > '{date_limit}'
+                    {"AND user_id = ?" if user_id else ""}
+                """, (user_id,) if user_id else ())
+                stats['documents_modified'] = cursor.fetchone()[0]
+                
+                # Se richiedono statistiche globali (senza user_id specifico)
+                if not user_id:
+                    # Statistiche per utente
+                    cursor.execute(f"""
+                        SELECT u.id, u.username, u.full_name, COUNT(a.id) as annotations_count
+                        FROM users u
+                        LEFT JOIN annotations a ON u.id = a.created_by AND a.date_created > '{date_limit}'
+                        GROUP BY u.id
+                        ORDER BY annotations_count DESC
+                    """)
+                    stats['users'] = [dict(row) for row in cursor.fetchall()]
+                
+                return stats
+        except Exception as e:
+            logger.error(f"Errore nel recupero delle statistiche: {e}")
+            return {}
+
+    def get_user_assignments(self, user_id: str) -> list:
+        """
+        Ottiene i documenti assegnati a un utente.
+        
+        Args:
+            user_id: ID dell'utente
+                
+        Returns:
+            Lista di documenti assegnati
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("""
+                    SELECT * FROM documents 
+                    WHERE assigned_to = ? 
+                    ORDER BY date_modified DESC
+                """, (user_id,))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Errore nel recupero dei documenti assegnati: {e}")
+            return []
+
+    def assign_document(self, doc_id: str, user_id: str, assigner_id: str) -> bool:
+        """
+        Assegna un documento a un utente.
+        
+        Args:
+            doc_id: ID del documento
+            user_id: ID dell'utente a cui assegnare
+            assigner_id: ID dell'utente che effettua l'assegnazione
+                
+        Returns:
+            True se assegnato con successo, False altrimenti
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    "UPDATE documents SET assigned_to = ? WHERE id = ?",
+                    (user_id, doc_id)
+                )
+                conn.commit()
+                
+                # Log activity
+                self.log_user_activity(
+                    user_id=assigner_id,
+                    action_type="assign_document",
+                    document_id=doc_id,
+                    details=f"Documento assegnato all'utente {user_id}"
+                )
+                
+                return True
+        except Exception as e:
+            logger.error(f"Errore nell'assegnazione del documento: {e}")
+            return False
+
+        # ---- Operazioni di backup ----
+        
+        def create_backup(self) -> str:
+            """
+            Crea un backup del database.
+            
+            Returns:
+                Percorso del file di backup
+            """
+            if not os.path.exists(self.db_path):
+                logger.warning("Impossibile creare backup: database non esistente")
+                return None
+            
+            timestamp = int(datetime.datetime.now().timestamp())
+            backup_file = os.path.join(self.backup_dir, f"annotations_backup_{timestamp}.db")
+            
+            try:
+                import shutil
+                shutil.copy2(self.db_path, backup_file)
+                logger.info(f"Backup creato: {backup_file}")
+                return backup_file
+            except Exception as e:
+                logger.error(f"Errore nella creazione del backup: {e}")
+                return None
+        
+        def cleanup_backups(self, max_backups: int = 10) -> None:
+            """
+            Pulisce i vecchi backup mantenendo solo i più recenti.
+            
+            Args:
+                max_backups: Numero massimo di backup da mantenere
+            """
+            try:
+                backup_files = []
+                for filename in os.listdir(self.backup_dir):
+                    if filename.startswith('annotations_backup_') and filename.endswith('.db'):
+                        filepath = os.path.join(self.backup_dir, filename)
+                        backup_files.append((filepath, os.path.getmtime(filepath)))
+                
+                backup_files.sort(key=lambda x: x[1], reverse=True)
+                
+                if len(backup_files) > max_backups:
+                    for filepath, _ in backup_files[max_backups:]:
+                        os.remove(filepath)
+                        logger.debug(f"Backup rimosso: {filepath}")
+            except Exception as e:
+                logger.error(f"Errore nella pulizia dei backup: {e}")
+        
+        # ---- Operazioni sui documenti ----
+        
+        def get_documents(self) -> List[Dict[str, Any]]:
+            """
+            Ottiene tutti i documenti dal database.
+            
+            Returns:
+                Lista di documenti
+            """
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
+                return [dict(row) for row in cursor.fetchall()]
+        
+        def get_document(self, doc_id: str) -> Dict[str, Any]:
+            """
+            Ottiene un documento specifico dal database.
+            
+            Args:
+                doc_id: ID del documento
+                
+            Returns:
+                Documento o None se non trovato
+            """
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        
+        def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
+            """
+            Salva un documento nel database.
+            
+            Args:
+                document: Documento da salvare
+                user_id: ID dell'utente che sta salvando il documento
+                    
+            Returns:
+                True se salvato con successo, False altrimenti
+            """
+            try:
+                now = datetime.datetime.now().isoformat()
+                
+                if 'date_created' not in document:
+                    document['date_created'] = now
+                
+                document['date_modified'] = now
+                
+                with self._get_db() as (conn, cursor):
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO documents 
+                        (id, title, text, word_count, date_created, date_modified, created_by, assigned_to)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            document['id'],
+                            document['title'],
+                            document['text'],
+                            document.get('word_count', 0),
+                            document['date_created'],
+                            document['date_modified'],
+                            document.get('created_by', user_id),
+                            document.get('assigned_to')
+                        )
+                    )
+                    conn.commit()
+                    logger.debug(f"Documento salvato: {document['id']}")
+                    
+                    # Log activity
+                    if user_id:
+                        is_new = cursor.rowcount == 1
+                        self.log_user_activity(
+                            user_id=user_id,
+                            action_type="create_document" if is_new else "update_document",
+                            document_id=document['id']
+                        )
+                        
+                    return True
+            except Exception as e:
+                logger.error(f"Errore nel salvataggio del documento: {e}")
+                return False
+
     def delete_document(self, doc_id: str) -> bool:
         """
         Elimina un documento e le sue annotazioni dal database.
@@ -337,14 +772,15 @@ class AnnotationDBManager:
         annotations = self.get_annotations(doc_id)
         return annotations.get(doc_id, [])
     
-    def save_annotation(self, doc_id: str, annotation: Dict[str, Any]) -> Dict[str, Any]:
+    def save_annotation(self, doc_id: str, annotation: Dict[str, Any], user_id: str = None) -> Dict[str, Any]:
         """
         Salva un'annotazione nel database.
         
         Args:
             doc_id: ID del documento
             annotation: Annotazione da salvare
-            
+            user_id: ID dell'utente che sta salvando l'annotazione
+                
         Returns:
             L'annotazione salvata con ID generato se era nuovo
         """
@@ -366,12 +802,16 @@ class AnnotationDBManager:
             if 'metadata' in annotation and annotation['metadata']:
                 metadata_json = json.dumps(annotation['metadata'])
             
+            # Aggiungi user_id
+            if user_id and 'created_by' not in annotation:
+                annotation['created_by'] = user_id
+            
             with self._get_db() as (conn, cursor):
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO annotations
-                    (id, doc_id, start, end, text, type, metadata, date_created, date_modified)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, doc_id, start, end, text, type, metadata, date_created, date_modified, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         annotation['id'],
@@ -382,16 +822,28 @@ class AnnotationDBManager:
                         annotation['type'],
                         metadata_json,
                         annotation['date_created'],
-                        annotation['date_modified']
+                        annotation['date_modified'],
+                        annotation.get('created_by')
                     )
                 )
                 conn.commit()
                 logger.debug(f"Annotazione salvata: {annotation['id']} per doc {doc_id}")
+                
+                # Log activity
+                if user_id:
+                    is_new = cursor.rowcount == 1
+                    self.log_user_activity(
+                        user_id=user_id,
+                        action_type="create_annotation" if is_new else "update_annotation",
+                        document_id=doc_id,
+                        annotation_id=annotation['id']
+                    )
+                    
                 return annotation
         except Exception as e:
             logger.error(f"Errore nel salvataggio dell'annotazione: {e}")
             return None
-    
+        
     def delete_annotation(self, annotation_id: str) -> bool:
         """
         Elimina un'annotazione dal database.

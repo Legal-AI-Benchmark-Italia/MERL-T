@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Interfaccia web per l'annotazione di entità giuridiche e la gestione dei tipi di entità.
-File completo con implementazioni strutturate e robuste.
+File completo con implementazioni strutturate e robuste, ottimizzato e corretto.
 """
 
 import functools
@@ -35,6 +35,13 @@ annotation_logger.addHandler(handler)
 # Setup dell'ambiente
 # -----------------------------------------------------------------------------
 def setup_environment():
+    """
+    Configura l'ambiente dell'applicazione, aggiungendo i percorsi necessari
+    al sys.path e identificando la radice del progetto.
+    
+    Returns:
+        tuple: Directory corrente e root del progetto
+    """
     current_dir = Path(__file__).resolve().parent
     annotation_logger.debug(f"Directory corrente: {current_dir}")
     annotation_logger.debug(f"sys.path attuale: {sys.path}")
@@ -169,10 +176,9 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
-# Aggiungi la seguente configurazione dopo l'inizializzazione di Flask
+# Configurazione dell'app Flask
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'chiave_segreta_predefinita')  # In produzione usa una chiave sicura
 app.permanent_session_lifetime = datetime.timedelta(days=1)  # Sessione valida per 1 giorno
-
 
 # Directory per i dati e i backup
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
@@ -185,6 +191,12 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 def login_required(view):
     """
     Decoratore per richiedere l'accesso a una rotta.
+    
+    Args:
+        view: Funzione vista da decorare
+        
+    Returns:
+        Funzione wrapper che verifica l'autenticazione
     """
     @functools.wraps(view)
     def wrapped_view(**kwargs):
@@ -199,6 +211,12 @@ def login_required(view):
 def admin_required(view):
     """
     Decoratore per richiedere accesso da amministratore.
+    
+    Args:
+        view: Funzione vista da decorare
+        
+    Returns:
+        Funzione wrapper che verifica il ruolo admin
     """
     @functools.wraps(view)
     def wrapped_view(**kwargs):
@@ -228,7 +246,7 @@ def load_logged_in_user():
         if g.user and 'password' in g.user:
             g.user.pop('password', None)
 
-# Aggiungi questi endpoint a app.py
+# --- API Endpoints ---
 
 @app.route('/api/user_stats')
 @login_required
@@ -276,41 +294,53 @@ def api_get_documents():
             else:
                 doc['annotated_percent'] = 0
         except Exception as e:
-            logger.error(f"Errore nel calcolo del progresso: {e}")
+            annotation_logger.error(f"Errore nel calcolo del progresso: {e}")
             doc['annotated_percent'] = 0
     
     return jsonify({"status": "success", "documents": documents})
 
 @app.route('/assignments')
 @login_required
-def api_assignments():
+def assignments():
     """
-    API per ottenere la lista dei documenti assegnati all'utente corrente.
+    Visualizza i documenti assegnati all'utente corrente.
     """
     user_id = session.get('user_id')
-    documents = db_manager.get_user_assignments(user_id)
+    docs = db_manager.get_user_assignments(user_id)
+    return render_template('assignments.html', documents=docs)
+
+@app.route('/api/assign_document', methods=['POST'])
+@admin_required
+def api_assign_document():
+    """
+    Assegna un documento a un utente (API).
+    """
+    data = request.json
+    doc_id = data.get('doc_id')
+    user_id = data.get('user_id')
     
-    # Calcola lo stato di avanzamento per ogni documento
-    all_annotations = load_annotations()
-    for doc in documents:
-        doc_id = doc['id']
-        doc_annotations = all_annotations.get(doc_id, [])
-        doc['annotation_count'] = len(doc_annotations)
-        
-        # Calcola progresso
-        try:
-            word_count = doc.get('word_count', 0)
-            if word_count > 0:
-                # Assumiamo che ogni annotazione copra in media 2 parole
-                annotated_words = min(len(doc_annotations) * 2, word_count)
-                doc['annotated_percent'] = round((annotated_words / word_count) * 100)
-            else:
-                doc['annotated_percent'] = 0
-        except Exception as e:
-            logger.error(f"Errore nel calcolo del progresso: {e}")
-            doc['annotated_percent'] = 0
+    if not doc_id or not user_id:
+        return jsonify({"status": "error", "message": "Dati mancanti"}), 400
     
-    return jsonify({"status": "success", "documents": documents})
+    # Verifica che documento e utente esistano
+    document = db_manager.get_document(doc_id)
+    user = db_manager.get_user_by_id(user_id)
+    
+    if not document:
+        return jsonify({"status": "error", "message": "Documento non trovato"}), 404
+    
+    if not user:
+        return jsonify({"status": "error", "message": "Utente non trovato"}), 404
+    
+    success = db_manager.assign_document(doc_id, user_id, session.get('user_id'))
+    
+    if not success:
+        return jsonify({"status": "error", "message": "Errore nell'assegnazione del documento"}), 500
+    
+    return jsonify({
+        "status": "success", 
+        "message": f"Documento assegnato con successo a {user['username']}"
+    })
 
 # --- Rotte per l'autenticazione ---
 
@@ -529,6 +559,12 @@ def profile():
     # Ottieni statistiche dell'utente
     stats = db_manager.get_user_stats(user_id)
     
+    # Ensure stats has the expected structure to prevent template errors
+    if not isinstance(stats, dict):
+        stats = {}
+    if 'actions_by_type' not in stats:
+        stats['actions_by_type'] = {}
+    
     return render_template('profile.html', user=user, stats=stats)
 
 @app.route('/profile/edit', methods=['GET', 'POST'])
@@ -593,51 +629,6 @@ def edit_profile():
     
     return render_template('edit_profile.html', user=user)
 
-# --- Rotte per la gestione del lavoro assegnato ---
-
-@app.route('/assignments')
-@login_required
-def assignments():
-    """
-    Visualizza i documenti assegnati all'utente corrente.
-    """
-    user_id = session.get('user_id')
-    docs = db_manager.get_user_assignments(user_id)
-    return render_template('assignments.html', documents=docs)
-
-@app.route('/api/assign_document', methods=['POST'])
-@admin_required
-def api_assign_document():
-    """
-    Assegna un documento a un utente (API).
-    """
-    data = request.json
-    doc_id = data.get('doc_id')
-    user_id = data.get('user_id')
-    
-    if not doc_id or not user_id:
-        return jsonify({"status": "error", "message": "Dati mancanti"}), 400
-    
-    # Verifica che documento e utente esistano
-    document = db_manager.get_document(doc_id)
-    user = db_manager.get_user_by_id(user_id)
-    
-    if not document:
-        return jsonify({"status": "error", "message": "Documento non trovato"}), 404
-    
-    if not user:
-        return jsonify({"status": "error", "message": "Utente non trovato"}), 404
-    
-    success = db_manager.assign_document(doc_id, user_id, session.get('user_id'))
-    
-    if not success:
-        return jsonify({"status": "error", "message": "Errore nell'assegnazione del documento"}), 500
-    
-    return jsonify({
-        "status": "success", 
-        "message": f"Documento assegnato con successo a {user['username']}"
-    })
-
 # --- Dashboard per statistiche ---
 
 @app.route('/dashboard')
@@ -646,26 +637,54 @@ def dashboard():
     """
     Dashboard con statistiche globali e per utente.
     """
-    # Gli admin vedono le statistiche di tutti
-    if session.get('user_role') == 'admin':
-        stats = db_manager.get_user_stats()
-        global_view = True
-    else:
-        # Gli utenti normali vedono solo le proprie
-        user_id = session.get('user_id')
-        stats = db_manager.get_user_stats(user_id)
-        global_view = False
+    try:
+        # Gli admin vedono le statistiche di tutti
+        if session.get('user_role') == 'admin':
+            stats = db_manager.get_user_stats()
+            global_view = True
+        else:
+            # Gli utenti normali vedono solo le proprie
+            user_id = session.get('user_id')
+            stats = db_manager.get_user_stats(user_id)
+            global_view = False
+        
+        # Ensure stats has the expected structure to prevent template errors
+        if not isinstance(stats, dict):
+            stats = {}
+        if 'actions_by_type' not in stats:
+            stats['actions_by_type'] = {}
+        if 'total_annotations' not in stats:
+            stats['total_annotations'] = 0
+        if 'documents_modified' not in stats:
+            stats['documents_modified'] = 0
+        if 'annotations_by_type' not in stats:
+            stats['annotations_by_type'] = {}
+        if 'activity_by_day' not in stats:
+            stats['activity_by_day'] = {}
+        if 'users' not in stats and global_view:
+            stats['users'] = []
+        
+        # Ottieni tutti gli utenti per il filtro (solo per admin)
+        users = []
+        if global_view:
+            users = db_manager.get_all_users()
+        
+        return render_template('dashboard.html', stats=stats, global_view=global_view, users=users)
+    except Exception as e:
+        annotation_logger.error(f"Errore nel caricamento del dashboard: {e}")
+        flash('Si è verificato un errore nel caricamento delle statistiche.', 'danger')
+        return redirect(url_for('index'))
     
-    # Ottieni tutti gli utenti per il filtro (solo per admin)
-    users = []
-    if global_view:
-        users = db_manager.get_all_users()
-    
-    return render_template('dashboard.html', stats=stats, global_view=global_view, users=users)
-
 # --- Aggiungi questa sezione dopo la definizione di app Flask ---
 # Carica la configurazione
 def load_config():
+    """
+    Carica la configurazione dell'applicazione dal file config.ini o crea una
+    configurazione predefinita se non esiste.
+    
+    Returns:
+        ConfigParser: Oggetto configurazione
+    """
     config = configparser.ConfigParser()
     config_path = os.environ.get('NER_CONFIG', 'config.ini')
     
@@ -717,17 +736,16 @@ annotation_logger.info(f"Directory backup: {backup_dir}")
 
 db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
 
-# Directory per i dati e i backup
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-os.makedirs(DATA_DIR, exist_ok=True)
-BACKUP_DIR = os.path.join(DATA_DIR, 'backup')
-os.makedirs(BACKUP_DIR, exist_ok=True)
-
-
 # -----------------------------------------------------------------------------
 # Funzioni helper per la persistenza dei documenti e delle annotazioni
 # -----------------------------------------------------------------------------
 def load_documents() -> List[Dict[str, Any]]:
+    """
+    Carica i documenti dal database.
+    
+    Returns:
+        Lista di documenti
+    """
     try:
         return db_manager.get_documents()
     except Exception as e:
@@ -735,6 +753,15 @@ def load_documents() -> List[Dict[str, Any]]:
         return []
 
 def save_documents(documents: List[Dict[str, Any]]) -> bool:
+    """
+    Salva i documenti nel database.
+    
+    Args:
+        documents: Lista di documenti da salvare
+        
+    Returns:
+        True se salvati con successo, False altrimenti
+    """
     try:
         for doc in documents:
             db_manager.save_document(doc)
@@ -744,6 +771,12 @@ def save_documents(documents: List[Dict[str, Any]]) -> bool:
         return False
     
 def load_annotations() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Carica le annotazioni dal database.
+    
+    Returns:
+        Dizionario di annotazioni raggruppate per documento
+    """
     try:
         return db_manager.get_annotations()
     except Exception as e:
@@ -751,6 +784,15 @@ def load_annotations() -> Dict[str, List[Dict[str, Any]]]:
         return {}
 
 def save_annotations(annotations: Dict[str, List[Dict[str, Any]]]) -> bool:
+    """
+    Salva le annotazioni nel database.
+    
+    Args:
+        annotations: Dizionario di annotazioni raggruppate per documento
+        
+    Returns:
+        True se salvate con successo, False altrimenti
+    """
     try:
         for doc_id, doc_annotations in annotations.items():
             for annotation in doc_annotations:
@@ -761,6 +803,12 @@ def save_annotations(annotations: Dict[str, List[Dict[str, Any]]]) -> bool:
         return False
 
 def cleanup_backups(max_backups: int = None):
+    """
+    Effettua la pulizia dei backup più vecchi.
+    
+    Args:
+        max_backups: Numero massimo di backup da mantenere
+    """
     if max_backups is None:
         max_backups = config.getint('Database', 'max_backups', fallback=10)
     
@@ -775,19 +823,23 @@ def cleanup_backups(max_backups: int = None):
 # -----------------------------------------------------------------------------
 @app.errorhandler(404)
 def not_found(e):
+    """Gestore per errori 404."""
     return jsonify({"status": "error", "message": "Risorsa non trovata"}), 404
 
 @app.errorhandler(500)
 def server_error(e):
+    """Gestore per errori 500."""
     annotation_logger.error(f"Errore del server: {str(e)}")
     return jsonify({"status": "error", "message": "Errore interno del server"}), 500
 
 @app.before_request
 def log_request():
+    """Log delle richieste in arrivo."""
     annotation_logger.debug(f"Richiesta: {request.method} {request.path}")
 
 @app.after_request
 def log_response(response):
+    """Log delle risposte in uscita."""
     annotation_logger.debug(f"Risposta: {response.status_code}")
     return response
 
@@ -797,12 +849,21 @@ def log_response(response):
 @app.route('/')
 @login_required
 def index():
+    """
+    Pagina iniziale dell'applicazione.
+    """
     documents = load_documents()
     return render_template('index.html', documents=documents)
 
 @app.route('/annotate/<doc_id>')
 @login_required
 def annotate(doc_id):
+    """
+    Pagina di annotazione per un documento specifico.
+    
+    Args:
+        doc_id: ID del documento da annotare
+    """
     documents = load_documents()
     annotations = load_annotations()
     document = next((doc for doc in documents if doc['id'] == doc_id), None)
@@ -814,13 +875,19 @@ def annotate(doc_id):
 @app.route('/entity_types')
 @login_required
 def entity_types():
+    """
+    Pagina di gestione dei tipi di entità.
+    """
     return render_template('entity_types.html', entity_types=ENTITY_TYPES)
 
-# Modifica le API per includere l'utente corrente
+# --- API per la gestione delle entità ---
 
 @app.route('/api/save_annotation', methods=['POST'])
 @login_required
 def save_annotation():
+    """
+    API per salvare un'annotazione.
+    """
     try:
         data = request.json
         doc_id = data.get('doc_id')
@@ -844,6 +911,9 @@ def save_annotation():
 @app.route('/api/upload_document', methods=['POST'])
 @login_required
 def upload_document():
+    """
+    API per caricare un nuovo documento.
+    """
     try:
         if 'file' not in request.files:
             return jsonify({"status": "error", "message": "Nessun file caricato"}), 400
@@ -880,9 +950,12 @@ def upload_document():
         annotation_logger.error(f"Errore nell'upload del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Modifica la route '/api/delete_annotation'
 @app.route('/api/delete_annotation', methods=['POST'])
+@login_required
 def delete_annotation():
+    """
+    API per eliminare un'annotazione.
+    """
     try:
         data = request.json
         doc_id = data.get('doc_id')
@@ -899,9 +972,12 @@ def delete_annotation():
         annotation_logger.error(f"Errore nell'eliminazione dell'annotazione: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Modifica la route '/api/update_annotation'
 @app.route('/api/update_annotation', methods=['POST'])
+@login_required
 def update_annotation():
+    """
+    API per aggiornare un'annotazione esistente.
+    """
     try:
         data = request.json
         doc_id = data.get('doc_id')
@@ -923,9 +999,12 @@ def update_annotation():
         annotation_logger.error(f"Errore nell'aggiornamento dell'annotazione: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Modifica la route '/api/delete_document'
 @app.route('/api/delete_document', methods=['POST'])
+@login_required
 def delete_document():
+    """
+    API per eliminare un documento.
+    """
     try:
         data = request.json
         doc_id = data.get('doc_id')
@@ -945,9 +1024,12 @@ def delete_document():
         annotation_logger.error(f"Errore nell'eliminazione del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Modifica la route '/api/update_document'
 @app.route('/api/update_document', methods=['POST'])
+@login_required
 def update_document():
+    """
+    API per aggiornare un documento esistente.
+    """
     try:
         data = request.json
         doc_id = data.get('doc_id')
@@ -977,7 +1059,11 @@ def update_document():
 
 
 @app.route('/api/export_annotations', methods=['GET'])
+@login_required
 def export_annotations():
+    """
+    API per esportare le annotazioni in vari formati.
+    """
     try:
         format_type = request.args.get('format', 'json')
         
@@ -1002,7 +1088,11 @@ def export_annotations():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/recognize', methods=['POST'])
+@login_required
 def recognize_entities():
+    """
+    API per il riconoscimento automatico delle entità.
+    """
     try:
         data = request.json
         text = data.get('text')
@@ -1024,7 +1114,11 @@ def recognize_entities():
         return jsonify({"status": "error", "message": f"Errore nel riconoscimento delle entità: {str(e)}"}), 500
 
 @app.route('/api/train_model', methods=['POST'])
+@login_required
 def train_model():
+    """
+    API per esportare dati di addestramento per il modello.
+    """
     try:
         annotations = load_annotations()
         documents = load_documents()
@@ -1051,7 +1145,11 @@ def train_model():
         return jsonify({"status": "error", "message": f"Errore: {str(e)}"}), 500
 
 @app.route('/api/clear_annotations', methods=['POST'])
+@login_required
 def clear_annotations():
+    """
+    API per eliminare tutte le annotazioni di un documento o di un tipo specifico.
+    """
     try:
         data = request.json
         doc_id = data.get('doc_id')
@@ -1080,7 +1178,11 @@ def clear_annotations():
 
 
 @app.route('/api/annotation_stats', methods=['GET'])
+@login_required
 def annotation_stats():
+    """
+    API per ottenere statistiche sulle annotazioni.
+    """
     try:
         annotations = load_annotations()
         documents = load_documents()
@@ -1134,16 +1236,21 @@ def annotation_stats():
         annotation_logger.error(f"Errore nel calcolo delle statistiche: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/entity_types')
-def entity_types():
-    return render_template('entity_types.html', entity_types=ENTITY_TYPES)
-
 # -----------------------------------------------------------------------------
 # Endpoint API migliorati per la gestione dei tipi di entità
 # -----------------------------------------------------------------------------
 logger = logging.getLogger("ner_giuridico.entity_api")
 
 def api_endpoint(func):
+    """
+    Decoratore per standardizzare la gestione degli errori negli endpoint API.
+    
+    Args:
+        func: Funzione endpoint da decorare
+        
+    Returns:
+        Funzione wrapper che gestisce gli errori
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
         start_time = time.time()
@@ -1169,6 +1276,7 @@ def api_endpoint(func):
     return wrapper
 
 def validate_entity_name(name: str, is_update: bool = False) -> None:
+    """Valida il nome di un'entità."""
     if is_update:
         return
     if not name:
@@ -1181,12 +1289,14 @@ def validate_entity_name(name: str, is_update: bool = False) -> None:
         raise ValueError("Il nome dell'entità può contenere solo lettere maiuscole, numeri e underscore")
 
 def validate_entity_display_name(display_name: str) -> None:
+    """Valida il nome visualizzato di un'entità."""
     if not display_name:
         raise ValueError("Il nome visualizzato dell'entità è obbligatorio")
     if len(display_name) > 100:
         raise ValueError("Il nome visualizzato dell'entità non può superare i 100 caratteri")
 
 def validate_entity_category(category: str) -> None:
+    """Valida la categoria di un'entità."""
     valid_categories = ['normative', 'jurisprudence', 'concepts', 'custom']
     if not category:
         raise ValueError("La categoria dell'entità è obbligatoria")
@@ -1194,12 +1304,14 @@ def validate_entity_category(category: str) -> None:
         raise ValueError(f"La categoria dell'entità deve essere una tra: {', '.join(valid_categories)}")
 
 def validate_entity_color(color: str) -> None:
+    """Valida il colore di un'entità."""
     if not color:
         raise ValueError("Il colore dell'entità è obbligatorio")
     if not re.match(r'^#[0-9A-Fa-f]{6}$', color):
         raise ValueError("Il colore dell'entità deve essere in formato esadecimale (es. #FF0000)")
 
 def validate_metadata_schema(metadata_schema: Dict[str, str]) -> None:
+    """Valida lo schema dei metadati di un'entità."""
     if not isinstance(metadata_schema, dict):
         raise ValueError("Lo schema dei metadati deve essere un dizionario")
     valid_types = ['string', 'number', 'boolean', 'date', 'array']
@@ -1212,6 +1324,7 @@ def validate_metadata_schema(metadata_schema: Dict[str, str]) -> None:
             raise ValueError(f"Il tipo '{value}' non è valido. I tipi validi sono: {', '.join(valid_types)}")
 
 def validate_regex_patterns(patterns: List[str]) -> None:
+    """Valida i pattern regex di un'entità."""
     if not isinstance(patterns, list):
         raise ValueError("I pattern devono essere una lista di stringhe")
     for pattern in patterns:
@@ -1263,6 +1376,12 @@ def get_entity_types():
 
 @api_endpoint
 def get_entity_type(name: str):
+    """
+    Ottiene un tipo di entità specifico.
+    
+    Args:
+        name: Nome del tipo di entità
+    """
     from ner_giuridico.entities.entity_manager import get_entity_manager
     entity_manager = get_entity_manager()
     entity_type = entity_manager.get_entity_type(name)
@@ -1280,6 +1399,9 @@ def get_entity_type(name: str):
 
 @api_endpoint
 def create_entity_type():
+    """
+    Crea un nuovo tipo di entità.
+    """
     from ner_giuridico.entities.entity_manager import get_entity_manager
     data = request.json
     if not data:
@@ -1324,6 +1446,12 @@ def create_entity_type():
 
 @api_endpoint
 def update_entity_type(name: str):
+    """
+    Aggiorna un tipo di entità esistente.
+    
+    Args:
+        name: Nome del tipo di entità da aggiornare
+    """
     from ner_giuridico.entities.entity_manager import get_entity_manager
     data = request.json
     if not data:
@@ -1480,6 +1608,9 @@ def check_entity_type_in_use(entity_type_name: str) -> bool:
     
 @api_endpoint
 def test_entity_pattern():
+    """
+    Testa un pattern regex su un testo di esempio.
+    """
     data = request.json
     if not data:
         raise ValueError("Dati mancanti nella richiesta")
@@ -1504,6 +1635,12 @@ def test_entity_pattern():
     return jsonify({"status": "success", "pattern": pattern, "matches_count": len(matches), "matches": matches})
 
 def register_entity_api_endpoints(app):
+    """
+    Registra tutti gli endpoint API per la gestione dei tipi di entità.
+    
+    Args:
+        app: Istanza dell'applicazione Flask
+    """
     app.route('/api/entity_types', methods=['GET'])(get_entity_types)
     app.route('/api/entity_types/<name>', methods=['GET'])(get_entity_type)
     app.route('/api/entity_types', methods=['POST'])(create_entity_type)

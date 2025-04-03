@@ -30,7 +30,7 @@ class DBContextManager:
         return self.conn, self.cursor
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
+        if (exc_type is None):
             self.conn.commit()
         else:
             self.conn.rollback()
@@ -420,68 +420,135 @@ class AnnotationDBManager:
                     base_query += f" AND user_id = '{user_id}'"
                 
                 # Conteggio totale annotazioni
-                cursor.execute(f"""
-                    SELECT COUNT(*) FROM annotations
-                    WHERE date_created > '{date_limit}'
-                    {"AND created_by = ?" if user_id else ""}
-                """, (user_id,) if user_id else ())
-                stats['total_annotations'] = cursor.fetchone()[0]
+                try:
+                    # Check if created_by column exists in annotations table
+                    cursor.execute("PRAGMA table_info(annotations)")
+                    columns = cursor.fetchall()
+                    created_by_exists = any(col[1] == 'created_by' for col in columns)
+                    
+                    if created_by_exists:
+                        query = f"""
+                            SELECT COUNT(*) FROM annotations
+                            WHERE date_created > '{date_limit}'
+                            {"AND created_by = ?" if user_id else ""}
+                        """
+                        cursor.execute(query, (user_id,) if user_id else ())
+                    else:
+                        # Fallback if created_by column doesn't exist
+                        query = f"""
+                            SELECT COUNT(*) FROM annotations
+                            WHERE date_created > '{date_limit}'
+                        """
+                        cursor.execute(query)
+                        
+                    stats['total_annotations'] = cursor.fetchone()[0]
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio delle annotazioni: {e}")
+                    stats['total_annotations'] = 0
                 
                 # Conteggio per tipo di entità
-                cursor.execute(f"""
-                    SELECT type, COUNT(*) as count FROM annotations
-                    WHERE date_created > '{date_limit}'
-                    {"AND created_by = ?" if user_id else ""}
-                    GROUP BY type
-                """, (user_id,) if user_id else ())
-                stats['annotations_by_type'] = {row['type']: row['count'] for row in cursor.fetchall()}
+                try:
+                    if created_by_exists and user_id:
+                        query = f"""
+                            SELECT type, COUNT(*) as count FROM annotations
+                            WHERE date_created > '{date_limit}'
+                            AND created_by = ?
+                            GROUP BY type
+                        """
+                        cursor.execute(query, (user_id,))
+                    else:
+                        query = f"""
+                            SELECT type, COUNT(*) as count FROM annotations
+                            WHERE date_created > '{date_limit}'
+                            GROUP BY type
+                        """
+                        cursor.execute(query)
+                        
+                    stats['annotations_by_type'] = {row['type']: row['count'] for row in cursor.fetchall()}
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio dei tipi di entità: {e}")
+                    stats['annotations_by_type'] = {}
                 
                 # Attività per giorno
-                cursor.execute(f"""
-                    SELECT substr(timestamp, 1, 10) as day, COUNT(*) as count
-                    FROM user_activity
-                    {base_query}
-                    GROUP BY day
-                    ORDER BY day
-                """)
-                stats['activity_by_day'] = {row['day']: row['count'] for row in cursor.fetchall()}
+                try:
+                    cursor.execute(f"""
+                        SELECT substr(timestamp, 1, 10) as day, COUNT(*) as count
+                        FROM user_activity
+                        {base_query}
+                        GROUP BY day
+                        ORDER BY day
+                    """)
+                    stats['activity_by_day'] = {row['day']: row['count'] for row in cursor.fetchall()}
+                except Exception as e:
+                    self.logger.error(f"Errore nel recupero dell'attività per giorno: {e}")
+                    stats['activity_by_day'] = {}
                 
                 # Conteggio attività per tipo di azione
-                cursor.execute(f"""
-                    SELECT action_type, COUNT(*) as count
-                    FROM user_activity
-                    {base_query}
-                    GROUP BY action_type
-                """)
-                stats['actions_by_type'] = {row['action_type']: row['count'] for row in cursor.fetchall()}
+                try:
+                    cursor.execute(f"""
+                        SELECT action_type, COUNT(*) as count
+                        FROM user_activity
+                        {base_query}
+                        GROUP BY action_type
+                    """)
+                    stats['actions_by_type'] = {row['action_type']: row['count'] for row in cursor.fetchall()}
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio dei tipi di azione: {e}")
+                    stats['actions_by_type'] = {}
                 
                 # Documenti modificati
-                cursor.execute(f"""
-                    SELECT COUNT(DISTINCT document_id) as count
-                    FROM user_activity
-                    WHERE document_id IS NOT NULL
-                    AND timestamp > '{date_limit}'
-                    {"AND user_id = ?" if user_id else ""}
-                """, (user_id,) if user_id else ())
-                stats['documents_modified'] = cursor.fetchone()[0]
+                try:
+                    cursor.execute(f"""
+                        SELECT COUNT(DISTINCT document_id) as count
+                        FROM user_activity
+                        WHERE document_id IS NOT NULL
+                        AND timestamp > '{date_limit}'
+                        {"AND user_id = ?" if user_id else ""}
+                    """, (user_id,) if user_id else ())
+                    stats['documents_modified'] = cursor.fetchone()[0]
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio dei documenti modificati: {e}")
+                    stats['documents_modified'] = 0
                 
                 # Se richiedono statistiche globali (senza user_id specifico)
                 if not user_id:
-                    # Statistiche per utente
-                    cursor.execute(f"""
-                        SELECT u.id, u.username, u.full_name, COUNT(a.id) as annotations_count
-                        FROM users u
-                        LEFT JOIN annotations a ON u.id = a.created_by AND a.date_created > '{date_limit}'
-                        GROUP BY u.id
-                        ORDER BY annotations_count DESC
-                    """)
-                    stats['users'] = [dict(row) for row in cursor.fetchall()]
+                    try:
+                        # Statistiche per utente
+                        # Check if annotations table has created_by column
+                        if created_by_exists:
+                            cursor.execute(f"""
+                                SELECT u.id, u.username, u.full_name, COUNT(a.id) as annotations_count
+                                FROM users u
+                                LEFT JOIN annotations a ON u.id = a.created_by AND a.date_created > '{date_limit}'
+                                GROUP BY u.id
+                                ORDER BY annotations_count DESC
+                            """)
+                        else:
+                            # Fallback if created_by column doesn't exist in annotations
+                            cursor.execute(f"""
+                                SELECT u.id, u.username, u.full_name, 0 as annotations_count
+                                FROM users u
+                                GROUP BY u.id
+                                ORDER BY u.username
+                            """)
+                        
+                        stats['users'] = [dict(row) for row in cursor.fetchall()]
+                    except Exception as e:
+                        self.logger.error(f"Errore nel recupero delle statistiche per utente: {e}")
+                        stats['users'] = []
                 
                 return stats
         except Exception as e:
-            logger.error(f"Errore nel recupero delle statistiche: {e}")
-            return {}
-
+            self.logger.error(f"Errore nel recupero delle statistiche: {e}")
+            return {
+                'total_annotations': 0,
+                'annotations_by_type': {},
+                'activity_by_day': {},
+                'actions_by_type': {},
+                'documents_modified': 0,
+                'users': []
+            }
+        
     def get_user_assignments(self, user_id: str) -> list:
         """
         Ottiene i documenti assegnati a un utente.
@@ -537,9 +604,9 @@ class AnnotationDBManager:
             logger.error(f"Errore nell'assegnazione del documento: {e}")
             return False
 
-        # ---- Operazioni di backup ----
-        
-        def create_backup(self) -> str:
+    # ---- Operazioni di backup ----
+    
+    def create_backup(self) -> str:
             """
             Crea un backup del database.
             
@@ -561,8 +628,8 @@ class AnnotationDBManager:
             except Exception as e:
                 logger.error(f"Errore nella creazione del backup: {e}")
                 return None
-        
-        def cleanup_backups(self, max_backups: int = 10) -> None:
+    
+    def cleanup_backups(self, max_backups: int = 10) -> None:
             """
             Pulisce i vecchi backup mantenendo solo i più recenti.
             
@@ -584,10 +651,10 @@ class AnnotationDBManager:
                         logger.debug(f"Backup rimosso: {filepath}")
             except Exception as e:
                 logger.error(f"Errore nella pulizia dei backup: {e}")
-        
-        # ---- Operazioni sui documenti ----
-        
-        def get_documents(self) -> List[Dict[str, Any]]:
+    
+    # ---- Operazioni sui documenti ----
+    
+    def get_documents(self) -> List[Dict[str, Any]]:
             """
             Ottiene tutti i documenti dal database.
             
@@ -597,8 +664,8 @@ class AnnotationDBManager:
             with self._get_db() as (conn, cursor):
                 cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
                 return [dict(row) for row in cursor.fetchall()]
-        
-        def get_document(self, doc_id: str) -> Dict[str, Any]:
+    
+    def get_document(self, doc_id: str) -> Dict[str, Any]:
             """
             Ottiene un documento specifico dal database.
             
@@ -612,8 +679,8 @@ class AnnotationDBManager:
                 cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
                 row = cursor.fetchone()
                 return dict(row) if row else None
-        
-        def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
+    
+    def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
             """
             Salva un documento nel database.
             

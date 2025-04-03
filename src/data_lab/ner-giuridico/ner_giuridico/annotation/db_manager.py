@@ -50,6 +50,9 @@ class AnnotationDBManager:
             db_path: Percorso del file database SQLite. Se None, viene utilizzato il percorso predefinito.
             backup_dir: Directory per i backup. Se None, viene utilizzata la directory predefinita.
         """
+        # Logger setup
+        self.logger = logging.getLogger("db_manager")
+        
         # Percorso predefinito se non specificato
         if db_path is None:
             app_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,11 +69,20 @@ class AnnotationDBManager:
         
         self.db_path = db_path
         self.backup_dir = backup_dir
-        logger.info(f"Database inizializzato: {self.db_path}")
-        logger.info(f"Directory backup: {self.backup_dir}")
+        self.logger.info(f"Database inizializzato: {self.db_path}")
+        self.logger.info(f"Directory backup: {self.backup_dir}")
         
         # Inizializza il database
         self._init_db()
+        
+        # Run database migrations to ensure schema is up to date
+        try:
+            from .db_migrations import run_migrations
+            run_migrations(self.db_path)
+        except ImportError:
+            self.logger.warning("Module db_migrations not found. Skipping migrations.")
+        except Exception as e:
+            self.logger.error(f"Error running migrations: {e}") 
     
     def _get_db(self) -> DBContextManager:
         """

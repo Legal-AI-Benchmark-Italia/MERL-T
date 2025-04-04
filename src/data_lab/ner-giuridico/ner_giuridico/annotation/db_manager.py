@@ -30,7 +30,7 @@ class DBContextManager:
         return self.conn, self.cursor
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is None:
+        if (exc_type is None):
             self.conn.commit()
         else:
             self.conn.rollback()
@@ -50,6 +50,9 @@ class AnnotationDBManager:
             db_path: Percorso del file database SQLite. Se None, viene utilizzato il percorso predefinito.
             backup_dir: Directory per i backup. Se None, viene utilizzata la directory predefinita.
         """
+        # Logger setup
+        self.logger = logging.getLogger("db_manager")
+        
         # Setup logger
         self.logger = logging.getLogger("db_manager")
         
@@ -74,7 +77,7 @@ class AnnotationDBManager:
         
         # Inizializza il database
         self._init_db()
-        
+    
     def _get_db(self) -> DBContextManager:
         """
         Ottiene un context manager per la connessione al database.
@@ -555,16 +558,9 @@ class AnnotationDBManager:
                 
                 return stats
         except Exception as e:
-            self.logger.error(f"Errore nel recupero delle statistiche: {e}")
-            return {
-                'total_annotations': 0,
-                'annotations_by_type': {},
-                'activity_by_day': {},
-                'actions_by_type': {},
-                'documents_modified': 0,
-                'users': []
-            }
-            
+            logger.error(f"Errore nel recupero delle statistiche: {e}")
+            return {}
+
     def get_user_assignments(self, user_id: str) -> list:
         """
         Ottiene i documenti assegnati a un utente.
@@ -620,9 +616,9 @@ class AnnotationDBManager:
             logger.error(f"Errore nell'assegnazione del documento: {e}")
             return False
 
-        # ---- Operazioni di backup ----
-        
-        def create_backup(self) -> str:
+    # ---- Operazioni di backup ----
+    
+    def create_backup(self) -> str:
             """
             Crea un backup del database.
             
@@ -644,8 +640,8 @@ class AnnotationDBManager:
             except Exception as e:
                 logger.error(f"Errore nella creazione del backup: {e}")
                 return None
-        
-        def cleanup_backups(self, max_backups: int = 10) -> None:
+    
+    def cleanup_backups(self, max_backups: int = 10) -> None:
             """
             Pulisce i vecchi backup mantenendo solo i più recenti.
             
@@ -667,10 +663,10 @@ class AnnotationDBManager:
                         logger.debug(f"Backup rimosso: {filepath}")
             except Exception as e:
                 logger.error(f"Errore nella pulizia dei backup: {e}")
-        
-        # ---- Operazioni sui documenti ----
-        
-        def get_documents(self) -> List[Dict[str, Any]]:
+    
+    # ---- Operazioni sui documenti ----
+    
+    def get_documents(self) -> List[Dict[str, Any]]:
             """
             Ottiene tutti i documenti dal database.
             
@@ -680,8 +676,8 @@ class AnnotationDBManager:
             with self._get_db() as (conn, cursor):
                 cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
                 return [dict(row) for row in cursor.fetchall()]
-        
-        def get_document(self, doc_id: str) -> Dict[str, Any]:
+    
+    def get_document(self, doc_id: str) -> Dict[str, Any]:
             """
             Ottiene un documento specifico dal database.
             
@@ -695,8 +691,8 @@ class AnnotationDBManager:
                 cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
                 row = cursor.fetchone()
                 return dict(row) if row else None
-        
-        def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
+    
+    def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
             """
             Salva un documento nel database.
             

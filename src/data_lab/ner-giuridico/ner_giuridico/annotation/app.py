@@ -2,6 +2,7 @@
 """
 Interfaccia web per l'annotazione di entità giuridiche e la gestione dei tipi di entità.
 File completo con implementazioni strutturate e robuste, ottimizzato e corretto.
+File completo con implementazioni strutturate e robuste, ottimizzato e corretto.
 """
 
 import functools
@@ -731,9 +732,25 @@ db_path = config.get('Database', 'path', fallback=os.path.join(DATA_DIR, 'annota
 backup_dir = config.get('Database', 'backups', fallback=BACKUP_DIR)
 max_backups = config.getint('Database', 'max_backups', fallback=10)
 
+try:
+    from .db_migrations import run_migrations
+except ImportError:
+    annotation_logger.warning("Could not import db_migrations module")
+    run_migrations = None
+
+# Then modify the section where db_manager is initialized:
 annotation_logger.info(f"Utilizzo database in: {db_path}")
 annotation_logger.info(f"Directory backup: {backup_dir}")
 
+# Run migrations before initializing db_manager
+if run_migrations:
+    try:
+        annotation_logger.info(f"Running database migrations on {db_path}")
+        run_migrations(db_path)
+    except Exception as e:
+        annotation_logger.error(f"Error running migrations: {e}")
+
+# Initialize database manager
 db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
 
 # -----------------------------------------------------------------------------

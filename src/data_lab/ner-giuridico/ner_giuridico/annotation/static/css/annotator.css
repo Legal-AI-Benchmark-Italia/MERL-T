@@ -1,0 +1,20 @@
+/* Keyboard Shortcuts Visual Feedback */
+.keyboard-activate {
+    animation: keyboardActivate 0.3s ease-in-out;
+}
+
+.btn-flash {
+    animation: buttonFlash 0.3s ease-in-out;
+}
+
+@keyframes keyboardActivate {
+    0% { transform: scale(1); background-color: inherit; }
+    50% { transform: scale(1.05); background-color: var(--bs-primary); }
+    100% { transform: scale(1); background-color: inherit; }
+}
+
+@keyframes buttonFlash {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}

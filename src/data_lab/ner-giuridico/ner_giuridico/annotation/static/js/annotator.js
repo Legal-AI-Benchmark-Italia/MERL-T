@@ -547,28 +547,74 @@ function setupEventListeners() {
         confirmClearByTypeBtn.disabled = !event.target.value;
     });
 
-    // Keyboard Shortcuts
-    document.addEventListener('keydown', (event) => {
-        // Deselect type/selection on Escape
-        if (event.key === 'Escape') {
-            clearSelection();
-        }
-        // Select entity type with Alt + Number
-        if (event.altKey && !isNaN(parseInt(event.key))) {
-            const index = parseInt(event.key) - 1;
-            const typeElement = entityTypeListEl?.querySelectorAll('.entity-type')[index];
-            if (typeElement) {
-                event.preventDefault();
-                setActiveEntityType(typeElement.dataset.entityType);
-            }
-        }
-        // Add more shortcuts as needed (e.g., Alt+A for auto-annotate)
-        if (event.altKey && event.key.toLowerCase() === 'a') {
-             event.preventDefault();
-             handleAutoAnnotate();
-        }
-    });
+    // Registro dei tasti di scelta rapida con debug
+    setupKeyboardShortcuts();
 }
+
+function setupKeyboardShortcuts() {
+    console.log("Registrazione dei tasti di scelta rapida...");
+    
+    // Rimuovi eventuali gestori di eventi esistenti per evitare duplicazioni
+    document.removeEventListener('keydown', handleKeyDown);
+    
+    // Aggiungi il nuovo gestore di eventi
+    document.addEventListener('keydown', handleKeyDown);
+    
+    console.log("Tasti di scelta rapida registrati con successo");
+}
+
+function handleKeyDown(event) {
+    // Non processare i keydown se stiamo modificando del testo o ci sono modali aperti
+    if (isEditingText || 
+        document.querySelector('.modal.show') || 
+        event.target.tagName === 'INPUT' || 
+        event.target.tagName === 'TEXTAREA') {
+        return;
+    }
+
+    console.log(`Tasto premuto: ${event.key}, Alt: ${event.altKey}, Ctrl: ${event.ctrlKey}, Shift: ${event.shiftKey}`);
+
+    // Deselect type/selection on Escape
+    if (event.key === 'Escape') {
+        console.log("Escape premuto: eseguo clearSelection()");
+        clearSelection();
+        event.preventDefault();
+    }
+    
+    // Select entity type with Alt + Number
+    if (event.altKey && !isNaN(parseInt(event.key))) {
+        const index = parseInt(event.key) - 1;
+        console.log(`Alt+${event.key} premuto, cerco il tipo di entità all'indice ${index}`);
+        
+        const entityTypeElements = entityTypeListEl?.querySelectorAll('.entity-type');
+        
+        if (entityTypeElements && index >= 0 && index < entityTypeElements.length) {
+            const typeElement = entityTypeElements[index];
+            const entityTypeId = typeElement.dataset.entityType;
+            console.log(`Trovato tipo di entità: ${entityTypeId}`);
+            
+            event.preventDefault();
+            setActiveEntityType(entityTypeId);
+        } else {
+            console.log(`Nessun tipo di entità trovato all'indice ${index}`);
+        }
+    }
+    
+    // Alt+A for auto-annotate
+    if (event.altKey && event.key.toLowerCase() === 'a') {
+        console.log("Alt+A premuto: eseguo handleAutoAnnotate()");
+        event.preventDefault();
+        handleAutoAnnotate();
+    }
+    
+    // Ctrl+Z per annullare la selezione (alternativa a Escape)
+    if (event.ctrlKey && event.key.toLowerCase() === 'z') {
+        console.log("Ctrl+Z premuto: eseguo clearSelection()");
+        event.preventDefault();
+        clearSelection();
+    }
+}
+
 
 // --- Public Init ---
 export function initAnnotator() {
@@ -590,7 +636,15 @@ export function initAnnotator() {
         return;
     }
 
-    // Initialize Highlighting Engine (adjust based on its actual API)
+    // Verifica degli elementi dell'interfaccia per i key binding
+    if (entityTypeListEl) {
+        const entityTypes = entityTypeListEl.querySelectorAll('.entity-type');
+        console.log(`Trovati ${entityTypes.length} tipi di entità per i tasti di scelta rapida`);
+    } else {
+        console.warn("Entity type list element not found - keyboard shortcuts for entity selection won't work");
+    }
+
+    // Initialize Highlighting Engine
     highlightingEngine = new HighlightingEngine();
 
     setupEventListeners();
@@ -598,4 +652,21 @@ export function initAnnotator() {
     updateHighlighting();
     updateZoom();
     handleSort(currentSort);
+    
+    // Aggiungiamo un messaggio info all'utente sui tasti di scelta rapida disponibili
+    showKeyboardShortcutsInfo();
+}
+
+function showKeyboardShortcutsInfo() {
+    try {
+        const message = "Tasti di scelta rapida disponibili: Alt+[1-9] per selezionare un tipo di entità, Alt+A per l'annotazione automatica, Esc per annullare la selezione";
+        // Usiamo showNotification se disponibile, altrimenti console.log
+        if (typeof showNotification === 'function') {
+            showNotification(message, 'info', 'Scorciatoie da tastiera');
+        } else {
+            console.info(message);
+        }
+    } catch (error) {
+        console.warn("Impossibile mostrare l'informazione sui tasti di scelta rapida:", error);
+    }
 }

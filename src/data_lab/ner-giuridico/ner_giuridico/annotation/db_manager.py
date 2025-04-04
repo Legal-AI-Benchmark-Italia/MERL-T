@@ -50,6 +50,9 @@ class AnnotationDBManager:
             db_path: Percorso del file database SQLite. Se None, viene utilizzato il percorso predefinito.
             backup_dir: Directory per i backup. Se None, viene utilizzata la directory predefinita.
         """
+        # Setup logger
+        self.logger = logging.getLogger("db_manager")
+        
         # Percorso predefinito se non specificato
         if db_path is None:
             app_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,12 +69,12 @@ class AnnotationDBManager:
         
         self.db_path = db_path
         self.backup_dir = backup_dir
-        logger.info(f"Database inizializzato: {self.db_path}")
-        logger.info(f"Directory backup: {self.backup_dir}")
+        self.logger.info(f"Database inizializzato: {self.db_path}")
+        self.logger.info(f"Directory backup: {self.backup_dir}")
         
         # Inizializza il database
         self._init_db()
-    
+        
     def _get_db(self) -> DBContextManager:
         """
         Ottiene un context manager per la connessione al database.
@@ -85,6 +88,9 @@ class AnnotationDBManager:
         """
         Inizializza lo schema del database se necessario.
         """
+        logger = logging.getLogger("db_manager")  # Fallback logger if self.logger is not available
+        log = getattr(self, 'logger', logger)
+        
         with self._get_db() as (conn, cursor):
             # Tabella utenti
             cursor.execute('''
@@ -117,7 +123,7 @@ class AnnotationDBManager:
             )
             ''')
             
-            # Tabella annotazioni
+            # Tabella annotazioni (versione aggiornata con created_by)
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS annotations (
                 id TEXT PRIMARY KEY,
@@ -151,9 +157,19 @@ class AnnotationDBManager:
             )
             ''')
             
+            # Crea indici per migliorare le prestazioni
+            try:
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_doc_id ON annotations(doc_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_created_by ON annotations(created_by)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_type ON annotations(type)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_user_id ON user_activity(user_id)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON user_activity(timestamp)")
+            except Exception as e:
+                log.warning(f"Impossibile creare alcuni indici: {e}")
+            
             conn.commit()
-            logger.debug("Schema del database inizializzato")
-    
+            log.debug("Schema del database inizializzato")   
+             
     #--- Operazioni di gestione degli utenti ----
     def create_user(self, user_data: dict) -> dict:
         """
@@ -420,68 +436,135 @@ class AnnotationDBManager:
                     base_query += f" AND user_id = '{user_id}'"
                 
                 # Conteggio totale annotazioni
-                cursor.execute(f"""
-                    SELECT COUNT(*) FROM annotations
-                    WHERE date_created > '{date_limit}'
-                    {"AND created_by = ?" if user_id else ""}
-                """, (user_id,) if user_id else ())
-                stats['total_annotations'] = cursor.fetchone()[0]
+                try:
+                    # Check if created_by column exists in annotations table
+                    cursor.execute("PRAGMA table_info(annotations)")
+                    columns = cursor.fetchall()
+                    created_by_exists = any(col[1] == 'created_by' for col in columns)
+                    
+                    if created_by_exists:
+                        query = f"""
+                            SELECT COUNT(*) FROM annotations
+                            WHERE date_created > '{date_limit}'
+                            {"AND created_by = ?" if user_id else ""}
+                        """
+                        cursor.execute(query, (user_id,) if user_id else ())
+                    else:
+                        # Fallback if created_by column doesn't exist
+                        query = f"""
+                            SELECT COUNT(*) FROM annotations
+                            WHERE date_created > '{date_limit}'
+                        """
+                        cursor.execute(query)
+                        
+                    stats['total_annotations'] = cursor.fetchone()[0]
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio delle annotazioni: {e}")
+                    stats['total_annotations'] = 0
                 
                 # Conteggio per tipo di entità
-                cursor.execute(f"""
-                    SELECT type, COUNT(*) as count FROM annotations
-                    WHERE date_created > '{date_limit}'
-                    {"AND created_by = ?" if user_id else ""}
-                    GROUP BY type
-                """, (user_id,) if user_id else ())
-                stats['annotations_by_type'] = {row['type']: row['count'] for row in cursor.fetchall()}
+                try:
+                    if created_by_exists and user_id:
+                        query = f"""
+                            SELECT type, COUNT(*) as count FROM annotations
+                            WHERE date_created > '{date_limit}'
+                            AND created_by = ?
+                            GROUP BY type
+                        """
+                        cursor.execute(query, (user_id,))
+                    else:
+                        query = f"""
+                            SELECT type, COUNT(*) as count FROM annotations
+                            WHERE date_created > '{date_limit}'
+                            GROUP BY type
+                        """
+                        cursor.execute(query)
+                        
+                    stats['annotations_by_type'] = {row['type']: row['count'] for row in cursor.fetchall()}
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio dei tipi di entità: {e}")
+                    stats['annotations_by_type'] = {}
                 
                 # Attività per giorno
-                cursor.execute(f"""
-                    SELECT substr(timestamp, 1, 10) as day, COUNT(*) as count
-                    FROM user_activity
-                    {base_query}
-                    GROUP BY day
-                    ORDER BY day
-                """)
-                stats['activity_by_day'] = {row['day']: row['count'] for row in cursor.fetchall()}
+                try:
+                    cursor.execute(f"""
+                        SELECT substr(timestamp, 1, 10) as day, COUNT(*) as count
+                        FROM user_activity
+                        {base_query}
+                        GROUP BY day
+                        ORDER BY day
+                    """)
+                    stats['activity_by_day'] = {row['day']: row['count'] for row in cursor.fetchall()}
+                except Exception as e:
+                    self.logger.error(f"Errore nel recupero dell'attività per giorno: {e}")
+                    stats['activity_by_day'] = {}
                 
                 # Conteggio attività per tipo di azione
-                cursor.execute(f"""
-                    SELECT action_type, COUNT(*) as count
-                    FROM user_activity
-                    {base_query}
-                    GROUP BY action_type
-                """)
-                stats['actions_by_type'] = {row['action_type']: row['count'] for row in cursor.fetchall()}
+                try:
+                    cursor.execute(f"""
+                        SELECT action_type, COUNT(*) as count
+                        FROM user_activity
+                        {base_query}
+                        GROUP BY action_type
+                    """)
+                    stats['actions_by_type'] = {row['action_type']: row['count'] for row in cursor.fetchall()}
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio dei tipi di azione: {e}")
+                    stats['actions_by_type'] = {}
                 
                 # Documenti modificati
-                cursor.execute(f"""
-                    SELECT COUNT(DISTINCT document_id) as count
-                    FROM user_activity
-                    WHERE document_id IS NOT NULL
-                    AND timestamp > '{date_limit}'
-                    {"AND user_id = ?" if user_id else ""}
-                """, (user_id,) if user_id else ())
-                stats['documents_modified'] = cursor.fetchone()[0]
+                try:
+                    cursor.execute(f"""
+                        SELECT COUNT(DISTINCT document_id) as count
+                        FROM user_activity
+                        WHERE document_id IS NOT NULL
+                        AND timestamp > '{date_limit}'
+                        {"AND user_id = ?" if user_id else ""}
+                    """, (user_id,) if user_id else ())
+                    stats['documents_modified'] = cursor.fetchone()[0]
+                except Exception as e:
+                    self.logger.error(f"Errore nel conteggio dei documenti modificati: {e}")
+                    stats['documents_modified'] = 0
                 
                 # Se richiedono statistiche globali (senza user_id specifico)
                 if not user_id:
-                    # Statistiche per utente
-                    cursor.execute(f"""
-                        SELECT u.id, u.username, u.full_name, COUNT(a.id) as annotations_count
-                        FROM users u
-                        LEFT JOIN annotations a ON u.id = a.created_by AND a.date_created > '{date_limit}'
-                        GROUP BY u.id
-                        ORDER BY annotations_count DESC
-                    """)
-                    stats['users'] = [dict(row) for row in cursor.fetchall()]
+                    try:
+                        # Statistiche per utente
+                        # Check if annotations table has created_by column
+                        if created_by_exists:
+                            cursor.execute(f"""
+                                SELECT u.id, u.username, u.full_name, COUNT(a.id) as annotations_count
+                                FROM users u
+                                LEFT JOIN annotations a ON u.id = a.created_by AND a.date_created > '{date_limit}'
+                                GROUP BY u.id
+                                ORDER BY annotations_count DESC
+                            """)
+                        else:
+                            # Fallback if created_by column doesn't exist in annotations
+                            cursor.execute(f"""
+                                SELECT u.id, u.username, u.full_name, 0 as annotations_count
+                                FROM users u
+                                GROUP BY u.id
+                                ORDER BY u.username
+                            """)
+                        
+                        stats['users'] = [dict(row) for row in cursor.fetchall()]
+                    except Exception as e:
+                        self.logger.error(f"Errore nel recupero delle statistiche per utente: {e}")
+                        stats['users'] = []
                 
                 return stats
         except Exception as e:
-            logger.error(f"Errore nel recupero delle statistiche: {e}")
-            return {}
-
+            self.logger.error(f"Errore nel recupero delle statistiche: {e}")
+            return {
+                'total_annotations': 0,
+                'annotations_by_type': {},
+                'activity_by_day': {},
+                'actions_by_type': {},
+                'documents_modified': 0,
+                'users': []
+            }
+            
     def get_user_assignments(self, user_id: str) -> list:
         """
         Ottiene i documenti assegnati a un utente.

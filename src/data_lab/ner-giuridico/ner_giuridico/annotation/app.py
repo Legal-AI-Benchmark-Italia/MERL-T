@@ -189,6 +189,99 @@ os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # --- Funzioni di supporto per l'autenticazione ---
 
+# Assicura che esista un utente amministratore
+def ensure_admin_exists(db_manager):
+    """
+    Verifica che esista almeno un utente amministratore nel database.
+    Se non esiste, ne crea uno predefinito.
+    """
+    try:
+        annotation_logger.info("Verifico l'esistenza di un utente amministratore...")
+        users = db_manager.get_all_users()
+        
+        if not users:
+            annotation_logger.warning("Nessun utente trovato nel database.")
+            create_default_admin(db_manager.db_path)
+            return
+            
+        admin_exists = any(user.get('role') == 'admin' for user in users)
+        
+        if not admin_exists:
+            annotation_logger.warning("Nessun utente amministratore trovato. Creazione utente admin predefinito.")
+            create_default_admin(db_manager.db_path)
+        else:
+            annotation_logger.info("Utente amministratore esistente trovato nel database.")
+    except Exception as e:
+        annotation_logger.error(f"Errore durante la verifica degli utenti amministratori: {e}")
+        annotation_logger.exception(e)
+
+def create_default_admin(db_path):
+    """
+    Crea un utente amministratore predefinito nel database.
+    
+    Args:
+        db_path: Percorso del database SQLite
+    """
+    try:
+        from .__init_db import create_admin_user
+        success = create_admin_user(db_path, username='admin', password='admin')
+        if success:
+            annotation_logger.info("Utente amministratore predefinito creato con successo.")
+        else:
+            annotation_logger.error("Impossibile creare l'utente amministratore predefinito.")
+    except ImportError:
+        annotation_logger.error("Impossibile importare lo script di inizializzazione del database.")
+        try:
+            # Fallback: crea l'utente direttamente
+            import hashlib
+            import datetime
+            import uuid
+            import sqlite3
+            
+            # Hash della password
+            hashed_password = hashlib.sha256('admin'.encode()).hexdigest()
+            
+            # Dati utente
+            user_id = f"user_{str(uuid.uuid4())}"
+            now = datetime.datetime.now().isoformat()
+            
+            # Connetti al database
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Assicurati che la tabella esista
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                full_name TEXT,
+                role TEXT DEFAULT 'admin',
+                email TEXT,
+                active INTEGER DEFAULT 1,
+                date_created TEXT,
+                date_last_login TEXT
+            )
+            ''')
+            
+            # Inserisci utente admin
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO users 
+                (id, username, password, full_name, role, active, date_created)
+                VALUES (?, ?, ?, ?, 'admin', 1, ?)
+                """,
+                (user_id, 'admin', hashed_password, 'Amministratore', now)
+            )
+            
+            conn.commit()
+            conn.close()
+            
+            annotation_logger.info("Utente amministratore predefinito creato con metodo alternativo.")
+        except Exception as e:
+            annotation_logger.error(f"Errore nella creazione dell'utente amministratore: {e}")
+            annotation_logger.exception(e)
+
 def login_required(view):
     """
     Decoratore per richiedere l'accesso a una rotta.
@@ -204,6 +297,7 @@ def login_required(view):
         if not session.get('user_id'):
             # Memorizza l'URL originale per il redirect post-login
             session['next_url'] = request.url
+            annotation_logger.info(f"Accesso negato a {request.path}: utente non autenticato")
             flash('È necessario accedere per visualizzare questa pagina.', 'warning')
             return redirect(url_for('login'))
         return view(**kwargs)
@@ -223,10 +317,12 @@ def admin_required(view):
     def wrapped_view(**kwargs):
         if not session.get('user_id'):
             session['next_url'] = request.url
+            annotation_logger.info(f"Accesso negato a {request.path}: utente non autenticato")
             flash('È necessario accedere per visualizzare questa pagina.', 'warning')
             return redirect(url_for('login'))
         
         if session.get('user_role') != 'admin':
+            annotation_logger.warning(f"Accesso negato a {request.path}: l'utente {session.get('username')} non è admin")
             flash('Accesso non autorizzato. È richiesto un account amministratore.', 'danger')
             return redirect(url_for('index'))
         
@@ -241,11 +337,35 @@ def load_logged_in_user():
     user_id = session.get('user_id')
     if user_id is None:
         g.user = None
-    else:
+        return
+    
+    try:
         g.user = db_manager.get_user_by_id(user_id)
+        
+        # Se l'utente non è trovato nel database ma la sessione indica che è loggato
+        if g.user is None:
+            annotation_logger.warning(f"User with ID {user_id} not found in database but has active session")
+            session.clear()
+            g.user = None
+            flash('La tua sessione è scaduta. Effettua nuovamente l\'accesso.', 'warning')
+            return
+            
         # Rimuovi la password per sicurezza
         if g.user and 'password' in g.user:
             g.user.pop('password', None)
+            
+        # Verifica che l'utente sia attivo
+        if not g.user.get('active', 1):
+            annotation_logger.warning(f"User with ID {user_id} is inactive but has active session")
+            session.clear()
+            g.user = None
+            flash('Il tuo account è stato disattivato. Contatta l\'amministratore.', 'warning')
+    except Exception as e:
+        annotation_logger.error(f"Error loading user from session: {e}")
+        annotation_logger.exception(e)
+        # In caso di errore, pulisci la sessione per evitare problemi persistenti
+        session.clear()
+        g.user = None
 
 # --- API Endpoints ---
 
@@ -350,14 +470,21 @@ def login():
     """
     Gestisce il login degli utenti.
     """
+    # Log delle informazioni di sessione per debug
+    current_session = {k: v for k, v in session.items()}
+    annotation_logger.debug(f"Current session before login: {current_session}")
+    
     # Utente già autenticato
     if session.get('user_id'):
+        annotation_logger.info(f"User already logged in: {session.get('username')}")
         return redirect(url_for('index'))
     
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
         remember = request.form.get('remember') == 'on'
+        
+        annotation_logger.info(f"Login attempt for user: {username}")
         
         error = None
         
@@ -370,12 +497,14 @@ def login():
             user = db_manager.verify_user(username, password)
             
             if user:
-                # Configura sessione
                 session.clear()
                 session.permanent = remember
                 session['user_id'] = user['id']
                 session['username'] = user['username']
                 session['user_role'] = user['role']
+                
+                annotation_logger.info(f"User logged in successfully: {username}")
+                annotation_logger.debug(f"Session after login: {dict(session)}")
                 
                 # Log attività
                 db_manager.log_user_activity(
@@ -388,6 +517,7 @@ def login():
                 flash(f'Benvenuto, {user["username"]}!', 'success')
                 return redirect(next_url)
             else:
+                annotation_logger.warning(f"Invalid credentials for user: {username}")
                 error = 'Credenziali non valide.'
         
         flash(error, 'danger')
@@ -742,6 +872,10 @@ except ImportError:
 annotation_logger.info(f"Utilizzo database in: {db_path}")
 annotation_logger.info(f"Directory backup: {backup_dir}")
 
+# Initialize database manager
+db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
+ensure_admin_exists(db_manager)
+
 # Run migrations before initializing db_manager
 if run_migrations:
     try:
@@ -750,8 +884,6 @@ if run_migrations:
     except Exception as e:
         annotation_logger.error(f"Error running migrations: {e}")
 
-# Initialize database manager
-db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
 
 # -----------------------------------------------------------------------------
 # Funzioni helper per la persistenza dei documenti e delle annotazioni

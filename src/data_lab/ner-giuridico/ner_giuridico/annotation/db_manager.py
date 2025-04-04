@@ -262,31 +262,51 @@ class AnnotationDBManager:
             Dizionario con i dati dell'utente (senza password) o None se autenticazione fallita
         """
         try:
+            self.logger.debug(f"Attempting to verify user: {username}")
+            
+            if not username or not password:
+                self.logger.warning("Empty username or password provided")
+                return None
+            
             # Hash della password per confronto
             import hashlib
             hashed_password = hashlib.sha256(password.encode()).hexdigest()
             
             user = self.get_user_by_username(username)
             if not user:
+                self.logger.warning(f"User not found: {username}")
                 return None
             
-            if user['password'] != hashed_password:
+            # Verifica se l'utente è attivo
+            if not user.get('active', 1):
+                self.logger.warning(f"User account is inactive: {username}")
+                return None
+            
+            if user.get('password') != hashed_password:
+                self.logger.warning(f"Invalid password for user: {username}")
                 return None
             
             # Aggiorna last login
             now = datetime.datetime.now().isoformat()
-            with self._get_db() as (conn, cursor):
-                cursor.execute(
-                    "UPDATE users SET date_last_login = ? WHERE id = ?",
-                    (now, user['id'])
-                )
-                conn.commit()
+            try:
+                with self._get_db() as (conn, cursor):
+                    cursor.execute(
+                        "UPDATE users SET date_last_login = ? WHERE id = ?",
+                        (now, user['id'])
+                    )
+                    conn.commit()
+            except Exception as e:
+                self.logger.error(f"Error updating last login time: {e}")
+                # Non bloccare il login se l'aggiornamento fallisce
             
             # Non restituire la password
-            user.pop('password', None)
-            return user
+            user_copy = dict(user)
+            user_copy.pop('password', None)
+            self.logger.info(f"User verified successfully: {username}")
+            return user_copy
         except Exception as e:
-            logger.error(f"Errore nella verifica dell'utente: {e}")
+            self.logger.error(f"Unexpected error in verify_user: {e}")
+            self.logger.exception(e)
             return None
 
     def get_all_users(self) -> list:
@@ -361,16 +381,20 @@ class AnnotationDBManager:
             Dizionario con i dati dell'utente o None se non trovato
         """
         try:
+            self.logger.debug(f"Getting user by ID: {user_id}")
             with self._get_db() as (conn, cursor):
                 cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
                 row = cursor.fetchone()
                 if not row:
+                    self.logger.debug(f"User with ID '{user_id}' not found")
                     return None
+                self.logger.debug(f"User with ID '{user_id}' found")
                 return dict(row)
         except Exception as e:
-            logger.error(f"Errore nel recupero dell'utente: {e}")
+            self.logger.error(f"Error retrieving user by ID: {e}")
+            self.logger.exception(e)
             return None
-
+        
     def log_user_activity(self, user_id: str, action_type: str, document_id: str = None, 
                         annotation_id: str = None, details: str = None) -> bool:
         """
@@ -615,6 +639,31 @@ class AnnotationDBManager:
         except Exception as e:
             logger.error(f"Errore nell'assegnazione del documento: {e}")
             return False
+
+    def get_user_by_username(self, username: str) -> dict:
+        """
+        Ottiene un utente dal database tramite username.
+        
+        Args:
+            username: Nome utente
+                
+        Returns:
+            Dizionario con i dati dell'utente o None se non trovato
+        """
+        try:
+            self.logger.debug(f"Getting user by username: {username}")
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+                row = cursor.fetchone()
+                if not row:
+                    self.logger.debug(f"User '{username}' not found")
+                    return None
+                self.logger.debug(f"User '{username}' found")
+                return dict(row)
+        except Exception as e:
+            self.logger.error(f"Error retrieving user by username: {e}")
+            self.logger.exception(e)
+            return None
 
     # ---- Operazioni di backup ----
     

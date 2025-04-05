@@ -110,7 +110,7 @@ class AnnotationDBManager:
             )
             ''')
             
-            # Tabella documenti
+            # Tabella documenti (now includes metadata column)
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
@@ -121,6 +121,7 @@ class AnnotationDBManager:
                 date_modified TEXT,
                 created_by TEXT,
                 assigned_to TEXT,
+                metadata TEXT,
                 FOREIGN KEY (created_by) REFERENCES users(id),
                 FOREIGN KEY (assigned_to) REFERENCES users(id)
             )
@@ -171,8 +172,8 @@ class AnnotationDBManager:
                 log.warning(f"Impossibile creare alcuni indici: {e}")
             
             conn.commit()
-            log.debug("Schema del database inizializzato")   
-             
+            log.debug("Schema del database inizializzato")
+       
     #--- Operazioni di gestione degli utenti ----
     def create_user(self, user_data: dict) -> dict:
         """
@@ -715,48 +716,40 @@ class AnnotationDBManager:
     
     # ---- Operazioni sui documenti ----
     
-    def get_document(self, doc_id: str) -> Dict[str, Any]:
+    def get_documents(self) -> List[Dict[str, Any]]:
         """
-        Ottiene un documento specifico dal database.
+        Ottiene tutti i documenti dal database.
         
-        Args:
-            doc_id: ID del documento
-            
         Returns:
-            Documento o None se non trovato
+            Lista di documenti
         """
         try:
             with self._get_db() as (conn, cursor):
-                # Verifica se la tabella ha la colonna metadata
-                cursor.execute("PRAGMA table_info(documents)")
-                columns = [col[1] for col in cursor.fetchall()]
+                cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
+                rows = cursor.fetchall()
                 
-                # Adatta la query in base alle colonne disponibili
-                if 'metadata' in columns:
-                    cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
-                else:
-                    cursor.execute("SELECT id, title, text, word_count, date_created, date_modified, created_by, assigned_to FROM documents WHERE id = ?", (doc_id,))
-                
-                row = cursor.fetchone()
-                if not row:
-                    return None
+                documents = []
+                for row in rows:
+                    doc = dict(row)
                     
-                doc = dict(row)
-                
-                # Converti il metadata da JSON a dizionario se presente
-                if 'metadata' in doc and doc['metadata']:
-                    try:
-                        doc['metadata'] = json.loads(doc['metadata'])
-                    except json.JSONDecodeError:
-                        self.logger.warning(f"Errore nella decodifica dei metadati per il documento {doc_id}")
-                        doc['metadata'] = {}
-                
-                return doc
+                    # Convert metadata from JSON to dictionary if present
+                    if 'metadata' in doc and doc['metadata']:
+                        try:
+                            doc['metadata'] = json.loads(doc['metadata'])
+                        except json.JSONDecodeError:
+                            self.logger.warning(f"Error decoding metadata for document {doc['id']}")
+                            doc['metadata'] = {}
+                    else:
+                        doc['metadata'] = {}  # Ensure metadata is always a dictionary
+                    
+                    documents.append(doc)
+                    
+                return documents
         except Exception as e:
-            self.logger.error(f"Errore nel recupero del documento {doc_id}: {e}")
+            self.logger.error(f"Error retrieving documents: {e}")
             self.logger.exception(e)
-            return None
-    
+            return []
+        
     def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
         """
         Salva un documento nel database.

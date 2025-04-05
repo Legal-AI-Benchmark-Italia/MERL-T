@@ -1,6 +1,6 @@
 /**
  * indexPage.js
- * Logic for the Home/Index page (document list, upload, export).
+ * Complete enhanced version with folder structure support
  */
 import { api } from './api.js';
 import { showNotification, showLoading, hideLoading } from './ui.js';
@@ -40,6 +40,9 @@ function initRenameModal() {
 
             showNotification('Documento rinominato con successo.', 'success');
             renameModalInstance.hide();
+            
+            // Refresh the document list to show the updated title
+            refreshDocumentList();
         } catch (error) {
             showNotification(`Errore durante la rinomina: ${error.message}`, 'danger');
         } finally {
@@ -73,11 +76,8 @@ function initConfirmDeleteModal() {
             showNotification(`Documento "${docToDeleteTitle}" eliminato con successo.`, 'success');
             confirmDeleteModalInstance.hide();
 
-            // Check if list is now empty
-            if (document.querySelectorAll('.doc-card-col').length === 0) {
-                // Optionally display an empty state message or reload
-                 window.location.reload(); // Simple reload for now
-            }
+            // Refresh the document list
+            refreshDocumentList();
 
         } catch (error) {
             showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
@@ -115,7 +115,7 @@ function handleDocumentActions() {
     });
 }
 
-// La funzione handleUpload gestisce l'upload di file multipl
+// Enhanced function to handle multiple files and folder structure
 function handleUpload() {
     const form = document.getElementById('upload-form');
     const fileInput = document.getElementById('document-files');
@@ -123,25 +123,27 @@ function handleUpload() {
     const progressContainer = document.getElementById('upload-progress-container');
     const totalProgressBar = document.getElementById('total-progress-bar');
     const fileListEl = document.getElementById('file-list');
-    const submitBtn = form.querySelector('button[type="submit"]');
+    const submitBtn = form?.querySelector('button[type="submit"]');
     const processFolder = document.getElementById('process-folder-structure');
     
-    // Aggiungi bordo tratteggiato al drop area
+    // Add dashed border to drop area
     if (dropArea) {
         dropArea.style.borderStyle = 'dashed';
         dropArea.style.borderWidth = '2px';
         dropArea.style.borderColor = '#ccc';
     }
     
-    // Funzione per aggiornare l'interfaccia durante il caricamento
+    // Function to update UI during upload
     function updateProgress(processed, total, currentFile = null) {
         const percentage = Math.round((processed / total) * 100);
-        totalProgressBar.style.width = `${percentage}%`;
-        totalProgressBar.textContent = `${percentage}%`;
-        totalProgressBar.setAttribute('aria-valuenow', percentage);
+        if (totalProgressBar) {
+            totalProgressBar.style.width = `${percentage}%`;
+            totalProgressBar.textContent = `${percentage}%`;
+            totalProgressBar.setAttribute('aria-valuenow', percentage);
+        }
         
-        // Se è fornito il file corrente, aggiorna lo stato nella lista
-        if (currentFile) {
+        // If current file is provided, update its status in the list
+        if (currentFile && fileListEl) {
             const fileId = `file-${currentFile.name.replace(/\W/g, '')}`;
             const fileEl = document.getElementById(fileId);
             if (fileEl) {
@@ -150,7 +152,7 @@ function handleUpload() {
         }
     }
     
-    // Configurazione del drag & drop (se supportato dal browser)
+    // Setup drag & drop (if supported by browser)
     if (dropArea) {
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             dropArea.addEventListener(eventName, (e) => {
@@ -159,7 +161,7 @@ function handleUpload() {
             }, false);
         });
         
-        // Stili per il drag hover
+        // Styles for drag hover
         ['dragenter', 'dragover'].forEach(eventName => {
             dropArea.addEventListener(eventName, () => {
                 dropArea.classList.add('bg-primary', 'bg-opacity-10');
@@ -172,14 +174,14 @@ function handleUpload() {
             }, false);
         });
         
-        // Gestione del drop
+        // Handle drop
         dropArea.addEventListener('drop', (e) => {
             const droppedItems = e.dataTransfer.items;
             const filesArray = [];
             
-            // Se sono presenti elementi rilasciati
+            // If dropped items are present
             if (droppedItems && droppedItems.length > 0) {
-                // Verifica se webkitGetAsEntry è supportato (per cartelle)
+                // Check if webkitGetAsEntry is supported (for folders)
                 if (droppedItems[0].webkitGetAsEntry) {
                     for (let i = 0; i < droppedItems.length; i++) {
                         const entry = droppedItems[i].webkitGetAsEntry();
@@ -188,12 +190,12 @@ function handleUpload() {
                         }
                     }
                 } else {
-                    // Fallback per browser che non supportano webkitGetAsEntry
+                    // Fallback for browsers that don't support webkitGetAsEntry
                     const droppedFiles = e.dataTransfer.files;
                     for (let i = 0; i < droppedFiles.length; i++) {
                         filesArray.push(droppedFiles[i]);
                     }
-                    // Aggiorna l'input file con i file droppati (se possibile)
+                    // Update file input with dropped files (if possible)
                     try {
                         if (window.DataTransfer && window.DataTransfer.prototype.items) {
                             const dt = new DataTransfer();
@@ -202,27 +204,27 @@ function handleUpload() {
                         }
                         showSelectedFiles(filesArray);
                     } catch (e) {
-                        console.error("Impossibile impostare i file nel campo input:", e);
-                        showNotification("Il browser non supporta completamente drag & drop. Usa il selettore file.", "warning");
+                        console.error("Cannot set files in input field:", e);
+                        showNotification("Browser doesn't fully support drag & drop. Use the file selector.", "warning");
                     }
                 }
             }
         }, false);
     }
     
-    // Funzione ricorsiva per attraversare la struttura delle cartelle
+    // Recursive function to traverse folder structure
     function traverseFileTree(item, path, filesArray, preservePath) {
         path = path || '';
         if (item.isFile) {
             item.file(file => {
-                // Verifica se è un formato supportato
+                // Check if it's a supported format
                 const ext = file.name.split('.').pop().toLowerCase();
                 const allowedExts = ['txt', 'md', 'html', 'xml', 'json', 'csv'];
                 
                 if (allowedExts.includes(ext)) {
-                    // Se preservePath è true, mantieni il percorso nella cartella
+                    // If preservePath is true, keep the path in the folder
                     if (preservePath && path) {
-                        // Creare un nuovo file con il percorso nel nome o salvare il percorso come metadata
+                        // Create a new file with path in name or save path as metadata
                         file.relativePath = path + file.name;
                     }
                     filesArray.push(file);
@@ -230,11 +232,11 @@ function handleUpload() {
                 }
             });
         } else if (item.isDirectory) {
-            // Leggi il contenuto della directory
+            // Read directory contents
             const dirReader = item.createReader();
             dirReader.readEntries(entries => {
                 for (let i = 0; i < entries.length; i++) {
-                    // Costruisci il percorso ricorsivamente
+                    // Build path recursively
                     traverseFileTree(
                         entries[i], 
                         preservePath ? path + item.name + '/' : '', 
@@ -246,10 +248,10 @@ function handleUpload() {
         }
     }
     
-    // Mostra i file selezionati
+    // Show selected files
     function showSelectedFiles(files) {
         if (files.length > 0 && fileListEl) {
-            progressContainer.classList.remove('d-none');
+            progressContainer?.classList.remove('d-none');
             fileListEl.innerHTML = '';
             
             files.forEach(file => {
@@ -270,7 +272,7 @@ function handleUpload() {
         }
     }
     
-    // Gestione della selezione dei file tramite input
+    // Handle file selection via input
     if (fileInput) {
         fileInput.addEventListener('change', () => {
             const files = fileInput.files ? Array.from(fileInput.files) : [];
@@ -278,7 +280,7 @@ function handleUpload() {
         });
     }
     
-    // Gestione dell'invio del form
+    // Handle form submission
     if (form) {
         form.addEventListener('submit', async (event) => {
             event.preventDefault();
@@ -295,9 +297,9 @@ function handleUpload() {
                 return;
             }
             
-            // Verifica la dimensione totale
+            // Check total size
             const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-            const maxTotalSize = 50 * 1024 * 1024; // 50MB come esempio
+            const maxTotalSize = 50 * 1024 * 1024; // 50MB as example
             
             if (totalSize > maxTotalSize) {
                 showNotification(`La dimensione totale (${Math.round(totalSize/1024/1024)}MB) supera il limite di ${Math.round(maxTotalSize/1024/1024)}MB.`, 'warning');
@@ -312,12 +314,12 @@ function handleUpload() {
             showLoading();
             
             try {
-                // Mostra il contenitore di progresso
+                // Show progress container
                 if (progressContainer) {
                     progressContainer.classList.remove('d-none');
                 }
                 
-                // Processa i file uno alla volta
+                // Process files one by one
                 let processed = 0;
                 let successCount = 0;
                 let errorCount = 0;
@@ -327,12 +329,12 @@ function handleUpload() {
                         const formData = new FormData();
                         formData.append('file', file);
                         
-                        // Aggiungi informazioni sul percorso se necessario
+                        // Add path information if needed
                         if (file.relativePath) {
                             formData.append('relative_path', file.relativePath);
                         }
                         
-                        // Opzione per mantenere la struttura della cartella
+                        // Option to keep folder structure
                         if (processFolder && processFolder.checked) {
                             formData.append('preserve_path', 'true');
                         }
@@ -344,38 +346,39 @@ function handleUpload() {
                         }
                     } catch (fileError) {
                         errorCount++;
-                        console.error(`Errore nel caricamento del file ${file.name}:`, fileError);
+                        console.error(`Error uploading file ${file.name}:`, fileError);
                         
-                        // Aggiorna lo stato del file nell'UI
+                        // Update file status in UI
                         const fileEl = document.getElementById(`file-${file.name.replace(/\W/g, '')}`);
                         if (fileEl) {
                             fileEl.querySelector('.file-status').innerHTML = `<span class="text-danger">Errore</span>`;
                         }
                     }
                     
-                    // Aggiorna il progresso
+                    // Update progress
                     processed++;
                     if (totalProgressBar) {
                         updateProgress(processed, files.length, file);
                     }
                 }
                 
-                // Riepilogo finale
+                // Final summary
                 if (successCount > 0) {
                     if (successCount === 1) {
                         showNotification('Documento caricato con successo!', 'success');
                     } else {
                         showNotification(`${successCount} documenti caricati con successo!`, 'success');
                     }
-                    // Ricarica la pagina o aggiorna l'elenco dei documenti
-                    setTimeout(() => window.location.reload(), 2000);
+                    
+                    // Refresh the document list instead of reloading the page
+                    refreshDocumentList();
                 }
                 
                 if (errorCount > 0) {
                     showNotification(`Si sono verificati errori durante il caricamento di ${errorCount} file.`, 'warning');
                 }
             } catch (error) {
-                console.error("Errore generale durante l'upload:", error);
+                console.error("General error during upload:", error);
                 showNotification(`Errore durante il caricamento: ${error.message}`, 'danger');
             } finally {
                 hideLoading();
@@ -384,16 +387,203 @@ function handleUpload() {
                     submitBtn.innerHTML = '<i class="fas fa-cloud-upload-alt me-2"></i>Carica';
                 }
                 if (form) {
-                    form.reset(); // Pulisce il form
+                    form.reset(); // Clear form
                 }
                 if (progressContainer) {
                     setTimeout(() => {
                         progressContainer.classList.add('d-none');
-                    }, 3000); // Nascondi la barra di progresso dopo qualche secondo
+                    }, 3000); // Hide progress bar after a few seconds
                 }
             }
         });
     }
+}
+
+// Enhanced function to render document list with folder structure support
+function renderDocumentList(documents) {
+    const documentList = document.getElementById('document-list');
+    if (!documentList) return;
+
+    if (!documents || documents.length === 0) {
+        documentList.innerHTML = `
+            <div class="col-12 text-center py-5 text-muted">
+                <i class="fas fa-file-circle-xmark fa-3x mb-3"></i>
+                <h5 class="mb-1">Nessun documento disponibile</h5>
+                <p>Carica un documento per iniziare.</p>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '';
+    
+    // Group documents by folder if they have metadata
+    const folderGroups = {};
+    const ungroupedDocs = [];
+    
+    documents.forEach(doc => {
+        if (doc.metadata && doc.metadata.relative_path && doc.metadata.relative_path.includes('/')) {
+            // Extract folder name from relative path
+            const folderPath = doc.metadata.relative_path.split('/').slice(0, -1).join('/');
+            if (!folderGroups[folderPath]) {
+                folderGroups[folderPath] = [];
+            }
+            folderGroups[folderPath].push(doc);
+        } else {
+            ungroupedDocs.push(doc);
+        }
+    });
+    
+    // Render folder groups
+    Object.keys(folderGroups).sort().forEach(folder => {
+        const docs = folderGroups[folder];
+        html += `
+            <div class="col-12 mb-3">
+                <div class="card">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="fas fa-folder me-2"></i>${folder}</h6>
+                        <span class="badge bg-secondary rounded-pill">${docs.length} file</span>
+                    </div>
+                    <div class="card-body p-3">
+                        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-3">
+        `;
+        
+        docs.forEach(doc => {
+            html += createDocumentCard(doc);
+        });
+        
+        html += `
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    // Render ungrouped documents
+    if (ungroupedDocs.length > 0) {
+        html += `<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">`;
+        ungroupedDocs.forEach(doc => {
+            html += createDocumentCard(doc);
+        });
+        html += `</div>`;
+    }
+    
+    documentList.innerHTML = html;
+}
+
+function createDocumentCard(doc) {
+    // Extract file name without folder path
+    let displayTitle = doc.title;
+    if (doc.metadata && doc.metadata.relative_path) {
+        const pathParts = doc.metadata.relative_path.split('/');
+        displayTitle = pathParts[pathParts.length - 1]; // Get just the file name
+    }
+    
+    return `
+        <div class="col doc-card-col" data-doc-id="${doc.id}">
+            <div class="card h-100 doc-card">
+                <div class="card-body pb-0">
+                    <h6 class="card-title document-title mb-1" title="${doc.title}">${displayTitle}</h6>
+                    ${doc.metadata && doc.metadata.relative_path ? 
+                      `<small class="text-muted d-block mb-2"><i class="fas fa-folder-open me-1"></i>${doc.metadata.relative_path}</small>` : ''}
+                    <p class="card-text document-preview mb-2">${doc.text ? doc.text.substring(0, 120) + '...' : ''}</p>
+                    <div class="document-metadata text-muted small mb-2">
+                        <span><i class="fas fa-file-word me-1"></i>${doc.word_count} parole</span>
+                        ${doc.date_created ? 
+                          `<span><i class="fas fa-calendar-alt me-1"></i>${doc.date_created.split('T')[0]}</span>` : ''}
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <div class="btn-group w-100" role="group">
+                        <a href="/annotate/${doc.id}" class="btn btn-sm btn-success">
+                            <i class="fas fa-tag"></i> Annota
+                        </a>
+                        <button class="btn btn-sm btn-outline-secondary rename-doc-btn" 
+                                data-doc-id="${doc.id}" 
+                                data-doc-title="${displayTitle}">
+                            <i class="fas fa-edit"></i> Rinomina
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger delete-doc-btn" 
+                                data-doc-id="${doc.id}" 
+                                data-doc-title="${displayTitle}">
+                            <i class="fas fa-trash-alt"></i> Elimina
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+/**
+ * Enhanced refreshDocumentList function with better error handling and fallback
+ */
+async function refreshDocumentList() {
+    try {
+        showLoading();
+        
+        // Try to use the API if available
+        if (api && typeof api.getDocuments === 'function') {
+            try {
+                const response = await api.getDocuments();
+                if (response && response.status === 'success') {
+                    renderDocumentList(response.documents);
+                } else {
+                    showNotification('Errore nel caricamento dei documenti', 'danger');
+                    fallbackToDOM();
+                }
+            } catch (apiError) {
+                console.error('API Error:', apiError);
+                showNotification(`Errore API: ${apiError.message}`, 'danger');
+                
+                // Fallback to existing DOM content
+                fallbackToDOM();
+            }
+        } else {
+            // Fallback: use existing documents or reload
+            fallbackToDOM();
+        }
+    } catch (error) {
+        console.error('Error loading documents:', error);
+        showNotification(`Errore: ${error.message}`, 'danger');
+    } finally {
+        hideLoading();
+    }
+}
+
+function fallbackToDOM() {
+    console.log('Using documents from DOM as fallback or reloading');
+    
+    // Check if we have documents in the DOM
+    const docCards = document.querySelectorAll('.doc-card-col');
+    if (docCards.length > 0) {
+        // Extract documents from existing DOM
+        const documents = [];
+        docCards.forEach(el => {
+            const docId = el.dataset.docId;
+            const titleEl = el.querySelector('.document-title');
+            const previewEl = el.querySelector('.document-preview');
+            
+            if (docId && titleEl) {
+                const doc = {
+                    id: docId,
+                    title: titleEl.textContent,
+                    text: previewEl ? previewEl.textContent : '',
+                    metadata: {} // Default empty metadata
+                };
+                documents.push(doc);
+            }
+        });
+        
+        if (documents.length > 0) {
+            console.log(`Extracted ${documents.length} documents from DOM`);
+            renderDocumentList(documents);
+            return;
+        }
+    }
+    
+    // If no documents in DOM or extraction failed, simply reload
+    window.location.reload();
 }
 
 function handleExport() {

@@ -73,7 +73,8 @@ export const api = {
     deleteUser: (userId) => request(`/admin/users/${userId}`, { method: 'DELETE' }),
     
     // Document Endpoints
-    uploadDocument: (formData) => request('/upload_document', { method: 'POST', body: formData, headers: {} }), // Let browser set Content-Type for FormData
+    getDocuments: () => request('/documents'),
+    uploadDocument: (formData) => request('/upload_document', { method: 'POST', body: formData, headers: {} }), // Add /api/ prefix
     deleteDocument: (docId) => request('/delete_document', { method: 'POST', body: { doc_id: docId } }),
     updateDocument: (docId, data) => request('/update_document', { method: 'POST', body: { doc_id: docId, ...data } }),
 

@@ -44,7 +44,14 @@ class MigrationManager:
             "description": "Add created_by column to annotations table",
             "function": self._migration_001_add_created_by_to_annotations
         })
-        # Add more migrations here as needed
+        
+        # Add the new migration for metadata column
+        self.migrations.append({
+            "version": "002_add_metadata_to_documents",
+            "description": "Add metadata column to documents table",
+            "function": self._migration_002_add_metadata_to_documents
+        })
+
     
     def _create_migrations_table(self):
         """Create the migrations tracking table if it doesn't exist."""
@@ -160,7 +167,29 @@ class MigrationManager:
                     raise
             else:
                 logger.info("Column created_by already exists in annotations table")
-
+    
+    def _migration_002_add_metadata_to_documents(self):
+        """Add metadata column to the documents table."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Check if column already exists
+            cursor.execute("PRAGMA table_info(documents)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'metadata' not in columns:
+                logger.info("Adding metadata column to documents table")
+                try:
+                    # Add the column
+                    cursor.execute("ALTER TABLE documents ADD COLUMN metadata TEXT")
+                    conn.commit()
+                    logger.info("Column added successfully")
+                except sqlite3.OperationalError as e:
+                    # Handle potential errors (e.g., table doesn't exist)
+                    logger.error(f"Error adding column: {e}")
+                    raise
+            else:
+                logger.info("Column metadata already exists in documents table")
 
 def run_migrations(db_path: str):
     """

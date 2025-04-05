@@ -390,36 +390,6 @@ def api_user_stats():
     stats = db_manager.get_user_stats(user_id, days)
     return jsonify(stats)
 
-@app.route('/api/documents')
-@login_required
-def api_get_documents():
-    """
-    API per ottenere la lista dei documenti.
-    """
-    documents = load_documents()
-    
-    # Per ogni documento, aggiungi il conteggio delle annotazioni
-    all_annotations = load_annotations()
-    for doc in documents:
-        doc_id = doc['id']
-        doc_annotations = all_annotations.get(doc_id, [])
-        doc['annotation_count'] = len(doc_annotations)
-        
-        # Calcola progresso (esempio semplice: percentuale di parole annotate)
-        try:
-            word_count = doc.get('word_count', 0)
-            if word_count > 0:
-                # Assumiamo che ogni annotazione copra in media 2 parole
-                annotated_words = min(len(doc_annotations) * 2, word_count)
-                doc['annotated_percent'] = round((annotated_words / word_count) * 100)
-            else:
-                doc['annotated_percent'] = 0
-        except Exception as e:
-            annotation_logger.error(f"Errore nel calcolo del progresso: {e}")
-            doc['annotated_percent'] = 0
-    
-    return jsonify({"status": "success", "documents": documents})
-
 @app.route('/assignments')
 @login_required
 def assignments():
@@ -444,7 +414,7 @@ def api_assign_document():
         return jsonify({"status": "error", "message": "Dati mancanti"}), 400
     
     # Verifica che documento e utente esistano
-    document = db_manager.get_document(doc_id)
+    document = db_manager.get_documents(doc_id)
     user = db_manager.get_user_by_id(user_id)
     
     if not document:
@@ -1244,6 +1214,39 @@ def update_document():
         annotation_logger.error(f"Errore nell'aggiornamento del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/documents')
+@login_required
+def api_get_documents():
+    """
+    API per ottenere la lista dei documenti.
+    """
+    try:
+        documents = db_manager.get_documents()
+        
+        # Per ogni documento, aggiungi il conteggio delle annotazioni
+        all_annotations = load_annotations()
+        for doc in documents:
+            doc_id = doc['id']
+            doc_annotations = all_annotations.get(doc_id, [])
+            doc['annotation_count'] = len(doc_annotations)
+            
+            # Calcola progresso (esempio semplice: percentuale di parole annotate)
+            try:
+                word_count = doc.get('word_count', 0)
+                if word_count > 0:
+                    # Assumiamo che ogni annotazione copra in media 2 parole
+                    annotated_words = min(len(doc_annotations) * 2, word_count)
+                    doc['annotated_percent'] = round((annotated_words / word_count) * 100)
+                else:
+                    doc['annotated_percent'] = 0
+            except Exception as e:
+                annotation_logger.error(f"Errore nel calcolo del progresso: {e}")
+                doc['annotated_percent'] = 0
+        
+        return jsonify({"status": "success", "documents": documents})
+    except Exception as e:
+        annotation_logger.error(f"API Error in api_get_documents: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/export_annotations', methods=['GET'])
 @login_required

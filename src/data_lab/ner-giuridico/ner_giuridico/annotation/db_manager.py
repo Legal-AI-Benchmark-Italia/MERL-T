@@ -715,52 +715,109 @@ class AnnotationDBManager:
     
     # ---- Operazioni sui documenti ----
     
-    def get_documents(self) -> List[Dict[str, Any]]:
-            """
-            Ottiene tutti i documenti dal database.
-            
-            Returns:
-                Lista di documenti
-            """
-            with self._get_db() as (conn, cursor):
-                cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
-                return [dict(row) for row in cursor.fetchall()]
-    
     def get_document(self, doc_id: str) -> Dict[str, Any]:
-            """
-            Ottiene un documento specifico dal database.
+        """
+        Ottiene un documento specifico dal database.
+        
+        Args:
+            doc_id: ID del documento
             
-            Args:
-                doc_id: ID del documento
-                
-            Returns:
-                Documento o None se non trovato
-            """
+        Returns:
+            Documento o None se non trovato
+        """
+        try:
             with self._get_db() as (conn, cursor):
-                cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
+                # Verifica se la tabella ha la colonna metadata
+                cursor.execute("PRAGMA table_info(documents)")
+                columns = [col[1] for col in cursor.fetchall()]
+                
+                # Adatta la query in base alle colonne disponibili
+                if 'metadata' in columns:
+                    cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
+                else:
+                    cursor.execute("SELECT id, title, text, word_count, date_created, date_modified, created_by, assigned_to FROM documents WHERE id = ?", (doc_id,))
+                
                 row = cursor.fetchone()
-                return dict(row) if row else None
+                if not row:
+                    return None
+                    
+                doc = dict(row)
+                
+                # Converti il metadata da JSON a dizionario se presente
+                if 'metadata' in doc and doc['metadata']:
+                    try:
+                        doc['metadata'] = json.loads(doc['metadata'])
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"Errore nella decodifica dei metadati per il documento {doc_id}")
+                        doc['metadata'] = {}
+                
+                return doc
+        except Exception as e:
+            self.logger.error(f"Errore nel recupero del documento {doc_id}: {e}")
+            self.logger.exception(e)
+            return None
     
     def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
-            """
-            Salva un documento nel database.
+        """
+        Salva un documento nel database.
+        
+        Args:
+            document: Documento da salvare
+            user_id: ID dell'utente che sta salvando il documento
+                
+        Returns:
+            True se salvato con successo, False altrimenti
+        """
+        try:
+            now = datetime.datetime.now().isoformat()
             
-            Args:
-                document: Documento da salvare
-                user_id: ID dell'utente che sta salvando il documento
-                    
-            Returns:
-                True se salvato con successo, False altrimenti
-            """
-            try:
-                now = datetime.datetime.now().isoformat()
+            if 'date_created' not in document:
+                document['date_created'] = now
+            
+            document['date_modified'] = now
+            
+            # Gestisci i metadati serializzandoli in JSON se presenti
+            metadata_json = None
+            if 'metadata' in document and document['metadata']:
+                try:
+                    # Se è già una stringa JSON, usala così com'è
+                    if isinstance(document['metadata'], str):
+                        metadata_json = document['metadata']
+                    else:
+                        # Altrimenti, serializzala
+                        metadata_json = json.dumps(document['metadata'])
+                except Exception as e:
+                    self.logger.warning(f"Errore nella serializzazione dei metadati: {e}")
+                    # Se c'è un errore, mettiamo None per evitare problemi nel database
+                    metadata_json = None
+            
+            with self._get_db() as (conn, cursor):
+                # Verifica se la tabella ha la colonna metadata
+                cursor.execute("PRAGMA table_info(documents)")
+                columns = [col[1] for col in cursor.fetchall()]
                 
-                if 'date_created' not in document:
-                    document['date_created'] = now
-                
-                document['date_modified'] = now
-                
-                with self._get_db() as (conn, cursor):
+                # Se la colonna metadata esiste
+                if 'metadata' in columns:
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO documents 
+                        (id, title, text, word_count, date_created, date_modified, created_by, assigned_to, metadata)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            document['id'],
+                            document['title'],
+                            document['text'],
+                            document.get('word_count', 0),
+                            document['date_created'],
+                            document['date_modified'],
+                            document.get('created_by', user_id),
+                            document.get('assigned_to'),
+                            metadata_json
+                        )
+                    )
+                else:
+                    # Fallback se la colonna non esiste
                     cursor.execute(
                         """
                         INSERT OR REPLACE INTO documents 
@@ -778,23 +835,25 @@ class AnnotationDBManager:
                             document.get('assigned_to')
                         )
                     )
-                    conn.commit()
-                    logger.debug(f"Documento salvato: {document['id']}")
+                
+                conn.commit()
+                self.logger.debug(f"Documento salvato: {document['id']}")
+                
+                # Log activity
+                if user_id:
+                    is_new = cursor.rowcount == 1
+                    self.log_user_activity(
+                        user_id=user_id,
+                        action_type="create_document" if is_new else "update_document",
+                        document_id=document['id']
+                    )
                     
-                    # Log activity
-                    if user_id:
-                        is_new = cursor.rowcount == 1
-                        self.log_user_activity(
-                            user_id=user_id,
-                            action_type="create_document" if is_new else "update_document",
-                            document_id=document['id']
-                        )
-                        
-                    return True
-            except Exception as e:
-                logger.error(f"Errore nel salvataggio del documento: {e}")
-                return False
-
+                return True
+        except Exception as e:
+            self.logger.error(f"Errore nel salvataggio del documento: {e}")
+            self.logger.exception(e)
+            return False   
+        
     def delete_document(self, doc_id: str) -> bool:
         """
         Elimina un documento e le sue annotazioni dal database.

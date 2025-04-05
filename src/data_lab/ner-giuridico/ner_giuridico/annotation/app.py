@@ -1061,44 +1061,82 @@ def save_annotation():
 @login_required
 def upload_document():
     """
-    API per caricare un nuovo documento.
+    API per caricare un nuovo documento o più documenti.
+    Supporta anche file da cartelle preservando la struttura opzionalmente.
     """
     try:
         if 'file' not in request.files:
             return jsonify({"status": "error", "message": "Nessun file caricato"}), 400
+        
         file = request.files['file']
         if file.filename == '':
             return jsonify({"status": "error", "message": "Nessun file selezionato"}), 400
+        
+        # Verifica che il formato del file sia supportato
         allowed_extensions = {'txt', 'md', 'html', 'xml', 'json', 'csv'}
         file_ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
         if file_ext not in allowed_extensions:
             return jsonify({"status": "error", "message": f"Formato file non supportato. Estensioni consentite: {', '.join(allowed_extensions)}"}), 400
-        file_content = file.read().decode('utf-8')
-        if len(file_content) > 1000000:
-            return jsonify({"status": "error", "message": "Il documento è troppo grande. Il limite è di circa 1MB di testo."}), 400
         
+        # Leggi il contenuto e controlla la dimensione
+        try:
+            file_content = file.read().decode('utf-8')
+            if len(file_content) > 1000000:  # Circa 1MB di testo
+                return jsonify({"status": "error", "message": "Il documento è troppo grande. Il limite è di circa 1MB di testo."}), 400
+        except UnicodeDecodeError:
+            return jsonify({"status": "error", "message": "Impossibile decodificare il file. Assicurati che sia un file di testo valido in formato UTF-8."}), 400
+        
+        # Gestione del percorso relativo (per upload da cartelle)
+        document_title = secure_filename(file.filename)
+        relative_path = request.form.get('relative_path', '')
+        preserve_path = request.form.get('preserve_path') == 'true'
+        
+        # Se preserve_path è abilitato e c'è un percorso relativo, aggiungilo al titolo
+        if preserve_path and relative_path and relative_path != file.filename:
+            # Estrai solo la parte di percorso senza il nome del file
+            path_prefix = os.path.dirname(relative_path)
+            if path_prefix:
+                # Sostituisci gli slash con caratteri sicuri 
+                safe_prefix = secure_filename(path_prefix.replace('/', '_'))
+                document_title = f"{safe_prefix}_{document_title}"
+        
+        # Generazione di un ID univoco per il documento
         documents = load_documents()
-        doc_id = f"doc_{len(documents) + 1}"
+        timestamp = int(datetime.datetime.now().timestamp())
+        doc_id = f"doc_{timestamp}_{len(documents) + 1}"
+        
+        # Creazione del documento
         document = {
             "id": doc_id,
-            "title": secure_filename(file.filename),
+            "title": document_title,
             "text": file_content,
             "date_created": datetime.datetime.now().isoformat(),
             "word_count": len(file_content.split()),
-            "created_by": session.get('user_id')  # Aggiunto l'utente creatore
+            "created_by": session.get('user_id')
         }
         
+        # Salva anche il percorso relativo originale come metadato, se presente
+        if relative_path:
+            document["metadata"] = {"relative_path": relative_path}
+        
+        # Tenta di salvare il documento
         success = db_manager.save_document(document, session.get('user_id'))
         if not success:
             return jsonify({"status": "error", "message": "Errore nel salvataggio del documento"}), 500
         
-        return jsonify({"status": "success", "message": "Documento caricato con successo", "document": document})
-    except UnicodeDecodeError:
-        return jsonify({"status": "error", "message": "Impossibile decodificare il file. Assicurati che sia un file di testo valido in formato UTF-8."}), 400
+        # Log di attività per l'audit trail
+        annotation_logger.info(f"Utente {session.get('username')} ha caricato un documento: {document_title}")
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Documento '{document_title}' caricato con successo", 
+            "document": document
+        })
     except Exception as e:
         annotation_logger.error(f"Errore nell'upload del documento: {e}")
+        annotation_logger.exception(e)
         return jsonify({"status": "error", "message": str(e)}), 500
-
+    
 @app.route('/api/delete_annotation', methods=['POST'])
 @login_required
 def delete_annotation():

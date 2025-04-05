@@ -1181,8 +1181,24 @@ export function initAnnotator() {
 // --- Auto-run Initialization ---
 // Ensure the DOM is fully loaded before running the initialization logic
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initAnnotator);
+    document.addEventListener('DOMContentLoaded', initIfAnnotationPage);
 } else {
     // DOMContentLoaded has already fired
+    initIfAnnotationPage();
+}
+
+function initIfAnnotationPage() {
+    // Verifica se siamo nella pagina di annotazione cercando elementi chiave
+    const isAnnotationPage = Boolean(
+        document.getElementById('text-content') && 
+        document.getElementById('entityTypeList')
+    );
+
+    if (!isAnnotationPage) {
+        console.log("Non siamo nella pagina di annotazione, skip inizializzazione annotatore.");
+        return;
+    }
+
+    // Se siamo nella pagina corretta, inizializza l'annotatore
     initAnnotator();
 }

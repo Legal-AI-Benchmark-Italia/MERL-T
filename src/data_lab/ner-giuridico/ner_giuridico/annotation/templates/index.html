@@ -9,21 +9,49 @@
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Carica un nuovo documento</h5>
+                <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Carica nuovi documenti</h5>
             </div>
             <div class="card-body">
-                <form id="upload-form" class="row g-3 align-items-end">
+                <form id="upload-form" class="row g-3">
                     <div class="col-md-8">
-                        <label for="document-file" class="form-label">File del documento</label>
-                        <input type="file" class="form-control" id="document-file" name="file" accept=".txt,.md,.html,.xml,.json,.csv" required>
+                        <label for="document-files" class="form-label">File da caricare</label>
+                        <input type="file" class="form-control" id="document-files" name="files" multiple 
+                               accept=".txt,.md,.html,.xml,.json,.csv" required>
                         <div class="form-text text-muted mt-1">
-                            <small>Formati: .txt, .md, .html, .xml, .json, .csv | Max: 10MB</small>
+                            <small>Formati: .txt, .md, .html, .xml, .json, .csv | Max: 10MB per file | Seleziona più file contemporaneamente</small>
                         </div>
                     </div>
                     <div class="col-md-4">
                         <button type="submit" class="btn btn-primary w-100">
                             <i class="fas fa-cloud-upload-alt me-2"></i>Carica
                         </button>
+                    </div>
+                    
+                    <!-- Opzioni aggiuntive per l'upload -->
+                    <div class="col-12 mt-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="process-folder-structure">
+                            <label class="form-check-label" for="process-folder-structure">
+                                Mantieni struttura di cartelle (crea documenti con prefisso di percorso)
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Area per il drag & drop -->
+                    <div class="col-12 mt-3">
+                        <div id="drop-area" class="p-4 border border-dashed rounded text-center bg-light">
+                            <i class="fas fa-file-import fa-2x mb-2 text-muted"></i>
+                            <p class="mb-0">Trascina qui i file o cartelle da caricare</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Progress bar e lista file in upload -->
+                    <div class="col-12 mt-3 d-none" id="upload-progress-container">
+                        <div class="progress mb-3">
+                            <div id="total-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                        </div>
+                        <div id="file-list" class="small"></div>
                     </div>
                 </form>
             </div>

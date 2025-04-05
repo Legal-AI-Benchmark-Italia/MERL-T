@@ -77,7 +77,10 @@ export const api = {
     uploadDocument: (formData) => request('/upload_document', { method: 'POST', body: formData, headers: {} }), // Add /api/ prefix
     deleteDocument: (docId) => request('/delete_document', { method: 'POST', body: { doc_id: docId } }),
     updateDocument: (docId, data) => request('/update_document', { method: 'POST', body: { doc_id: docId, ...data } }),
-
+    bulkDeleteDocuments: (docIds) => request('/bulk_delete_documents', { 
+        method: 'POST', 
+        body: { doc_ids: docIds } 
+    }),
     // Annotation Endpoints
     saveAnnotation: (docId, annotation) => request('/save_annotation', { method: 'POST', body: { doc_id: docId, annotation } }),
     deleteAnnotation: (docId, annotationId) => request('/delete_annotation', { method: 'POST', body: { doc_id: docId, annotation_id: annotationId } }),

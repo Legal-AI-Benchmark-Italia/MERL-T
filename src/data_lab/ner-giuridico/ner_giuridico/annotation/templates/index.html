@@ -61,52 +61,118 @@
 
 <div class="row mb-4">
     <!-- Documents Section -->
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-file-alt me-2"></i>Documenti disponibili</h5>
-                <span class="badge bg-secondary rounded-pill">{{ documents|length }} Documenti</span>
-            </div>
-            <div class="card-body">
-                {% if documents %}
-                <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4" id="document-list">
-                    {% for doc in documents %}
-                    <div class="col doc-card-col" data-doc-id="{{ doc.id }}">
-                        <div class="card h-100 doc-card">
-                             <div class="card-body pb-0">
-                                <h6 class="card-title document-title mb-1">{{ doc.title }}</h6>
-                                <p class="card-text document-preview mb-2">{{ doc.text[:120] }}...</p>
-                                <div class="document-metadata text-muted small mb-2">
-                                    <span><i class="fas fa-file-word me-1"></i>{{ doc.word_count }} parole</span>
-                                    {% if doc.date_created %}
-                                    <span><i class="fas fa-calendar-alt me-1"></i>{{ doc.date_created.split('T')[0] }}</span>
-                                    {% endif %}
-                                </div>
+    <div class="row mb-4">
+        <!-- Documents Section -->
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-file-alt me-2"></i>Documenti disponibili</h5>
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-secondary rounded-pill me-3" id="document-count">{{ documents|length }} Documenti</span>
+                        <div class="btn-group me-2">
+                            <button class="btn btn-sm btn-outline-secondary view-mode-btn active" data-view="grid" title="Vista a griglia">
+                                <i class="fas fa-th"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary view-mode-btn" data-view="list" title="Vista a lista">
+                                <i class="fas fa-list"></i>
+                            </button>
+                        </div>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="sortDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-sort me-1"></i>Ordina
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="sortDropdown">
+                                <li><button class="dropdown-item sort-option" data-sort="title-asc"><i class="fas fa-sort-alpha-down me-2"></i>Titolo (A-Z)</button></li>
+                                <li><button class="dropdown-item sort-option" data-sort="title-desc"><i class="fas fa-sort-alpha-up me-2"></i>Titolo (Z-A)</button></li>
+                                <li><button class="dropdown-item sort-option" data-sort="date-desc"><i class="fas fa-calendar-alt me-2"></i>Data (più recenti)</button></li>
+                                <li><button class="dropdown-item sort-option" data-sort="date-asc"><i class="fas fa-calendar-alt me-2"></i>Data (meno recenti)</button></li>
+                                <li><button class="dropdown-item sort-option" data-sort="size-desc"><i class="fas fa-file-alt me-2"></i>Dimensione (maggiore)</button></li>
+                                <li><button class="dropdown-item sort-option" data-sort="size-asc"><i class="fas fa-file-alt me-2"></i>Dimensione (minore)</button></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card-body">
+                    <!-- Barra degli strumenti per documenti multipli -->
+                    <div class="bulk-actions-toolbar d-none mb-3 p-2 bg-light rounded border">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="me-2"><span id="selected-count">0</span> documenti selezionati</span>
+                                <button id="select-all-btn" class="btn btn-sm btn-outline-primary me-1">Seleziona tutti</button>
+                                <button id="deselect-all-btn" class="btn btn-sm btn-outline-secondary me-1">Deseleziona</button>
                             </div>
-                            <div class="card-footer">
-                                <div class="btn-group w-100" role="group">
-                                    <a href="{{ url_for('annotate', doc_id=doc.id) }}" class="btn btn-sm btn-success">
-                                        <i class="fas fa-tag"></i> Annota
-                                    </a>
-                                    <button class="btn btn-sm btn-outline-secondary rename-doc-btn" data-doc-id="{{ doc.id }}" data-doc-title="{{ doc.title }}">
-                                        <i class="fas fa-edit"></i> Rinomina
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger delete-doc-btn" data-doc-id="{{ doc.id }}" data-doc-title="{{ doc.title }}">
-                                        <i class="fas fa-trash-alt"></i> Elimina
-                                    </button>
-                                </div>
+                            <div class="btn-group">
+                                <button id="bulk-delete-btn" class="btn btn-sm btn-danger" disabled>
+                                    <i class="fas fa-trash-alt me-1"></i>Elimina selezionati
+                                </button>
+                                <button id="bulk-download-btn" class="btn btn-sm btn-primary" disabled>
+                                    <i class="fas fa-download me-1"></i>Scarica selezionati
+                                </button>
                             </div>
                         </div>
                     </div>
-                    {% endfor %}
+                    
+                    <!-- Filtro di ricerca -->
+                    <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" class="form-control" id="document-search" placeholder="Cerca nei documenti...">
+                    </div>
+                    
+                    <!-- Container flessibile per i documenti (supporta sia vista grid che list) -->
+                    <div id="document-list" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+                        {% if documents %}
+                            {% for doc in documents %}
+                            <div class="col doc-card-col" data-doc-id="{{ doc.id }}" data-doc-title="{{ doc.title }}" 
+                                 data-doc-date="{{ doc.date_created }}" data-doc-size="{{ doc.word_count }}">
+                                <div class="card h-100 doc-card">
+                                    <div class="card-header d-flex justify-content-between align-items-center">
+                                        <div class="form-check">
+                                            <input class="form-check-input doc-checkbox" type="checkbox" value="{{ doc.id }}" id="checkbox-{{ doc.id }}">
+                                            <label class="form-check-label" for="checkbox-{{ doc.id }}">
+                                                <h6 class="card-title document-title mb-0 ms-2">{{ doc.title }}</h6>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="card-body pb-0">
+                                        <p class="card-text document-preview mb-2">{{ doc.text[:120] }}...</p>
+                                        <div class="document-metadata text-muted small mb-2">
+                                            <span><i class="fas fa-file-word me-1"></i>{{ doc.word_count }} parole</span>
+                                            {% if doc.date_created %}
+                                            <span><i class="fas fa-calendar-alt me-1"></i>{{ doc.date_created.split('T')[0] }}</span>
+                                            {% endif %}
+                                            {% if doc.metadata and doc.metadata.relative_path %}
+                                            <div class="mt-1 text-truncate">
+                                                <i class="fas fa-folder me-1"></i>{{ doc.metadata.relative_path }}
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    <div class="card-footer">
+                                        <div class="btn-group w-100" role="group">
+                                            <a href="{{ url_for('annotate', doc_id=doc.id) }}" class="btn btn-sm btn-success">
+                                                <i class="fas fa-tag"></i> Annota
+                                            </a>
+                                            <button class="btn btn-sm btn-outline-secondary rename-doc-btn" data-doc-id="{{ doc.id }}" data-doc-title="{{ doc.title }}">
+                                                <i class="fas fa-edit"></i> Rinomina
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger delete-doc-btn" data-doc-id="{{ doc.id }}" data-doc-title="{{ doc.title }}">
+                                                <i class="fas fa-trash-alt"></i> Elimina
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                        <div class="col-12 text-center py-5 text-muted">
+                            <i class="fas fa-file-circle-xmark fa-3x mb-3"></i>
+                            <h5 class="mb-1">Nessun documento disponibile</h5>
+                            <p>Carica un documento per iniziare.</p>
+                        </div>
+                        {% endif %}
+                    </div>
                 </div>
-                {% else %}
-                <div class="text-center py-5 text-muted">
-                    <i class="fas fa-file-circle-xmark fa-3x mb-3"></i>
-                    <h5 class="mb-1">Nessun documento disponibile</h5>
-                    <p>Carica un documento per iniziare.</p>
-                </div>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -166,21 +232,27 @@
 </div>
 
 <!-- Confirm Delete Modal -->
-<div class="modal fade" id="confirmDeleteModal" tabindex="-1" aria-labelledby="confirmDeleteModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="confirmDeleteModalLabel">Conferma Eliminazione</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        Sei sicuro di voler eliminare il documento "<strong id="doc-to-delete-title"></strong>" e tutte le sue annotazioni? L'azione è irreversibile.
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-        <button type="button" class="btn btn-danger" id="confirm-delete-btn">Elimina</button>
+<div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-labelledby="bulkDeleteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="bulkDeleteModalLabel">Conferma Eliminazione Multipla</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p>Sei sicuro di voler eliminare <strong id="bulk-delete-count">0</strong> documenti selezionati? Questa azione eliminerà anche tutte le annotazioni associate e non può essere annullata.</p>
+          <div class="alert alert-warning">
+              <i class="fas fa-exclamation-triangle me-2"></i>Attenzione: questa operazione è irreversibile!
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="button" class="btn btn-danger" id="confirm-bulk-delete-btn">
+              <i class="fas fa-trash-alt me-1"></i>Elimina Documenti
+          </button>
+        </div>
       </div>
     </div>
   </div>
-</div>
+  
 {% endblock %}

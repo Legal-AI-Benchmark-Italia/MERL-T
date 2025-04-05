@@ -414,7 +414,8 @@ def api_assign_document():
         return jsonify({"status": "error", "message": "Dati mancanti"}), 400
     
     # Verifica che documento e utente esistano
-    document = db_manager.get_documents(doc_id)
+    documents = db_manager.get_documents()  # Rimuovi doc_id come argomento
+    document = next((doc for doc in documents if doc['id'] == doc_id), None)
     user = db_manager.get_user_by_id(user_id)
     
     if not document:
@@ -1248,6 +1249,80 @@ def api_get_documents():
         annotation_logger.error(f"API Error in api_get_documents: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/bulk_delete_documents', methods=['POST'])
+@login_required
+def bulk_delete_documents():
+    """
+    API per eliminare più documenti in blocco.
+    
+    Richiede un array di ID di documenti nel body della richiesta.
+    """
+    try:
+        data = request.json
+        doc_ids = data.get('doc_ids', [])
+        
+        if not doc_ids:
+            return jsonify({"status": "error", "message": "Nessun ID documento fornito"}), 400
+        
+        # Controllo di autorizzazione
+        if session.get('user_role') != 'admin':
+            # Per utenti non-admin, verifica che possano eliminare tutti i documenti richiesti
+            # Ad esempio, controlla se sono i creatori o assegnatari
+            for doc_id in doc_ids:
+                document = db_manager.get_document(doc_id)
+                if not document:
+                    continue  # Salta i documenti che non esistono
+                
+                # Se l'utente non è né creatore né assegnatario del documento
+                if (document.get('created_by') != session.get('user_id') and 
+                    document.get('assigned_to') != session.get('user_id')):
+                    return jsonify({
+                        "status": "error", 
+                        "message": "Non hai l'autorizzazione per eliminare alcuni di questi documenti"
+                    }), 403
+        
+        deleted_count = 0
+        errors = []
+        
+        # Elimina ogni documento
+        for doc_id in doc_ids:
+            try:
+                success = db_manager.delete_document(doc_id)
+                if success:
+                    deleted_count += 1
+                    # Log dell'attività
+                    db_manager.log_user_activity(
+                        user_id=session.get('user_id'),
+                        action_type="delete_document",
+                        document_id=doc_id
+                    )
+                else:
+                    errors.append(f"Errore nell'eliminazione del documento {doc_id}")
+            except Exception as e:
+                errors.append(f"Errore per documento {doc_id}: {str(e)}")
+        
+        # Esegui pulizia dei backup dopo bulk delete
+        cleanup_backups()
+        
+        # Prepara la risposta
+        response = {
+            "status": "success",
+            "message": f"Eliminati {deleted_count} documenti su {len(doc_ids)} richiesti"
+        }
+        
+        # Aggiungi informazioni sugli errori se presenti
+        if errors:
+            response["errors"] = errors
+            response["message"] += f" con {len(errors)} errori"
+            if deleted_count == 0:
+                response["status"] = "error"
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'eliminazione in blocco dei documenti: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 @app.route('/api/export_annotations', methods=['GET'])
 @login_required
 def export_annotations():

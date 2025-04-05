@@ -492,6 +492,74 @@ async function refreshDocumentList() {
     }
 }
 
+async function handleSingleDocDelete() {
+    if (!docToDeleteId) {
+        console.error("Nessun ID documento da eliminare");
+        return;
+    }
+    
+    console.log(`Eliminazione documento: ID=${docToDeleteId}, Titolo=${docToDeleteTitle}`);
+    
+    const confirmBtn = document.getElementById('confirm-delete-btn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
+    
+    showLoading();
+    
+    try {
+        const result = await api.deleteDocument(docToDeleteId);
+        
+        if (!result || result.status === 'error') {
+            throw new Error(result?.message || "Errore sconosciuto durante l'eliminazione");
+        }
+        
+        console.log("Documento eliminato con successo", result);
+        
+        // Rimuovi card dal DOM e dai dati in memoria
+        const cardToRemove = document.querySelector(`.doc-card-col[data-doc-id="${docToDeleteId}"]`);
+        if (cardToRemove) {
+            cardToRemove.remove();
+        } else {
+            console.warn(`Elemento DOM per documento ${docToDeleteId} non trovato`);
+        }
+        
+        // Rimuovi dai dati in memoria
+        documentsData = documentsData.filter(doc => doc.id !== docToDeleteId);
+        
+        // Aggiorna il contatore
+        const documentCountEl = document.getElementById('document-count');
+        if (documentCountEl) {
+            const currentText = documentCountEl.textContent;
+            const currentCount = parseInt(currentText) || 0;
+            documentCountEl.textContent = `${Math.max(0, currentCount - 1)} Documenti`;
+        }
+        
+        showNotification(`Documento "${docToDeleteTitle}" eliminato con successo.`, 'success');
+        
+        // Assicuriamoci che il modal venga chiuso
+        if (confirmDeleteModalInstance) {
+            confirmDeleteModalInstance.hide();
+        } else {
+            console.warn("Istanza del modal non disponibile per la chiusura");
+            // Fallback per chiudere il modal
+            const modalEl = document.getElementById('confirmDeleteModal');
+            if (modalEl && bootstrap && bootstrap.Modal) {
+                const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                if (modalInstance) modalInstance.hide();
+            }
+        }
+    } catch (error) {
+        console.error("Errore durante l'eliminazione del documento:", error);
+        showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="fas fa-trash-alt me-1"></i>Elimina';
+        docToDeleteId = null;
+        docToDeleteTitle = '';
+        hideLoading();
+    }
+}
+
 function initRenameModal() {
     const renameModalEl = document.getElementById('renameModal');
     if (!renameModalEl) return;
@@ -543,72 +611,87 @@ function initRenameModal() {
 
 function initConfirmDeleteModal() {
     const confirmModalEl = document.getElementById('confirmDeleteModal');
-    if (!confirmModalEl) return;
+    if (!confirmModalEl) {
+        console.error("Modal di conferma eliminazione non trovato nel DOM");
+        return;
+    }
+    
+    // Assicuriamoci che Bootstrap sia disponibile
+    if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+        console.error("Bootstrap non trovato. Impossibile inizializzare il modal.");
+        return;
+    }
+    
     confirmDeleteModalInstance = new bootstrap.Modal(confirmModalEl);
-
+    
     const confirmBtn = document.getElementById('confirm-delete-btn');
-    confirmBtn.addEventListener('click', async () => {
-        if (!docToDeleteId) return;
-
-        confirmBtn.disabled = true;
-        confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
-        showLoading();
-
-        try {
-            await api.deleteDocument(docToDeleteId);
-            // Rimuovi card dal DOM e dai dati in memoria
-            const cardToRemove = document.querySelector(`.doc-card-col[data-doc-id="${docToDeleteId}"]`);
-            if (cardToRemove) {
-                cardToRemove.remove();
-            }
-            
-            // Rimuovi dai dati in memoria
-            documentsData = documentsData.filter(doc => doc.id !== docToDeleteId);
-            
-            // Aggiorna il contatore
-            const documentCountEl = document.getElementById('document-count');
-            if (documentCountEl) {
-                const currentCount = parseInt(documentCountEl.textContent);
-                documentCountEl.textContent = `${Math.max(0, currentCount - 1)} Documenti`;
-            }
-            
-            showNotification(`Documento "${docToDeleteTitle}" eliminato con successo.`, 'success');
-            confirmDeleteModalInstance.hide();
-
-        } catch (error) {
-            showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
-        } finally {
-            confirmBtn.disabled = false;
-            confirmBtn.innerHTML = 'Elimina';
-            docToDeleteId = null;
-            docToDeleteTitle = '';
-            hideLoading();
-        }
-    });
+    if (!confirmBtn) {
+        console.error("Pulsante di conferma eliminazione non trovato");
+        return;
+    }
+    
+    // Rimuovi eventuali listener precedenti per evitare duplicazioni
+    confirmBtn.removeEventListener('click', handleSingleDocDelete);
+    confirmBtn.addEventListener('click', handleSingleDocDelete);
+    
+    console.log("Modal per eliminazione singolo documento inizializzato correttamente");
 }
+
 
 function handleDocumentActions() {
     const docList = document.getElementById('document-list');
-    if (!docList) return;
+    if (!docList) {
+        console.error("Lista documenti non trovata nel DOM");
+        return;
+    }
 
-    docList.addEventListener('click', (event) => {
-        const target = event.target;
-        const deleteBtn = target.closest('.delete-doc-btn');
-        const renameBtn = target.closest('.rename-doc-btn');
+    // Rimuovi eventuali listener precedenti
+    docList.removeEventListener('click', handleDocumentClick);
+    docList.addEventListener('click', handleDocumentClick);
+    
+    console.log("Event listener per azioni sui documenti configurato");
+}
 
-        if (deleteBtn && confirmDeleteModalInstance) {
-            docToDeleteId = deleteBtn.dataset.docId;
-            docToDeleteTitle = deleteBtn.dataset.docTitle || `ID: ${docToDeleteId}`;
-            document.getElementById('doc-to-delete-title').textContent = docToDeleteTitle;
-            confirmDeleteModalInstance.show();
-        } else if (renameBtn && renameModalInstance) {
-            const docId = renameBtn.dataset.docId;
-            const currentTitle = renameBtn.dataset.docTitle;
-            document.getElementById('rename-doc-id').value = docId;
-            document.getElementById('new-doc-title').value = currentTitle;
-            renameModalInstance.show();
+function handleDocumentClick(event) {
+    const target = event.target;
+    
+    // Controlla se il click è su un pulsante di eliminazione
+    const deleteBtn = target.closest('.delete-doc-btn');
+    if (deleteBtn) {
+        console.log("Click su pulsante elimina:", deleteBtn);
+        docToDeleteId = deleteBtn.dataset.docId;
+        docToDeleteTitle = deleteBtn.dataset.docTitle || `ID: ${docToDeleteId}`;
+        
+        const titleEl = document.getElementById('doc-to-delete-title');
+        if (titleEl) {
+            titleEl.textContent = docToDeleteTitle;
+        } else {
+            console.warn("Elemento per mostrare il titolo del documento da eliminare non trovato");
         }
-    });
+        
+        if (confirmDeleteModalInstance) {
+            confirmDeleteModalInstance.show();
+        } else {
+            console.error("Modal di conferma eliminazione non inizializzato!");
+            showNotification("Errore nell'apertura del modal di conferma", "danger");
+        }
+        return;
+    }
+    
+    // Controlla se il click è su un pulsante di rinomina
+    const renameBtn = target.closest('.rename-doc-btn');
+    if (renameBtn && renameModalInstance) {
+        const docId = renameBtn.dataset.docId;
+        const currentTitle = renameBtn.dataset.docTitle;
+        
+        const idInput = document.getElementById('rename-doc-id');
+        const titleInput = document.getElementById('new-doc-title');
+        
+        if (idInput) idInput.value = docId;
+        if (titleInput) titleInput.value = currentTitle;
+        
+        renameModalInstance.show();
+    }
 }
 
 function handleUpload() {

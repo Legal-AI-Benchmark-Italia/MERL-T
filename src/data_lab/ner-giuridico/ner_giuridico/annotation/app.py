@@ -1248,7 +1248,7 @@ def api_get_documents():
     except Exception as e:
         annotation_logger.error(f"API Error in api_get_documents: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
+       
 @app.route('/api/bulk_delete_documents', methods=['POST'])
 @login_required
 def bulk_delete_documents():

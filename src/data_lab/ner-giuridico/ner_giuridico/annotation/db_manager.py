@@ -749,7 +749,49 @@ class AnnotationDBManager:
             self.logger.error(f"Error retrieving documents: {e}")
             self.logger.exception(e)
             return []
+    
+    def get_document(self, doc_id: str) -> Dict[str, Any]:
+        """
+        Ottiene un documento specifico dal database.
         
+        Args:
+            doc_id: ID del documento
+            
+        Returns:
+            Documento o None se non trovato
+        """
+        try:
+            with self._get_db() as (conn, cursor):
+                # Verifica se la tabella ha la colonna metadata
+                cursor.execute("PRAGMA table_info(documents)")
+                columns = [col[1] for col in cursor.fetchall()]
+                
+                # Adatta la query in base alle colonne disponibili
+                if 'metadata' in columns:
+                    cursor.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
+                else:
+                    cursor.execute("SELECT id, title, text, word_count, date_created, date_modified, created_by, assigned_to FROM documents WHERE id = ?", (doc_id,))
+                
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                    
+                doc = dict(row)
+                
+                # Converti il metadata da JSON a dizionario se presente
+                if 'metadata' in doc and doc['metadata']:
+                    try:
+                        doc['metadata'] = json.loads(doc['metadata'])
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"Errore nella decodifica dei metadati per il documento {doc_id}")
+                        doc['metadata'] = {}
+                
+                return doc
+        except Exception as e:
+            self.logger.error(f"Errore nel recupero del documento {doc_id}: {e}")
+            self.logger.exception(e)
+            return None
+    
     def save_document(self, document: Dict[str, Any], user_id: str = None) -> bool:
         """
         Salva un documento nel database.

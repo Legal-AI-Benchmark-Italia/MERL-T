@@ -11,10 +11,5 @@ raw_txt/*/*
 *.ipynb_checkpoints
 __pycache__
 *.jsonl
-<<<<<<< HEAD
-models/transformer/*
-cache/*
-=======
 ngrok*
->>>>>>> e704a43dfbe32b2346a60a879b9aee905135e49f
 *.db

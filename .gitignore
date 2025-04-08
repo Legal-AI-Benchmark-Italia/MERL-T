@@ -9,3 +9,5 @@ raw_txt/*/*
 *.ipynb_checkpoints
 __pycache__
 *.jsonl
+ngrok*
+*.db

@@ -85,11 +85,11 @@ try:
         IMPORT_PATH = "direct"
     except ImportError:
         # Try importing from src
-        from src.ner_giuridico.config import config
-        from src.ner_giuridico.ner import NERGiuridico, DynamicNERGiuridico
-        from src.ner_giuridico.api import start_server
-        from src.ner_giuridico.entities.entity_manager import get_entity_manager
-        from src.ner_giuridico.annotation.app import app as annotation_app
+        from ner_giuridico.config import config
+        from ner_giuridico.ner import NERGiuridico, DynamicNERGiuridico
+        from ner_giuridico.api import start_server
+        from ner_giuridico.entities.entity_manager import get_entity_manager
+        from ner_giuridico.annotation.app import app as annotation_app
         IMPORT_PATH = "src"
 except ImportError as e:
     logger.error(f"Error importing modules: {e}")
@@ -108,13 +108,13 @@ try:
         )
         from ner_giuridico.training.ner_trainer import train_from_annotations
     elif IMPORT_PATH == "src":
-        from ner_giuridico.ner_giuridico.utils.converter import (
+        from ner_giuridico.utils.converter import (
             convert_annotations_to_spacy_format,
             convert_annotations_to_ner_format,
             convert_spacy_to_conll,
             save_annotations_for_training
         )
-        from src.ner_giuridico.training.ner_trainer import train_from_annotations
+        from ner_giuridico.training.ner_trainer import train_from_annotations
     OPTIONAL_MODULES_LOADED = True
 except ImportError:
     logger.warning("Some optional modules could not be imported. Related commands may not be available.")
@@ -815,7 +815,7 @@ def cmd_test(args):
             from tests.test import run_all_tests
         except ImportError:
             # Try alternative path
-            from ner_giuridico.tests.test import run_all_tests
+            from tests.test import run_all_tests
     
         # Run the tests
         logger.info("Running system tests...")
@@ -846,8 +846,7 @@ def cmd_test(args):
             traceback.print_exc()
         return 1
 
-def cmd_setup(args):
-    """Set up the system environment."""
+""" def cmd_setup(args):
     try:
         # Import setup module
         try:
@@ -883,6 +882,7 @@ def cmd_setup(args):
         if args.verbose:
             traceback.print_exc()
         return 1
+ """
 
 def cmd_version(args):
     """Display version information."""
@@ -1086,7 +1086,7 @@ Command Groups:
     
     # setup command
     setup_parser = subparsers.add_parser('setup', help='Set up the system environment')
-    setup_parser.set_defaults(func=cmd_setup)
+    #setup_parser.set_defaults(func=cmd_setup)
     
     # version command
     version_parser = subparsers.add_parser('version', help='Display version information')

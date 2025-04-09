@@ -1,499 +1,516 @@
 """
-Modulo per la gestione dinamica delle entità nel sistema NER-Giuridico.
-Implementa il pattern Observer per notificare i componenti delle modifiche.
+Modulo unificato per la gestione delle entità nel sistema NER-Giuridico.
+Implementa un sistema entity management flessibile con persistenza su database.
 """
 
 import logging
 import json
 import os
+import uuid
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Any, Union, Protocol
+from typing import Dict, List, Optional, Any, Set, Protocol
 import sqlite3
 from contextlib import contextmanager
+import datetime
+from dataclasses import dataclass, field, asdict
 
+# --- Definizione base di Entity ---
+
+@dataclass
+class EntityType:
+    """
+    Classe che rappresenta un tipo di entità nel sistema.
+    Sostituisce la precedente implementazione basata su enum.
+    """
+    id: str  # UUID o stringa univoca
+    name: str  # Nome identificativo (es. "LEGGE")
+    display_name: str  # Nome per visualizzazione (es. "Legge")
+    category: str  # Categoria (es. "normative")
+    color: str  # Colore in formato esadecimale (es. "#D4380D")
+    description: str = ""  # Descrizione opzionale
+    metadata_schema: Dict[str, str] = field(default_factory=dict)  # Schema dei metadati
+    patterns: List[str] = field(default_factory=list)  # Pattern regex per il riconoscimento
+    system: bool = False  # Flag per indicare se è un'entità di sistema
+    created_at: str = field(default_factory=lambda: datetime.datetime.now().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.datetime.now().isoformat())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Converte l'entità in un dizionario."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'EntityType':
+        """Crea un'entità da un dizionario."""
+        return cls(**data)
+
+
+# --- Observer Pattern per notificare i cambiamenti ---
 
 class EntityObserver(Protocol):
-    """Protocollo per gli osservatori delle modifiche alle entità"""
-    def entity_added(self, name: str, definition: Dict[str, Any]) -> None:
-        """Chiamato quando viene aggiunta un'entità"""
+    """Protocollo per gli osservatori delle modifiche alle entità."""
+    
+    def entity_added(self, entity: EntityType) -> None:
+        """Chiamato quando viene aggiunta un'entità."""
         pass
         
-    def entity_updated(self, name: str, definition: Dict[str, Any]) -> None:
-        """Chiamato quando viene aggiornata un'entità"""
+    def entity_updated(self, entity: EntityType) -> None:
+        """Chiamato quando viene aggiornata un'entità."""
         pass
         
-    def entity_removed(self, name: str) -> None:
-        """Chiamato quando viene rimossa un'entità"""
+    def entity_removed(self, entity_id: str) -> None:
+        """Chiamato quando viene rimossa un'entità."""
         pass
 
 
-class DynamicEntityManager:
+class EntityManager:
     """
-    Gestore dinamico dei tipi di entità, consentendo l'aggiunta, modifica
-    e rimozione delle entità durante l'esecuzione.
+    Gestore unificato delle entità, con supporto per persistenza e notifiche.
+    Sostituisce DynamicEntityManager e le funzionalità di entity_types in entities.py.
     """
     
-    def __init__(self, entities_file: Optional[str] = None, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None):
         """
         Inizializza il gestore delle entità.
         
         Args:
-            entities_file: Percorso al file JSON contenente le definizioni delle entità
-            db_path: Percorso al file del database SQLite per la persistenza delle entità
+            db_path: Percorso al file del database SQLite (opzionale)
         """
-        self.logger = logging.getLogger("NER-Giuridico.DynamicEntityManager")
+        self.logger = logging.getLogger("NER-Giuridico.EntityManager")
         
-        # Inizializza le strutture dati
-        self.entity_types = {}  
-        self.entity_categories = {
+        # Inizializza strutture dati
+        self.entities: Dict[str, EntityType] = {}
+        self.categories: Dict[str, Set[str]] = {
             "normative": set(),
             "jurisprudence": set(),
             "concepts": set(),
             "custom": set()
         }
         
-        # Lista degli osservatori delle modifiche
+        # Lista degli osservatori
         self.observers: List[EntityObserver] = []
         
-        # Imposta il percorso del database
+        # Configura percorso del database
         if db_path:
             self.db_path = db_path
         else:
+            # Percorso predefinito
             default_db_path = str(Path(__file__).parent.parent / "data" / "entities.db")
             self.db_path = default_db_path
-            # Crea la directory se non esiste
             os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
-        # Carica le entità predefinite
-        self._load_default_entities()
         
         # Inizializza il database
         self._init_database()
         
-        # Carica le entità dal file se specificato
-        if entities_file:
-            self.load_entities(entities_file)
+        # Carica l'entità predefinita "Legge" se il database è vuoto
+        if not self.entities:
+            self._add_default_legge_entity()
+    
+    @contextmanager
+    def _get_db(self):
+        """Context manager per connessioni al database."""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            yield conn, cursor
+        finally:
+            if conn:
+                conn.close()
+    
+    def _init_database(self):
+        """Inizializza il database e carica le entità esistenti."""
+        try:
+            # Assicura che la directory del database esista
+            db_dir = os.path.dirname(self.db_path)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
             
-        # Carica le entità dal database
-        self.load_entities_from_database()
-            
-    def add_observer(self, observer: EntityObserver) -> None:
-        """
-        Aggiunge un osservatore delle modifiche alle entità.
-        
-        Args:
-            observer: Oggetto che implementa l'interfaccia EntityObserver
-        """
-        self.observers.append(observer)
-        
-    def remove_observer(self, observer: EntityObserver) -> None:
-        """
-        Rimuove un osservatore.
-        
-        Args:
-            observer: Osservatore da rimuovere
-        """
-        if observer in self.observers:
-            self.observers.remove(observer)
-            
-    def _notify_entity_added(self, name: str, definition: Dict[str, Any]) -> None:
-        """
-        Notifica gli osservatori dell'aggiunta di un'entità.
-        
-        Args:
-            name: Nome dell'entità aggiunta
-            definition: Definizione dell'entità
-        """
-        for observer in self.observers:
-            observer.entity_added(name, definition)
-            
-    def _notify_entity_updated(self, name: str, definition: Dict[str, Any]) -> None:
-        """
-        Notifica gli osservatori dell'aggiornamento di un'entità.
-        
-        Args:
-            name: Nome dell'entità aggiornata
-            definition: Nuova definizione dell'entità
-        """
-        for observer in self.observers:
-            observer.entity_updated(name, definition)
-            
-    def _notify_entity_removed(self, name: str) -> None:
-        """
-        Notifica gli osservatori della rimozione di un'entità.
-        
-        Args:
-            name: Nome dell'entità rimossa
-        """
-        for observer in self.observers:
-            observer.entity_removed(name)
-            
-    def _load_default_entities(self) -> None:
-        """Carica le entità predefinite nel sistema e le salva nel database."""
-        # Entità normative
-        self.add_entity_type(
-            name="ARTICOLO_CODICE",
-            display_name="Articolo di Codice",
-            category="normative",
-            color="#FFA39E",
-            metadata_schema={"codice": "string", "articolo": "string"}
-        )
-        self.add_entity_type(
+            # Crea/connette al database
+            with self._get_db() as (conn, cursor):
+                # Crea tabella entità se non esiste
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS entities (
+                    id TEXT PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    display_name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    color TEXT NOT NULL,
+                    description TEXT,
+                    metadata_schema TEXT,
+                    patterns TEXT,
+                    system INTEGER DEFAULT 0,
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+                """)
+                
+                # Crea indice per nome
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(name)")
+                
+                # Crea indice per categoria
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_category ON entities(category)")
+                
+                conn.commit()
+                
+                # Carica le entità esistenti
+                self._load_entities_from_database()
+        except Exception as e:
+            self.logger.error(f"Errore nell'inizializzazione del database: {e}")
+            self.logger.exception(e)
+    
+    def _add_default_legge_entity(self):
+        """Aggiunge l'entità predefinita 'Legge'."""
+        legge = EntityType(
+            id=str(uuid.uuid4()),
             name="LEGGE",
             display_name="Legge",
             category="normative",
             color="#D4380D",
-            metadata_schema={"numero": "string", "anno": "string", "data": "string"}
+            description="Atto normativo approvato dal Parlamento",
+            metadata_schema={
+                "numero": "string", 
+                "anno": "string", 
+                "data": "string"
+            },
+            patterns=[
+                r"legge\s+(?:n\.\s*)?(\d+)(?:/(\d{4}))?",
+                r"l\.\s*(?:n\.\s*)?(\d+)(?:/(\d{4}))?"
+            ],
+            system=True
         )
-        self.add_entity_type(
-            name="DECRETO",
-            display_name="Decreto",
-            category="normative",
-            color="#FFC069",
-            metadata_schema={"tipo_decreto": "string", "numero": "string", "anno": "string", "data": "string"}
-        )
-        self.add_entity_type(
-            name="REGOLAMENTO_UE",
-            display_name="Regolamento UE",
-            category="normative",
-            color="#AD8B00",
-            metadata_schema={"tipo": "string", "numero": "string", "anno": "string", "nome_comune": "string"}
-        )
-        
-        # Entità giurisprudenziali
-        self.add_entity_type(
-            name="SENTENZA",
-            display_name="Sentenza",
-            category="jurisprudence",
-            color="#D3F261",
-            metadata_schema={"autorità": "string", "località": "string", "sezione": "string", "numero": "string", "anno": "string", "data": "string"}
-        )
-        self.add_entity_type(
-            name="ORDINANZA",
-            display_name="Ordinanza",
-            category="jurisprudence",
-            color="#389E0D",
-            metadata_schema={"autorità": "string", "località": "string", "sezione": "string", "numero": "string", "anno": "string", "data": "string"}
-        )
-        
-        # Concetti giuridici
-        self.add_entity_type(
-            name="CONCETTO_GIURIDICO",
-            display_name="Concetto Giuridico",
-            category="concepts",
-            color="#5CDBD3",
-            metadata_schema={"categoria": "string", "definizione": "string"}
-        )
-        
-        # Force database save
-        self.save_entities_to_database()
-
-    def add_entity_type(self, name: str, display_name: str, category: str, 
-                        color: str, metadata_schema: Dict[str, str], patterns: List[str] = None) -> bool:
+        self.add_entity(legge)
+        self.logger.info("Aggiunta entità predefinita 'Legge'")
+    
+    def _load_entities_from_database(self):
+        """Carica tutte le entità dal database."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM entities")
+                rows = cursor.fetchall()
+                
+                # Ottieni i nomi delle colonne
+                column_names = [desc[0] for desc in cursor.description]
+                
+                # Resetta le strutture dati
+                self.entities.clear()
+                for category in self.categories:
+                    self.categories[category].clear()
+                
+                # Popola le strutture dati
+                for row in rows:
+                    # Converti riga in dizionario
+                    entity_data = dict(zip(column_names, row))
+                    
+                    # Converti campi JSON
+                    for field in ['metadata_schema', 'patterns']:
+                        if field in entity_data and entity_data[field]:
+                            try:
+                                entity_data[field] = json.loads(entity_data[field])
+                            except json.JSONDecodeError:
+                                entity_data[field] = {} if field == 'metadata_schema' else []
+                        else:
+                            entity_data[field] = {} if field == 'metadata_schema' else []
+                    
+                    # Converti boolean
+                    if 'system' in entity_data:
+                        entity_data['system'] = bool(entity_data['system'])
+                    
+                    # Crea oggetto EntityType
+                    entity = EntityType.from_dict(entity_data)
+                    
+                    # Aggiungi alle strutture dati
+                    self.entities[entity.id] = entity
+                    
+                    # Aggiungi alla categoria
+                    if entity.category in self.categories:
+                        self.categories[entity.category].add(entity.id)
+                    else:
+                        self.categories[entity.category] = {entity.id}
+                
+                self.logger.info(f"Caricate {len(self.entities)} entità dal database")
+        except Exception as e:
+            self.logger.error(f"Errore nel caricamento delle entità dal database: {e}")
+            self.logger.exception(e)
+    
+    def add_observer(self, observer: EntityObserver) -> None:
+        """Aggiunge un osservatore delle modifiche alle entità."""
+        self.observers.append(observer)
+    
+    def remove_observer(self, observer: EntityObserver) -> None:
+        """Rimuove un osservatore."""
+        if observer in self.observers:
+            self.observers.remove(observer)
+    
+    def _notify_entity_added(self, entity: EntityType) -> None:
+        """Notifica gli osservatori dell'aggiunta di un'entità."""
+        for observer in self.observers:
+            observer.entity_added(entity)
+    
+    def _notify_entity_updated(self, entity: EntityType) -> None:
+        """Notifica gli osservatori dell'aggiornamento di un'entità."""
+        for observer in self.observers:
+            observer.entity_updated(entity)
+    
+    def _notify_entity_removed(self, entity_id: str) -> None:
+        """Notifica gli osservatori della rimozione di un'entità."""
+        for observer in self.observers:
+            observer.entity_removed(entity_id)
+    
+    def add_entity(self, entity: EntityType) -> bool:
         """
-        Aggiunge un nuovo tipo di entità al sistema.
+        Aggiunge una nuova entità al sistema.
         
         Args:
-            name: Nome identificativo dell'entità (in maiuscolo)
-            display_name: Nome visualizzato dell'entità
-            category: Categoria dell'entità ("normative", "jurisprudence", "concepts" o "custom")
-            color: Colore dell'entità in formato esadecimale (#RRGGBB)
-            metadata_schema: Schema dei metadati dell'entità
-            patterns: Lista di pattern regex per il riconoscimento (opzionale)
+            entity: Entità da aggiungere
             
         Returns:
             True se l'aggiunta è avvenuta con successo, False altrimenti
         """
         try:
-            # Verifica che il nome sia in maiuscolo e non contenga spazi
-            if not name.isupper() or ' ' in name:
-                self.logger.error(f"Nome entità non valido: {name}. Deve essere in maiuscolo e senza spazi.")
-                return False
-                
-            # Verifica che la categoria sia valida
-            if category not in self.entity_categories:
-                self.logger.error(f"Categoria non valida: {category}")
-                return False
-                
             # Verifica che il nome non sia già in uso
-            if name in self.entity_types:
-                self.logger.warning(f"L'entità {name} esiste già. Aggiornamento in corso...")
+            for existing in self.entities.values():
+                if existing.name == entity.name:
+                    self.logger.warning(f"Entità con nome '{entity.name}' già esistente")
+                    return False
             
-            # Aggiungi l'entità
-            entity_definition = {
-                "display_name": display_name,
-                "category": category,
-                "color": color,
-                "metadata_schema": metadata_schema
-            }
+            # Crea un nuovo ID se non fornito
+            if not entity.id:
+                entity.id = str(uuid.uuid4())
             
-            # Aggiungi i pattern se specificati
-            if patterns:
-                entity_definition["patterns"] = patterns
+            # Verifica che la categoria sia valida
+            if entity.category not in self.categories:
+                self.categories[entity.category] = set()
+            
+            # Aggiorna data di creazione/modifica
+            now = datetime.datetime.now().isoformat()
+            entity.created_at = now
+            entity.updated_at = now
+            
+            # Aggiungi al database
+            with self._get_db() as (conn, cursor):
+                # Prepara dati per inserimento
+                entity_dict = entity.to_dict()
                 
-            self.entity_types[name] = entity_definition
+                # Converti campi JSON
+                entity_dict['metadata_schema'] = json.dumps(entity_dict['metadata_schema'])
+                entity_dict['patterns'] = json.dumps(entity_dict['patterns'])
+                
+                # Converti boolean
+                entity_dict['system'] = 1 if entity_dict['system'] else 0
+                
+                # Esegui inserimento
+                placeholders = ', '.join(['?' for _ in range(len(entity_dict))])
+                columns = ', '.join(entity_dict.keys())
+                values = tuple(entity_dict.values())
+                
+                cursor.execute(
+                    f"INSERT INTO entities ({columns}) VALUES ({placeholders})", 
+                    values
+                )
+                conn.commit()
             
-            # Aggiungi alle categorie
-            self.entity_categories[category].add(name)
-            
-            self.logger.info(f"Entità {name} aggiunta con successo nella categoria {category}")
+            # Aggiungi alle strutture dati
+            self.entities[entity.id] = entity
+            self.categories[entity.category].add(entity.id)
             
             # Notifica gli osservatori
-            self._notify_entity_added(name, entity_definition)
+            self._notify_entity_added(entity)
             
-            # Salva le entità nel database
-            self.save_entities_to_database()
-            
+            self.logger.info(f"Entità '{entity.name}' aggiunta con successo (ID: {entity.id})")
             return True
-            
         except Exception as e:
-            self.logger.error(f"Errore nell'aggiunta dell'entità {name}: {str(e)}")
+            self.logger.error(f"Errore nell'aggiunta dell'entità: {e}")
+            self.logger.exception(e)
             return False
     
-    def remove_entity_type(self, name: str) -> bool:
+    def update_entity(self, entity: EntityType) -> bool:
         """
-        Rimuove un tipo di entità dal sistema.
+        Aggiorna un'entità esistente.
         
         Args:
-            name: Nome identificativo dell'entità
-            
-        Returns:
-            True se la rimozione è avvenuta con successo, False altrimenti
-        """
-        try:
-            if name not in self.entity_types:
-                self.logger.warning(f"L'entità {name} non esiste.")
-                return False
-                
-            # Rimuovi dalle categorie
-            category = self.entity_types[name]["category"]
-            if name in self.entity_categories[category]:
-                self.entity_categories[category].remove(name)
-                
-            # Rimuovi dall'elenco principale
-            del self.entity_types[name]
-            
-            self.logger.info(f"Entità {name} rimossa con successo")
-            
-            # Notifica gli osservatori
-            self._notify_entity_removed(name)
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Errore nella rimozione dell'entità {name}: {str(e)}")
-            return False
-    
-    def update_entity_type(self, name: str, display_name: Optional[str] = None, 
-                          category: Optional[str] = None, color: Optional[str] = None, 
-                          metadata_schema: Optional[Dict[str, str]] = None,
-                          patterns: Optional[List[str]] = None) -> bool:
-        """
-        Aggiorna un tipo di entità esistente.
-        
-        Args:
-            name: Nome identificativo dell'entità
-            display_name: Nuovo nome visualizzato (opzionale)
-            category: Nuova categoria (opzionale)
-            color: Nuovo colore (opzionale)
-            metadata_schema: Nuovo schema dei metadati (opzionale)
-            patterns: Nuovi pattern regex (opzionale)
+            entity: Entità con le modifiche
             
         Returns:
             True se l'aggiornamento è avvenuto con successo, False altrimenti
         """
         try:
-            if name not in self.entity_types:
-                self.logger.error(f"L'entità {name} non esiste.")
+            # Verifica che l'entità esista
+            if entity.id not in self.entities:
+                self.logger.error(f"Entità con ID '{entity.id}' non trovata")
                 return False
-                
-            # Crea una copia dell'entità esistente
-            updated_definition = self.entity_types[name].copy()
-            original_category = updated_definition.get("category", "custom")
-                
-            # Aggiorna i campi specificati
-            if display_name:
-                updated_definition["display_name"] = display_name
-                
-            if color:
-                updated_definition["color"] = color
-                
-            if metadata_schema:
-                updated_definition["metadata_schema"] = metadata_schema
-                
-            if patterns:
-                updated_definition["patterns"] = patterns
             
-            # Aggiorna la categoria se specificata e diversa dall'originale
-            if category and category != original_category:
-                # Verifica che la categoria sia valida
-                if category not in self.entity_categories:
-                    self.logger.error(f"Categoria non valida: {category}")
-                    return False
-                    
-                # Verifica che non sia un'entità predefinita (per proteggere le entità di sistema)
-                if original_category != "custom" and original_category in ["normative", "jurisprudence", "concepts"]:
-                    self.logger.error(f"Non è possibile cambiare la categoria di un'entità predefinita: {name}")
-                    return False
-                    
-                # Aggiorna la categoria
-                updated_definition["category"] = category
-                
-                # Aggiorna le liste di categorie
-                if name in self.entity_categories[original_category]:
-                    self.entity_categories[original_category].remove(name)
-                self.entity_categories[category].add(name)
-                
-                self.logger.info(f"Categoria dell'entità {name} cambiata da {original_category} a {category}")
+            original_entity = self.entities[entity.id]
             
-            # Aggiorna l'entità
-            self.entity_types[name] = updated_definition
-                
-            self.logger.info(f"Entità {name} aggiornata con successo")
+            # Aggiorna data di modifica
+            entity.updated_at = datetime.datetime.now().isoformat()
             
-            # Notifica gli osservatori
-            self._notify_entity_updated(name, updated_definition)
+            # Mantieni la data di creazione originale
+            entity.created_at = original_entity.created_at
             
             # Aggiorna il database
-            try:
-                self.save_entities_to_database()
-            except Exception as e:
-                self.logger.warning(f"Errore nel salvataggio del database dopo l'aggiornamento dell'entità {name}: {e}")
+            with self._get_db() as (conn, cursor):
+                # Prepara dati per aggiornamento
+                entity_dict = entity.to_dict()
+                
+                # Converti campi JSON
+                entity_dict['metadata_schema'] = json.dumps(entity_dict['metadata_schema'])
+                entity_dict['patterns'] = json.dumps(entity_dict['patterns'])
+                
+                # Converti boolean
+                entity_dict['system'] = 1 if entity_dict['system'] else 0
+                
+                # Costruisci query di aggiornamento
+                set_clauses = [f"{key} = ?" for key in entity_dict.keys() if key != 'id']
+                values = [entity_dict[key] for key in entity_dict.keys() if key != 'id']
+                values.append(entity.id)  # Per la clausola WHERE
+                
+                query = f"UPDATE entities SET {', '.join(set_clauses)} WHERE id = ?"
+                cursor.execute(query, values)
+                conn.commit()
             
+            # Aggiorna le strutture dati
+            # Rimuovi dalla categoria precedente se cambiata
+            if original_entity.category != entity.category:
+                if original_entity.category in self.categories:
+                    self.categories[original_entity.category].discard(entity.id)
+                
+                # Aggiungi alla nuova categoria
+                if entity.category not in self.categories:
+                    self.categories[entity.category] = set()
+                self.categories[entity.category].add(entity.id)
+            
+            # Aggiorna l'entità
+            self.entities[entity.id] = entity
+            
+            # Notifica gli osservatori
+            self._notify_entity_updated(entity)
+            
+            self.logger.info(f"Entità '{entity.name}' (ID: {entity.id}) aggiornata con successo")
             return True
-            
         except Exception as e:
-            self.logger.error(f"Errore nell'aggiornamento dell'entità {name}: {str(e)}")
+            self.logger.error(f"Errore nell'aggiornamento dell'entità: {e}")
+            self.logger.exception(e)
             return False
-        
-    def get_entity_type(self, name: str) -> Optional[Dict[str, Any]]:
+    
+    def remove_entity(self, entity_id: str) -> bool:
         """
-        Ottiene le informazioni di un tipo di entità.
+        Rimuove un'entità.
         
         Args:
-            name: Nome identificativo dell'entità
+            entity_id: ID dell'entità da rimuovere
             
         Returns:
-            Dizionario con le informazioni dell'entità o None se non esiste
+            True se la rimozione è avvenuta con successo, False altrimenti
         """
-        return self.entity_types.get(name)
+        try:
+            # Verifica che l'entità esista
+            if entity_id not in self.entities:
+                self.logger.error(f"Entità con ID '{entity_id}' non trovata")
+                return False
+            
+            entity = self.entities[entity_id]
+            
+            # Non permettere la rimozione di entità di sistema
+            if entity.system:
+                self.logger.warning(f"Impossibile rimuovere l'entità di sistema '{entity.name}'")
+                return False
+            
+            # Rimuovi dal database
+            with self._get_db() as (conn, cursor):
+                cursor.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
+                conn.commit()
+            
+            # Rimuovi dalle strutture dati
+            if entity.category in self.categories:
+                self.categories[entity.category].discard(entity_id)
+            del self.entities[entity_id]
+            
+            # Notifica gli osservatori
+            self._notify_entity_removed(entity_id)
+            
+            self.logger.info(f"Entità '{entity.name}' (ID: {entity_id}) rimossa con successo")
+            return True
+        except Exception as e:
+            self.logger.error(f"Errore nella rimozione dell'entità: {e}")
+            self.logger.exception(e)
+            return False
     
-    def get_all_entity_types(self) -> Dict[str, Dict[str, Any]]:
+    def get_entity(self, entity_id: str) -> Optional[EntityType]:
         """
-        Ottiene tutte le informazioni sui tipi di entità.
+        Ottiene un'entità per ID.
+        
+        Args:
+            entity_id: ID dell'entità
+            
+        Returns:
+            L'entità se trovata, None altrimenti
+        """
+        return self.entities.get(entity_id)
+    
+    def get_entity_by_name(self, name: str) -> Optional[EntityType]:
+        """
+        Ottiene un'entità per nome.
+        
+        Args:
+            name: Nome dell'entità
+            
+        Returns:
+            L'entità se trovata, None altrimenti
+        """
+        for entity in self.entities.values():
+            if entity.name == name:
+                return entity
+        return None
+    
+    def get_all_entities(self) -> List[EntityType]:
+        """
+        Ottiene tutte le entità.
         
         Returns:
-            Dizionario con tutte le informazioni sui tipi di entità
+            Lista di tutte le entità
         """
-        return self.entity_types
+        return list(self.entities.values())
     
-    def get_entity_types_by_category(self, category: str) -> List[str]:
+    def get_entities_by_category(self, category: str) -> List[EntityType]:
         """
-        Ottiene i nomi dei tipi di entità di una specifica categoria.
+        Ottiene tutte le entità di una categoria.
         
         Args:
             category: Categoria delle entità
             
         Returns:
-            Lista di nomi dei tipi di entità della categoria specificata
+            Lista di entità della categoria specificata
         """
-        if category not in self.entity_categories:
-            self.logger.warning(f"Categoria non valida: {category}")
+        if category not in self.categories:
             return []
-            
-        return sorted(list(self.entity_categories[category]))
+        
+        return [self.entities[entity_id] for entity_id in self.categories[category] 
+                if entity_id in self.entities]
     
-    def save_entities(self, file_path: str) -> bool:
+    def get_categories(self) -> List[str]:
         """
-        Salva le definizioni delle entità in un file JSON.
+        Ottiene tutte le categorie.
+        
+        Returns:
+            Lista di categorie
+        """
+        return list(self.categories.keys())
+    
+    def add_category(self, category: str) -> bool:
+        """
+        Aggiunge una nuova categoria.
         
         Args:
-            file_path: Percorso del file dove salvare le definizioni
+            category: Nome della categoria
             
         Returns:
-            True se il salvataggio è avvenuto con successo, False altrimenti
+            True se l'aggiunta è avvenuta con successo, False altrimenti
         """
-        try:
-            # Crea la directory se non esiste
-            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
-            
-            # Converti set in liste per la serializzazione JSON
-            serializable_categories = {
-                k: list(v) for k, v in self.entity_categories.items()
-            }
-            
-            data_to_save = {
-                "entity_types": self.entity_types,
-                "entity_categories": serializable_categories
-            }
-            
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-                
-            self.logger.info(f"Definizioni delle entità salvate con successo in {file_path}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Errore nel salvataggio delle definizioni delle entità: {str(e)}")
+        if category in self.categories:
             return False
-    
-    def load_entities(self, file_path: str) -> bool:
-        """
-        Carica le definizioni delle entità da un file JSON.
         
-        Args:
-            file_path: Percorso del file contenente le definizioni
-            
-        Returns:
-            True se il caricamento è avvenuto con successo, False altrimenti
-        """
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # Mantieni delle copie per il ripristino in caso di errore
-            old_entity_types = self.entity_types.copy()
-            old_entity_categories = {k: v.copy() for k, v in self.entity_categories.items()}
-            
-            try:
-                # Aggiorna i tipi di entità
-                for name, definition in data.get("entity_types", {}).items():
-                    category = definition.get("category", "custom")
-                    
-                    # Aggiorna o aggiungi l'entità
-                    if name in self.entity_types:
-                        self.update_entity_type(
-                            name=name, 
-                            display_name=definition.get("display_name"),
-                            color=definition.get("color"),
-                            metadata_schema=definition.get("metadata_schema"),
-                            patterns=definition.get("patterns")
-                        )
-                    else:
-                        self.add_entity_type(
-                            name=name,
-                            display_name=definition.get("display_name", name),
-                            category=category,
-                            color=definition.get("color", "#CCCCCC"),
-                            metadata_schema=definition.get("metadata_schema", {}),
-                            patterns=definition.get("patterns")
-                        )
-                        
-                self.logger.info(f"Definizioni delle entità caricate con successo da {file_path}")
-                return True
-                
-            except Exception as e:
-                # Ripristina lo stato precedente in caso di errore
-                self.entity_types = old_entity_types
-                self.entity_categories = old_entity_categories
-                raise e
-                
-        except FileNotFoundError:
-            self.logger.warning(f"File {file_path} non trovato. Utilizzo delle entità predefinite.")
-            return False
-        except Exception as e:
-            self.logger.error(f"Errore nel caricamento delle definizioni delle entità: {str(e)}")
-            return False
+        self.categories[category] = set()
+        return True
     
     def get_entity_label_config(self, format: str = "label-studio") -> str:
         """
@@ -503,7 +520,7 @@ class DynamicEntityManager:
             format: Formato della configurazione ("label-studio", "doccano", etc.)
             
         Returns:
-            Configurazione delle etichette nel formato specifico
+            Configurazione delle etichette nel formato specificato
         """
         if format == "label-studio":
             # Genera XML per Label Studio
@@ -511,10 +528,8 @@ class DynamicEntityManager:
             
             # Aggiungi le etichette
             labels_xml = ['  <Labels name="label" toName="text">']
-            for name, info in self.entity_types.items():
-                color = info.get("color", "#CCCCCC")
-                display_name = info.get("display_name", name)
-                labels_xml.append(f'    <Label value="{name}" background="{color}" displayName="{display_name}"/>')
+            for entity in self.entities.values():
+                labels_xml.append(f'    <Label value="{entity.name}" background="{entity.color}" displayName="{entity.display_name}"/>')
             labels_xml.append('  </Labels>')
             
             xml_parts.extend(labels_xml)
@@ -534,13 +549,13 @@ class DynamicEntityManager:
         elif format == "doccano":
             # Genera JSON per Doccano
             doccano_config = []
-            for name, info in self.entity_types.items():
+            for i, entity in enumerate(self.entities.values()):
                 doccano_config.append({
-                    "id": len(doccano_config) + 1,
-                    "text": info.get("display_name", name),
+                    "id": i + 1,
+                    "text": entity.display_name,
                     "prefix_key": None,
                     "suffix_key": None,
-                    "background_color": info.get("color", "#CCCCCC"),
+                    "background_color": entity.color,
                     "text_color": "#ffffff"
                 })
             return json.dumps(doccano_config, ensure_ascii=False, indent=2)
@@ -548,187 +563,111 @@ class DynamicEntityManager:
         else:
             self.logger.warning(f"Formato {format} non supportato.")
             return ""
-            
-    def entity_type_exists(self, name: str) -> bool:
-        """
-        Verifica se un tipo di entità esiste.
-        
-        Args:
-            name: Nome identificativo dell'entità
-            
-        Returns:
-            True se il tipo di entità esiste, False altrimenti
-        """
-        return name in self.entity_types
-
-    def get_metadata_fields(self, entity_type: str) -> Dict[str, str]:
-        """
-        Ottiene i campi dei metadati per un tipo di entità.
-        
-        Args:
-            entity_type: Nome del tipo di entità
-            
-        Returns:
-            Dizionario con i campi dei metadati (nome -> tipo)
-        """
-        if entity_type not in self.entity_types:
-            return {}
-            
-        return self.entity_types[entity_type].get("metadata_schema", {})
-        
-    def get_patterns(self, entity_type: str) -> List[str]:
-        """
-        Ottiene i pattern regex per un tipo di entità.
-        
-        Args:
-            entity_type: Nome del tipo di entità
-            
-        Returns:
-            Lista di pattern regex per il riconoscimento
-        """
-        if entity_type not in self.entity_types:
-            return []
-            
-        return self.entity_types[entity_type].get("patterns", [])
-        
-    def update_patterns(self, entity_type: str, patterns: List[str]) -> bool:
-        """
-        Aggiorna i pattern regex per un tipo di entità.
-        
-        Args:
-            entity_type: Nome del tipo di entità
-            patterns: Nuovi pattern regex
-            
-        Returns:
-            True se l'aggiornamento è avvenuto con successo, False altrimenti
-        """
-        return self.update_entity_type(entity_type, patterns=patterns)
     
-    def _init_database(self):
-        """Initialize SQLite database for entity persistence and ensure tables exist."""
+    def export_entities(self, file_path: str) -> bool:
+        """
+        Esporta le entità in un file JSON.
+        
+        Args:
+            file_path: Percorso del file
+            
+        Returns:
+            True se l'esportazione è avvenuta con successo, False altrimenti
+        """
         try:
-            # Ensure database directory exists
-            db_dir = os.path.dirname(self.db_path)
-            if not os.path.exists(db_dir):
-                os.makedirs(db_dir, exist_ok=True)
-                self.logger.info(f"Creata directory per il database: {db_dir}")
+            entities_data = [entity.to_dict() for entity in self.entities.values()]
             
-            # Check if database exists
-            db_exists = os.path.exists(self.db_path)
+            # Assicura che la directory esista
+            os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
             
-            # Create/connect to database
-            with self._get_db() as (conn, cursor):
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS entities (
-                    name TEXT PRIMARY KEY,
-                    display_name TEXT,
-                    category TEXT,
-                    color TEXT,
-                    metadata_schema TEXT,
-                    patterns TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """)
-                conn.commit()
-                
-                # Check if table is empty
-                cursor.execute("SELECT COUNT(*) FROM entities")
-                count = cursor.fetchone()[0]
-                
-                if count == 0:
-                    self.logger.info("Database delle entità vuoto, caricamento delle entità predefinite...")
-                    self._load_default_entities()
-                    self.save_entities_to_database()
-                else:
-                    self.logger.info(f"Database delle entità esistente con {count} entità.")
-                    self.load_entities_from_database()
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(entities_data, f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"Entità esportate con successo in {file_path}")
+            return True
         except Exception as e:
-            self.logger.error(f"Errore nell'inizializzazione del database: {e}")
+            self.logger.error(f"Errore nell'esportazione delle entità: {e}")
             self.logger.exception(e)
-            
-    @contextmanager
-    def _get_db(self):
-        """Context manager for database connections."""
-        conn = None
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            yield conn, cursor
-        finally:
-            if conn:
-                conn.close()
-                
-    def save_entities_to_database(self) -> bool:
-        """Save current entities to database."""
-        try:
-            with self._get_db() as (conn, cursor):
-                for name, definition in self.entity_types.items():
-                    cursor.execute("""
-                    INSERT OR REPLACE INTO entities 
-                    (name, display_name, category, color, metadata_schema, patterns, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (
-                        name,
-                        definition.get("display_name"),
-                        definition.get("category"),
-                        definition.get("color"),
-                        json.dumps(definition.get("metadata_schema", {})),
-                        json.dumps(definition.get("patterns", []))
-                    ))
-                conn.commit()
-                self.logger.info("Entities saved to database successfully")
-                return True
-        except Exception as e:
-            self.logger.error(f"Error saving entities to database: {e}")
             return False
+    
+    def import_entities(self, file_path: str, overwrite: bool = False) -> bool:
+        """
+        Importa entità da un file JSON.
+        
+        Args:
+            file_path: Percorso del file
+            overwrite: Se True, sovrascrive le entità esistenti
             
-    def load_entities_from_database(self) -> bool:
-        """Load entities from database."""
+        Returns:
+            True se l'importazione è avvenuta con successo, False altrimenti
+        """
         try:
-            with self._get_db() as (conn, cursor):
-                cursor.execute("SELECT * FROM entities")
-                rows = cursor.fetchall()
+            with open(file_path, 'r', encoding='utf-8') as f:
+                entities_data = json.load(f)
+            
+            # Backup delle strutture dati
+            old_entities = self.entities.copy()
+            old_categories = {category: entities.copy() for category, entities in self.categories.items()}
+            
+            try:
+                for entity_data in entities_data:
+                    entity = EntityType.from_dict(entity_data)
+                    
+                    if entity.id in self.entities and not overwrite:
+                        continue
+                    
+                    self.add_entity(entity)
                 
-                for row in rows:
-                    name, display_name, category, color, metadata_schema, patterns, _, _ = row
-                    self.add_entity_type(
-                        name=name,
-                        display_name=display_name,
-                        category=category,
-                        color=color,
-                        metadata_schema=json.loads(metadata_schema),
-                        patterns=json.loads(patterns)
-                    )
-                self.logger.info(f"Loaded {len(rows)} entities from database")
+                self.logger.info(f"Entità importate con successo da {file_path}")
                 return True
+            except Exception as e:
+                # Ripristina le strutture dati in caso di errore
+                self.entities = old_entities
+                self.categories = old_categories
+                raise e
         except Exception as e:
-            self.logger.error(f"Error loading entities from database: {e}")
+            self.logger.error(f"Errore nell'importazione delle entità: {e}")
+            self.logger.exception(e)
             return False
+        
+    def get_entities_for_annotation(self) -> List[Dict[str, Any]]:
+        """
+        Ottiene le entità in un formato compatibile con l'interfaccia di annotazione.
+        
+        Returns:
+            Lista di entità nel formato atteso dall'interfaccia di annotazione
+        """
+        entities_data = []
+        for entity in self.get_all_entities():
+            entities_data.append({
+                "id": entity.id,
+                "name": entity.display_name,
+                "color": entity.color
+            })
+        return entities_data
 
-
-# Istanza globale del gestore delle entità
+# Singleton pattern per EntityManager
 _entity_manager = None
 
-def get_entity_manager(entities_file: Optional[str] = None) -> DynamicEntityManager:
+def get_entity_manager(db_path: Optional[str] = None) -> EntityManager:
     """
-    Ottiene l'istanza globale del gestore delle entità o ne crea una nuova se non esiste.
+    Ottiene l'istanza globale del gestore delle entità.
     
     Args:
-        entities_file: Percorso al file JSON contenente le definizioni delle entità
+        db_path: Percorso al database (opzionale)
         
     Returns:
         Istanza del gestore delle entità
     """
     global _entity_manager
-    if (_entity_manager is None):
-        _entity_manager = DynamicEntityManager(entities_file)
+    if _entity_manager is None:
+        _entity_manager = EntityManager(db_path)
     return _entity_manager
 
-def set_entity_manager(manager: DynamicEntityManager) -> None:
+def set_entity_manager(manager: EntityManager) -> None:
     """
     Imposta l'istanza globale del gestore delle entità.
-    Utile per i test con mock.
+    Utile per i test.
     
     Args:
         manager: Istanza del gestore delle entità

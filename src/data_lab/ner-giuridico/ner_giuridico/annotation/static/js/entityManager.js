@@ -1,446 +1,520 @@
 /**
  * entityManager.js
- * Logic for the Entity Types management page.
+ * Gestione dinamica delle entità nell'interfaccia utente
  */
+
 import { api } from './api.js';
-import { showNotification, showLoading, hideLoading, getCategoryDisplayName, getCategoryBadgeClass, hexToRgb, calculateLuminance } from './ui.js';
-
-let allEntities = [];
-let entityTypeModalInstance = null;
-let confirmDeleteModalInstance = null;
-let entityToDeleteName = null;
-
-// --- DOM Elements ---
-let tableBody, loadingRow, emptyRow, searchInput, categoryFilter;
-let modalEl, formEl, editModeInput, originalNameInput, nameInput, displayNameInput, categoryInput, colorInput, colorPreview, colorSample, metadataInput, patternsInput, saveBtn, modalTitle;
-let testTextarea, testBtn, testResultsEl, testOutputEl, matchCountEl;
-let confirmDeleteModalEl, entityNameToDeleteEl, confirmDeleteBtn, deleteWarningEl;
-
-// --- Initialization ---
-function cacheDOMElements() {
-    tableBody = document.querySelector('#entity-types-table tbody');
-    loadingRow = document.getElementById('loading-row');
-    emptyRow = document.getElementById('empty-row');
-    searchInput = document.getElementById('entity-search-input');
-    categoryFilter = document.getElementById('category-filter-select');
-
-    modalEl = document.getElementById('entityTypeModal');
-    formEl = document.getElementById('entity-type-form');
-    editModeInput = document.getElementById('edit-mode');
-    originalNameInput = document.getElementById('original-name');
-    nameInput = document.getElementById('entity-name');
-    displayNameInput = document.getElementById('display-name');
-    categoryInput = document.getElementById('category');
-    colorInput = document.getElementById('color');
-    colorPreview = document.getElementById('color-preview');
-    colorSample = document.getElementById('color-sample');
-    metadataInput = document.getElementById('metadata-schema');
-    patternsInput = document.getElementById('patterns');
-    saveBtn = document.getElementById('save-entity-type-btn');
-    modalTitle = document.getElementById('entityTypeModalLabel');
-
-    testTextarea = document.getElementById('test-text');
-    testBtn = document.getElementById('test-patterns-btn');
-    testResultsEl = document.getElementById('test-results');
-    testOutputEl = document.getElementById('test-output');
-    matchCountEl = document.getElementById('match-count');
-
-    confirmDeleteModalEl = document.getElementById('confirmDeleteEntityTypeModal');
-    entityNameToDeleteEl = document.getElementById('entity-type-to-delete-name');
-    confirmDeleteBtn = document.getElementById('confirm-delete-entity-type-btn');
-    deleteWarningEl = document.getElementById('delete-warning-in-use');
-
-    if (modalEl) entityTypeModalInstance = new bootstrap.Modal(modalEl);
-    if (confirmDeleteModalEl) confirmDeleteModalInstance = new bootstrap.Modal(confirmDeleteModalEl);
-}
-
-// --- Rendering ---
-function renderEntityTypes(entities) {
-    if (!tableBody) return;
-    tableBody.innerHTML = ''; // Clear existing rows
-
-    if (entities.length === 0) {
-        emptyRow?.classList.remove('d-none');
-        loadingRow?.classList.add('d-none');
-        return;
-    }
-
-    emptyRow?.classList.add('d-none');
-    loadingRow?.classList.add('d-none');
-
-    const template = document.getElementById('entity-type-row-template');
-    if (!template) return;
-
-    entities.forEach(entity => {
-        const clone = template.content.cloneNode(true);
-        const tr = clone.querySelector('tr');
-        const cells = clone.querySelectorAll('td');
-
-        tr.dataset.entityName = entity.name;
-        cells[0].textContent = entity.name;
-        cells[1].textContent = entity.display_name;
-
-        const categoryBadge = cells[2].querySelector('.badge');
-        categoryBadge.textContent = getCategoryDisplayName(entity.category);
-        categoryBadge.className = `badge rounded-pill ${getCategoryBadgeClass(entity.category)}`;
-
-        cells[3].querySelector('.color-preview').style.backgroundColor = entity.color;
-        cells[3].querySelector('code').textContent = entity.color;
-
-        const editBtn = cells[4].querySelector('.edit-entity-btn');
-        const deleteBtn = cells[4].querySelector('.delete-entity-btn');
-
-        editBtn.addEventListener('click', () => showEditForm(entity));
-
-        if (entity.category === 'custom') {
-            deleteBtn.addEventListener('click', () => showDeleteConfirmation(entity));
-        } else {
-            deleteBtn.disabled = true;
-            deleteBtn.title = 'Le entità predefinite non possono essere eliminate';
-            deleteBtn.classList.replace('btn-outline-danger', 'btn-outline-secondary');
-            deleteBtn.innerHTML = '<i class="fas fa-lock"></i>';
-        }
-
-        tableBody.appendChild(clone);
-    });
-}
-
-// --- Data Fetching and Filtering ---
-async function loadEntityTypes() {
-    loadingRow?.classList.remove('d-none');
-    emptyRow?.classList.add('d-none');
-    tableBody.innerHTML = ''; // Clear while loading
-    tableBody.appendChild(loadingRow); // Add loading row back
-
-    try {
-        const data = await api.getEntityTypes();
-        allEntities = data.entity_types || [];
-        filterAndRender();
-    } catch (error) {
-        showNotification(`Errore nel caricamento dei tipi di entità: ${error.message}`, 'danger');
-        allEntities = [];
-        filterAndRender(); // Render empty state
-    } finally {
-         loadingRow?.classList.add('d-none');
-    }
-}
-
-function filterAndRender() {
-    const searchTerm = searchInput?.value.toLowerCase() || '';
-    const selectedCategory = categoryFilter?.value || '';
-
-    const filtered = allEntities.filter(entity => {
-        const nameMatch = entity.name.toLowerCase().includes(searchTerm) || entity.display_name.toLowerCase().includes(searchTerm);
-        const categoryMatch = !selectedCategory || entity.category === selectedCategory;
-        return nameMatch && categoryMatch;
-    });
-
-    renderEntityTypes(filtered);
-}
-
-// --- Form Handling ---
-function updateColorPreview() {
-    const colorValue = colorInput.value;
-    if (colorPreview) colorPreview.textContent = colorValue;
-    if (colorSample) {
-        colorSample.style.backgroundColor = colorValue;
-        // Basic contrast check
-        const rgb = hexToRgb(colorValue);
-        if (rgb) {
-            const luminance = calculateLuminance(rgb.r, rgb.g, rgb.b);
-            colorSample.style.color = luminance > 0.5 ? '#000' : '#fff';
-        }
-    }
-}
-
-function resetForm() {
-    formEl?.reset();
-    editModeInput.value = 'create';
-    originalNameInput.value = '';
-    modalTitle.textContent = 'Nuovo Tipo di Entità';
-    saveBtn.textContent = 'Crea';
-    nameInput.disabled = false;
-    colorInput.value = '#CCCCCC'; // Reset color picker
-    updateColorPreview();
-    testResultsEl?.classList.add('d-none');
-    testOutputEl.textContent = '';
-    matchCountEl.textContent = '0';
-    // Remove validation classes
-    formEl?.classList.remove('was-validated');
-    formEl?.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
-    formEl?.querySelectorAll('.is-valid').forEach(el => el.classList.remove('is-valid'));
-
-}
-
-function showCreateForm() {
-    resetForm();
-    entityTypeModalInstance?.show();
-}
-
-function showEditForm(entity) {
-    resetForm();
-    editModeInput.value = 'edit';
-    originalNameInput.value = entity.name;
-    modalTitle.textContent = `Modifica Tipo Entità: ${entity.name}`;
-    saveBtn.textContent = 'Salva Modifiche';
-
-    nameInput.value = entity.name;
-    nameInput.disabled = true; // Cannot edit name
-    displayNameInput.value = entity.display_name;
-    categoryInput.value = entity.category;
-    colorInput.value = entity.color;
-    metadataInput.value = entity.metadata_schema ? JSON.stringify(entity.metadata_schema, null, 2) : '';
-    patternsInput.value = entity.patterns ? entity.patterns.join('\n') : '';
-
-    updateColorPreview();
-    entityTypeModalInstance?.show();
-}
-
-function validateForm() {
-    let isValid = true;
-
-    // Name validation (only for create)
-    if (editModeInput.value === 'create') {
-        const name = nameInput.value;
-        const nameRegex = /^[A-Z0-9_]+$/;
-        const nameExists = allEntities.some(e => e.name === name);
-        if (!name || !nameRegex.test(name) || nameExists) {
-            nameInput.classList.add('is-invalid');
-            nameInput.nextElementSibling.nextElementSibling.textContent = // Adjust selector if needed
-                !name ? 'Nome richiesto.' :
-                !nameRegex.test(name) ? 'Formato non valido (solo A-Z, 0-9, _).' :
-                'Nome già esistente.';
-            isValid = false;
-        } else {
-            nameInput.classList.remove('is-invalid');
-        }
-    }
-
-    // Display Name
-    if (!displayNameInput.value.trim()) {
-        displayNameInput.classList.add('is-invalid');
-        isValid = false;
-    } else {
-        displayNameInput.classList.remove('is-invalid');
-    }
-
-    // Category
-    if (!categoryInput.value) {
-         categoryInput.classList.add('is-invalid');
-         isValid = false;
-    } else {
-         categoryInput.classList.remove('is-invalid');
-    }
-
-    // Color
-     if (!colorInput.value || !/^#[0-9A-Fa-f]{6}$/.test(colorInput.value)) {
-         // Bootstrap color input usually handles this, but add class if needed
-         isValid = false; // Or rely on browser validation
-     }
-
-    // Metadata Schema (optional, but must be valid JSON if provided)
-    const metadataVal = metadataInput.value.trim();
-    const metadataFeedback = document.getElementById('metadata-validation');
-    metadataInput.classList.remove('is-invalid');
-    if (metadataVal) {
-        try {
-            JSON.parse(metadataVal);
-        } catch (e) {
-            metadataInput.classList.add('is-invalid');
-            metadataFeedback.textContent = `Schema JSON non valido: ${e.message}`;
-            isValid = false;
-        }
-    }
-
-    // Patterns (optional, but must be valid regex if provided)
-    const patternsVal = patternsInput.value.trim();
-    const patternsFeedback = document.getElementById('patterns-validation');
-    patternsInput.classList.remove('is-invalid');
-    if (patternsVal) {
-        const lines = patternsVal.split('\n').filter(line => line.trim() !== '');
-        let invalidPatternFound = false;
-        for (const line of lines) {
-            try {
-                new RegExp(line);
-            } catch (e) {
-                patternsInput.classList.add('is-invalid');
-                patternsFeedback.textContent = `Pattern non valido: "${line}" (${e.message})`;
-                isValid = false;
-                invalidPatternFound = true;
-                break;
-            }
-        }
-    }
-
-    return isValid;
-}
-
-async function handleFormSubmit(event) {
-    event.preventDefault();
-    formEl.classList.add('was-validated'); // Trigger Bootstrap validation styles
-
-    if (!validateForm()) {
-        showNotification('Correggi gli errori nel form.', 'warning');
-        return;
-    }
-
-    const isEdit = editModeInput.value === 'edit';
-    const name = isEdit ? originalNameInput.value : nameInput.value;
-
-    let metadataSchema = {};
-    if (metadataInput.value.trim()) {
-        try {
-            metadataSchema = JSON.parse(metadataInput.value.trim());
-        } catch { /* Already validated, ignore */ }
-    }
-
-    const patterns = patternsInput.value.trim()
-        ? patternsInput.value.trim().split('\n').filter(line => line.trim() !== '')
-        : [];
-
-    const data = {
-        display_name: displayNameInput.value.trim(),
-        category: categoryInput.value,
-        color: colorInput.value,
-        metadata_schema: metadataSchema,
-        patterns: patterns
-    };
-
-    // Only include name for creation
-    if (!isEdit) {
-        data.name = name;
-    }
-
-    saveBtn.disabled = true;
-    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvataggio...';
-    showLoading();
-
-    try {
-        if (isEdit) {
-            await api.updateEntityType(name, data);
-            showNotification(`Tipo entità "${name}" aggiornato.`, 'success');
-        } else {
-            await api.createEntityType(data);
-            showNotification(`Tipo entità "${name}" creato.`, 'success');
-        }
-        entityTypeModalInstance?.hide();
-        await loadEntityTypes(); // Reload the list
-    } catch (error) {
-        showNotification(`Errore durante il salvataggio: ${error.message}`, 'danger');
-    } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = isEdit ? 'Salva Modifiche' : 'Crea';
-        hideLoading();
-        formEl.classList.remove('was-validated');
-    }
-}
-
-// --- Deletion ---
-function showDeleteConfirmation(entity) {
-    entityToDeleteName = entity.name;
-    entityNameToDeleteEl.textContent = entity.name;
-    // Basic check if it's custom (backend enforces this anyway)
-    deleteWarningEl?.classList.add('d-none'); // Reset warning
-    confirmDeleteBtn.disabled = false;
-
-    // Optional: Add a check here if the entity is in use (would require another API endpoint or passing usage data)
-    // For now, rely on backend 409 response.
-    // deleteWarningEl?.classList.remove('d-none'); // If in use
-
-    confirmDeleteModalInstance?.show();
-}
-
-async function handleDeleteConfirmation() {
-    if (!entityToDeleteName) return;
-
-    confirmDeleteBtn.disabled = true;
-    confirmDeleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Eliminazione...';
-    showLoading();
-
-    try {
-        await api.deleteEntityType(entityToDeleteName);
-        showNotification(`Tipo entità "${entityToDeleteName}" eliminato.`, 'success');
-        confirmDeleteModalInstance?.hide();
-        await loadEntityTypes(); // Reload list
-    } catch (error) {
-         if (error.message && error.message.includes('in use')) { // Check for specific error messages if backend provides them
-             showNotification(`Impossibile eliminare "${entityToDeleteName}": è in uso nelle annotazioni.`, 'danger');
-         } else if (error.message && error.message.includes('predefinito')) {
-              showNotification(`Impossibile eliminare "${entityToDeleteName}": è un tipo predefinito.`, 'warning');
-         }
-         else {
-            showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
-         }
-        confirmDeleteModalInstance?.hide(); // Still hide modal on error
-    } finally {
-        confirmDeleteBtn.disabled = false;
-        confirmDeleteBtn.innerHTML = 'Elimina';
-        entityToDeleteName = null;
-        hideLoading();
-    }
-}
-
-// --- Pattern Testing ---
-async function handleTestPatterns() {
-    const patternsVal = patternsInput.value.trim();
-    const textVal = testTextarea.value;
-
-    if (!patternsVal || !textVal) {
-        showNotification('Inserisci almeno un pattern e del testo di esempio.', 'warning');
-        return;
-    }
-
-    const lines = patternsVal.split('\n').filter(line => line.trim() !== '');
-    if (lines.length === 0) {
-         showNotification('Nessun pattern valido inserito.', 'warning');
-         return;
-    }
-
-    // Test only the first pattern for simplicity, or loop through all
-    const patternToTest = lines[0];
-    testBtn.disabled = true;
-    testBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Test...';
-
-    try {
-        // Validate regex locally first
-        new RegExp(patternToTest);
-
-        const result = await api.testPattern(patternToTest, textVal);
-        matchCountEl.textContent = result.matches_count || 0;
-        testOutputEl.textContent = JSON.stringify(result.matches || [], null, 2);
-        testResultsEl.classList.remove('d-none');
-    } catch (error) {
-        showNotification(`Errore nel test del pattern: ${error.message}`, 'danger');
-        testOutputEl.textContent = `Errore: ${error.message}`;
-        matchCountEl.textContent = '0';
-        testResultsEl.classList.remove('d-none');
-    } finally {
-         testBtn.disabled = false;
-         testBtn.innerHTML = '<i class="fas fa-vial me-2"></i>Testa';
-    }
-}
-
-
-// --- Event Listeners ---
-function setupEventListeners() {
-    searchInput?.addEventListener('input', filterAndRender);
-    categoryFilter?.addEventListener('change', filterAndRender);
-
-    document.getElementById('add-entity-type-btn')?.addEventListener('click', showCreateForm);
-    document.getElementById('add-first-entity')?.addEventListener('click', showCreateForm); // Button in empty state
-
-    formEl?.addEventListener('submit', handleFormSubmit);
-    colorInput?.addEventListener('input', updateColorPreview);
-
-    testBtn?.addEventListener('click', handleTestPatterns);
-
-    confirmDeleteBtn?.addEventListener('click', handleDeleteConfirmation);
-}
-
-// --- Public Init ---
+import { showNotification, showLoading, hideLoading } from './ui.js';
+
+// Stato
+let entities = [];
+let entityModalInstance = null;
+let deleteModalInstance = null;
+let entityToDelete = null;
+
+// Elementi DOM
+const entityListEl = document.getElementById('entity-list');
+const entityFormEl = document.getElementById('entity-form');
+const entityModalEl = document.getElementById('entityModal');
+const deleteModalEl = document.getElementById('deleteEntityModal');
+const entityNameInputEl = document.getElementById('entity-name');
+const displayNameInputEl = document.getElementById('display-name');
+const categorySelectEl = document.getElementById('category');
+const colorInputEl = document.getElementById('color');
+const descriptionInputEl = document.getElementById('description');
+const metadataSchemaEl = document.getElementById('metadata-schema');
+const patternsInputEl = document.getElementById('patterns');
+const saveEntityBtnEl = document.getElementById('save-entity-btn');
+const entityPreviewEl = document.getElementById('entity-preview');
+const colorPreviewEl = document.getElementById('color-preview');
+const confirmDeleteBtnEl = document.getElementById('confirm-delete-btn');
+const entityNameToDeleteEl = document.getElementById('entity-name-to-delete');
+
+/**
+ * Inizializza il gestore delle entità
+ */
 export function initEntityManager() {
-    console.log('Initializing Entity Manager Page...');
-    cacheDOMElements();
+    console.log("Inizializzazione del gestore delle entità");
+    
+    // Inizializza le modali
+    if (entityModalEl) {
+        entityModalInstance = new bootstrap.Modal(entityModalEl);
+    }
+    if (deleteModalEl) {
+        deleteModalInstance = new bootstrap.Modal(deleteModalEl);
+    }
+    
+    // Carica le entità
+    loadEntities();
+    
+    // Configura gli event listener
     setupEventListeners();
-    loadEntityTypes(); // Initial load
+}
+
+/**
+ * Configura gli event listener
+ */
+function setupEventListeners() {
+    // Form per l'aggiunta/modifica di entità
+    entityFormEl?.addEventListener('submit', handleEntityFormSubmit);
+    
+    // Anteprima del colore
+    colorInputEl?.addEventListener('input', updateColorPreview);
+    
+    // Pulsante per confermare l'eliminazione
+    confirmDeleteBtnEl?.addEventListener('click', handleDeleteEntity);
+    
+    // Pulsante per aggiungere una nuova entità
+    document.getElementById('add-entity-btn')?.addEventListener('click', () => {
+        showEntityModal();
+    });
+    
+    // Filtro per categoria
+    document.getElementById('category-filter')?.addEventListener('change', (e) => {
+        filterEntities(e.target.value);
+    });
+    
+    // Ricerca
+    document.getElementById('entity-search')?.addEventListener('input', (e) => {
+        searchEntities(e.target.value);
+    });
+}
+
+/**
+ * Carica le entità dal server
+ */
+async function loadEntities() {
+    try {
+        showLoading();
+        
+        const response = await api.getEntityTypes();
+        
+        if (response.status !== 'success') {
+            throw new Error(response.message || 'Errore nel caricamento delle entità');
+        }
+        
+        entities = response.entity_types;
+        renderEntities(entities);
+        
+        hideLoading();
+    } catch (error) {
+        console.error("Errore nel caricamento delle entità:", error);
+        showNotification(`Errore: ${error.message}`, 'danger');
+        hideLoading();
+    }
+}
+
+/**
+ * Renderizza le entità nella lista
+ */
+function renderEntities(entitiesToRender) {
+    if (!entityListEl) return;
+    
+    // Svuota la lista
+    entityListEl.innerHTML = '';
+    
+    if (entitiesToRender.length === 0) {
+        entityListEl.innerHTML = `
+            <div class="text-center p-4 text-muted">
+                <i class="fas fa-tag fa-3x mb-3"></i>
+                <p>Nessun tipo di entità trovato.</p>
+                <button id="add-first-entity" class="btn btn-primary">
+                    <i class="fas fa-plus me-1"></i> Aggiungi il primo tipo
+                </button>
+            </div>
+        `;
+        
+        // Aggiungi event listener per il pulsante
+        document.getElementById('add-first-entity')?.addEventListener('click', () => {
+            showEntityModal();
+        });
+        
+        return;
+    }
+    
+    // Crea un elemento per ogni entità
+    entitiesToRender.forEach(entity => {
+        const entityEl = document.createElement('div');
+        entityEl.className = 'card mb-3 entity-card';
+        entityEl.dataset.entityId = entity.id;
+        
+        // Crea il colore di sfondo sfumato
+        entityEl.style.borderLeft = `4px solid ${entity.color}`;
+        
+        entityEl.innerHTML = `
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <h5 class="card-title mb-0 d-flex align-items-center">
+                            <span class="color-preview me-2" style="background-color: ${entity.color};"></span>
+                            ${entity.display_name}
+                            ${entity.system ? '<span class="badge bg-secondary ms-2">Sistema</span>' : ''}
+                        </h5>
+                        <div class="small text-muted font-monospace">${entity.name}</div>
+                    </div>
+                    <div class="badge ${getCategoryBadgeClass(entity.category)} text-white">
+                        ${getCategoryDisplayName(entity.category)}
+                    </div>
+                </div>
+                
+                ${entity.description ? `<p class="card-text small">${entity.description}</p>` : ''}
+                
+                <div class="entity-details small">
+                    <div class="mb-2">
+                        <strong>Schema metadati:</strong>
+                        ${Object.keys(entity.metadata_schema).length > 0 
+                            ? `<code>${JSON.stringify(entity.metadata_schema)}</code>` 
+                            : '<span class="text-muted">Nessuno</span>'}
+                    </div>
+                    <div>
+                        <strong>Pattern:</strong>
+                        ${entity.patterns.length > 0 
+                            ? `<div class="mt-1">${entity.patterns.map(p => `<code class="d-block mb-1">${p}</code>`).join('')}</div>` 
+                            : '<span class="text-muted">Nessuno</span>'}
+                    </div>
+                </div>
+                
+                <div class="mt-3 entity-actions">
+                    <button class="btn btn-sm btn-outline-primary edit-entity-btn">
+                        <i class="fas fa-edit me-1"></i> Modifica
+                    </button>
+                    ${!entity.system ? `
+                        <button class="btn btn-sm btn-outline-danger delete-entity-btn">
+                            <i class="fas fa-trash-alt me-1"></i> Elimina
+                        </button>
+                    ` : ''}
+                    <button class="btn btn-sm btn-outline-info test-patterns-btn">
+                        <i class="fas fa-vial me-1"></i> Testa Pattern
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        // Aggiungi event listeners per i pulsanti
+        entityEl.querySelector('.edit-entity-btn')?.addEventListener('click', () => {
+            showEntityModal(entity);
+        });
+        
+        entityEl.querySelector('.delete-entity-btn')?.addEventListener('click', () => {
+            showDeleteModal(entity);
+        });
+        
+        entityEl.querySelector('.test-patterns-btn')?.addEventListener('click', () => {
+            showPatternTestModal(entity);
+        });
+        
+        entityListEl.appendChild(entityEl);
+    });
+    
+    // Aggiungi il pulsante fluttuante per aggiungere entità
+    if (!document.getElementById('add-entity-floating-btn')) {
+        const floatingBtn = document.createElement('button');
+        floatingBtn.id = 'add-entity-floating-btn';
+        floatingBtn.className = 'btn btn-primary btn-lg rounded-circle position-fixed';
+        floatingBtn.style.bottom = '2rem';
+        floatingBtn.style.right = '2rem';
+        floatingBtn.style.zIndex = '1000';
+        floatingBtn.innerHTML = '<i class="fas fa-plus"></i>';
+        floatingBtn.title = 'Aggiungi nuovo tipo di entità';
+        
+        floatingBtn.addEventListener('click', () => {
+            showEntityModal();
+        });
+        
+        document.body.appendChild(floatingBtn);
+    }
+}
+
+/**
+ * Mostra la modale per aggiungere/modificare un'entità
+ */
+function showEntityModal(entity = null) {
+    if (!entityModalInstance) return;
+    
+    // Reset form
+    entityFormEl.reset();
+    
+    // Configura la modale
+    const modalTitle = document.getElementById('entityModalLabel');
+    
+    if (entity) {
+        // Modifica
+        modalTitle.textContent = `Modifica ${entity.display_name}`;
+        entityFormEl.dataset.mode = 'edit';
+        entityFormEl.dataset.entityId = entity.id;
+        
+        // Popola i campi
+        entityNameInputEl.value = entity.name;
+        entityNameInputEl.disabled = true; // Non permettere la modifica del nome
+        displayNameInputEl.value = entity.display_name;
+        categorySelectEl.value = entity.category;
+        colorInputEl.value = entity.color;
+        descriptionInputEl.value = entity.description || '';
+        metadataSchemaEl.value = JSON.stringify(entity.metadata_schema, null, 2);
+        patternsInputEl.value = entity.patterns.join('\n');
+        
+        // Disabilita la modifica per le entità di sistema
+        if (entity.system) {
+            const fieldsToDisable = [
+                entityNameInputEl,
+                categorySelectEl
+            ];
+            fieldsToDisable.forEach(field => {
+                if (field) field.disabled = true;
+            });
+            
+            // Mostra un avviso
+            const systemWarning = document.createElement('div');
+            systemWarning.className = 'alert alert-warning mt-2';
+            systemWarning.textContent = 'Questa è un\'entità di sistema. Alcune proprietà non possono essere modificate.';
+            entityFormEl.querySelector('.modal-body').prepend(systemWarning);
+        }
+    } else {
+        // Aggiunta
+        modalTitle.textContent = 'Nuovo Tipo di Entità';
+        entityFormEl.dataset.mode = 'add';
+        entityFormEl.dataset.entityId = '';
+        
+        // Reset campi
+        entityNameInputEl.disabled = false;
+        
+        // Valori predefiniti
+        colorInputEl.value = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+        categorySelectEl.value = 'custom';
+    }
+    
+    // Aggiorna l'anteprima del colore
+    updateColorPreview();
+    
+    // Mostra la modale
+    entityModalInstance.show();
+}
+
+/**
+ * Mostra la modale per confermare l'eliminazione di un'entità
+ */
+function showDeleteModal(entity) {
+    if (!deleteModalInstance) return;
+    
+    // Memorizza l'entità da eliminare
+    entityToDelete = entity;
+    
+    // Aggiorna il nome dell'entità nel messaggio di conferma
+    if (entityNameToDeleteEl) {
+        entityNameToDeleteEl.textContent = entity.display_name;
+    }
+    
+    // Mostra la modale
+    deleteModalInstance.show();
+}
+
+/**
+ * Mostra la modale per testare i pattern di un'entità
+ */
+function showPatternTestModal(entity) {
+    // Implementa questa funzione in base alle tue esigenze
+}
+
+/**
+ * Gestisce l'invio del form per l'aggiunta/modifica di un'entità
+ */
+async function handleEntityFormSubmit(e) {
+    e.preventDefault();
+    
+    // Valida il form
+    if (!validateEntityForm()) {
+        return;
+    }
+    
+    // Prepara i dati
+    const formData = {
+        name: entityNameInputEl.value.trim(),
+        display_name: displayNameInputEl.value.trim(),
+        category: categorySelectEl.value,
+        color: colorInputEl.value,
+        description: descriptionInputEl.value.trim()
+    };
+    
+    // Aggiungi i metadati se specificati
+    if (metadataSchemaEl.value.trim()) {
+        try {
+            formData.metadata_schema = JSON.parse(metadataSchemaEl.value.trim());
+        } catch (error) {
+            showNotification('Formato JSON non valido per lo schema dei metadati', 'danger');
+            return;
+        }
+    } else {
+        formData.metadata_schema = {};
+    }
+    
+    // Aggiungi i pattern se specificati
+    if (patternsInputEl.value.trim()) {
+        formData.patterns = patternsInputEl.value.trim().split('\n').filter(p => p.trim() !== '');
+    } else {
+        formData.patterns = [];
+    }
+    
+    try {
+        showLoading();
+        
+        const mode = entityFormEl.dataset.mode;
+        let response;
+        
+        if (mode === 'edit') {
+            const entityId = entityFormEl.dataset.entityId;
+            response = await api.updateEntityType(entityId, formData);
+        } else {
+            response = await api.createEntityType(formData);
+        }
+        
+        if (response.status !== 'success') {
+            throw new Error(response.message || 'Errore nel salvataggio dell\'entità');
+        }
+        
+        // Aggiorna la lista delle entità
+        await loadEntities();
+        
+        // Chiudi la modale
+        entityModalInstance.hide();
+        
+        // Mostra un messaggio di successo
+        showNotification(response.message, 'success');
+    } catch (error) {
+        console.error("Errore nel salvataggio dell'entità:", error);
+        showNotification(`Errore: ${error.message}`, 'danger');
+    } finally {
+        hideLoading();
+    }
+}
+
+/**
+ * Gestisce l'eliminazione di un'entità
+ */
+async function handleDeleteEntity() {
+    if (!entityToDelete) return;
+    
+    try {
+        showLoading();
+        
+        const response = await api.deleteEntityType(entityToDelete.id);
+        
+        if (response.status !== 'success') {
+            throw new Error(response.message || 'Errore nell\'eliminazione dell\'entità');
+        }
+        
+        // Aggiorna la lista delle entità
+        await loadEntities();
+        
+        // Chiudi la modale
+        deleteModalInstance.hide();
+        
+        // Mostra un messaggio di successo
+        showNotification(response.message, 'success');
+    } catch (error) {
+        console.error("Errore nell'eliminazione dell'entità:", error);
+        showNotification(`Errore: ${error.message}`, 'danger');
+    } finally {
+        hideLoading();
+        entityToDelete = null;
+    }
+}
+
+/**
+ * Aggiorna l'anteprima del colore
+ */
+function updateColorPreview() {
+    if (!colorInputEl || !colorPreviewEl) return;
+    
+    const color = colorInputEl.value;
+    colorPreviewEl.style.backgroundColor = color;
+    colorPreviewEl.textContent = color;
+    
+    // Aggiorna anche l'entità di esempio
+    if (entityPreviewEl) {
+        entityPreviewEl.style.backgroundColor = color;
+        entityPreviewEl.style.color = getContrastColor(color);
+    }
+}
+
+/**
+ * Valida il form dell'entità
+ */
+function validateEntityForm() {
+    // Implementa la validazione in base alle tue esigenze
+    return true;
+}
+
+/**
+ * Filtra le entità per categoria
+ */
+function filterEntities(category) {
+    if (category === 'all') {
+        renderEntities(entities);
+    } else {
+        const filtered = entities.filter(e => e.category === category);
+        renderEntities(filtered);
+    }
+}
+
+/**
+ * Cerca le entità per nome o descrizione
+ */
+function searchEntities(query) {
+    if (!query.trim()) {
+        renderEntities(entities);
+        return;
+    }
+    
+    const q = query.toLowerCase();
+    const filtered = entities.filter(e => 
+        e.name.toLowerCase().includes(q) || 
+        e.display_name.toLowerCase().includes(q) || 
+        (e.description && e.description.toLowerCase().includes(q))
+    );
+    
+    renderEntities(filtered);
+}
+
+/**
+ * Ottiene il nome della categoria per la visualizzazione
+ */
+function getCategoryDisplayName(category) {
+    const categoryNames = {
+        'normative': 'Normativa',
+        'jurisprudence': 'Giurisprudenziale',
+        'concepts': 'Concetto',
+        'custom': 'Personalizzata'
+    };
+    
+    return categoryNames[category] || category;
+}
+
+/**
+ * Ottiene la classe del badge per la categoria
+ */
+function getCategoryBadgeClass(category) {
+    const categoryClasses = {
+        'normative': 'bg-primary',
+        'jurisprudence': 'bg-success',
+        'concepts': 'bg-info',
+        'custom': 'bg-secondary'
+    };
+    
+    return categoryClasses[category] || 'bg-secondary';
+}
+
+/**
+ * Ottiene il colore di contrasto per un colore di sfondo
+ */
+function getContrastColor(hexColor) {
+    // Converte il colore esadecimale in RGB
+    const r = parseInt(hexColor.substr(1, 2), 16);
+    const g = parseInt(hexColor.substr(3, 2), 16);
+    const b = parseInt(hexColor.substr(5, 2), 16);
+    
+    // Calcola la luminosità
+    const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+    
+    // Restituisce bianco o nero in base alla luminosità
+    return (yiq >= 128) ? '#000000' : '#ffffff';
 }

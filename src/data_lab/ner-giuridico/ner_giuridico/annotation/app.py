@@ -22,6 +22,8 @@ from werkzeug.utils import secure_filename
 import configparser
 from pathlib import Path
 from .db_manager import AnnotationDBManager
+from ..entities.entity_manager import get_entity_manager, EntityType
+import uuid
 
 # -----------------------------------------------------------------------------
 # Configurazione del logger
@@ -122,13 +124,6 @@ try:
             else:
                 annotation_logger.debug(f"Il database delle entità non esiste: {entity_manager.db_path}")
         ENTITY_TYPES = []
-        for name, info in entity_manager.get_all_entity_types().items():
-            ENTITY_TYPES.append({
-                "id": name,
-                "name": info.get("display_name", name),
-                "color": info.get("color", "#CCCCCC")
-            })
-        annotation_logger.info(f"Caricati {len(ENTITY_TYPES)} tipi di entità")
     except Exception as e:
         annotation_logger.error(f"Errore nell'inizializzazione dell'entity manager: {e}")
         annotation_logger.exception(e)
@@ -855,6 +850,11 @@ if run_migrations:
     except Exception as e:
         annotation_logger.error(f"Error running migrations: {e}")
 
+@app.before_request
+def update_context():
+    """Aggiorna il contesto dell'applicazione prima di ogni richiesta."""
+    # Assicurati che il gestore delle entità sia sempre aggiornato
+    app.config['ENTITY_MANAGER'] = get_entity_manager()
 
 # -----------------------------------------------------------------------------
 # Funzioni helper per la persistenza dei documenti e delle annotazioni
@@ -989,8 +989,23 @@ def annotate(doc_id):
     document = next((doc for doc in documents if doc['id'] == doc_id), None)
     if document is None:
         return redirect(url_for('index'))
+    
     doc_annotations = annotations.get(doc_id, [])
-    return render_template('annotate.html', document=document, annotations=doc_annotations, entity_types=ENTITY_TYPES)
+    
+    # Utilizza il nuovo EntityManager per ottenere le entità
+    entity_manager = get_entity_manager()
+    entity_types_raw = entity_manager.get_all_entities()
+    
+    # Converti nel formato atteso dall'interfaccia di annotazione
+    entity_types = []
+    for entity in entity_types_raw:
+        entity_types.append({
+            "id": entity.id,
+            "name": entity.display_name,  # Usa display_name per la visualizzazione
+            "color": entity.color
+        })
+    
+    return render_template('annotate.html', document=document, annotations=doc_annotations, entity_types=entity_types)
 
 @app.route('/entity_types')
 @login_required
@@ -1601,238 +1616,326 @@ def validate_regex_patterns(patterns: List[str]) -> None:
             raise ValueError(f"Pattern regex non valido: '{pattern}' - {str(e)}")
 
 
-@api_endpoint
+@app.route('/api/entity_types', methods=['GET'])
+@login_required
 def get_entity_types():
-    """Ottiene la lista dei tipi di entità."""
+    """API per ottenere tutti i tipi di entità."""
     try:
-        from ner_giuridico.entities.entity_manager import get_entity_manager
-        category = request.args.get('category')
         entity_manager = get_entity_manager()
-        all_entity_types = entity_manager.get_all_entity_types()
-        result = []
+        entities = entity_manager.get_all_entities()
         
-        # Verifica che all_entity_types sia un dizionario
-        if not isinstance(all_entity_types, dict):
-            logger.error(f"get_all_entity_types ha restituito un tipo non valido: {type(all_entity_types)}")
-            return jsonify({"status": "error", "message": "Formato dei dati non valido"}), 500
+        category = request.args.get('category')
+        if category:
+            entities = [e for e in entities if e.category == category]
         
-        for name, info in all_entity_types.items():
-            if category and info.get("category") != category:
-                continue
-            
-            # Assicuriamoci che tutte le proprietà siano presenti
-            entry = {
-                "name": name,
-                "display_name": info.get("display_name", name),
-                "category": info.get("category", "custom"),
-                "color": info.get("color", "#CCCCCC"),
-                "metadata_schema": info.get("metadata_schema", {}),
-                "patterns": info.get("patterns", [])
+        # Converti in formato per il frontend
+        entities_data = [
+            {
+                "id": e.id,
+                "name": e.name,
+                "display_name": e.display_name,
+                "category": e.category,
+                "color": e.color,
+                "description": e.description,
+                "metadata_schema": e.metadata_schema,
+                "patterns": e.patterns,
+                "system": e.system
             }
-            result.append(entry)
+            for e in entities
+        ]
         
-        # Ordina il risultato per categoria e nome
-        result.sort(key=lambda x: (x["category"], x["name"]))
-        return jsonify({"status": "success", "entity_types": result})
+        return jsonify({
+            "status": "success",
+            "entity_types": entities_data
+        })
     except Exception as e:
-        logger.error(f"Errore nel caricamento dei tipi di entità: {e}")
-        logger.exception(e)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.error(f"Errore nel recupero dei tipi di entità: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nel recupero dei tipi di entità: {str(e)}"
+        }), 500
 
-@api_endpoint
-def get_entity_type(name: str):
-    """
-    Ottiene un tipo di entità specifico.
-    
-    Args:
-        name: Nome del tipo di entità
-    """
-    from ner_giuridico.entities.entity_manager import get_entity_manager
-    entity_manager = get_entity_manager()
-    entity_type = entity_manager.get_entity_type(name)
-    if not entity_type:
-        return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
-    result = {
-        "name": name,
-        "display_name": entity_type.get("display_name", name),
-        "category": entity_type.get("category", "custom"),
-        "color": entity_type.get("color", "#CCCCCC"),
-        "metadata_schema": entity_type.get("metadata_schema", {}),
-        "patterns": entity_type.get("patterns", [])
-    }
-    return jsonify({"status": "success", "entity_types": result})
-
-@api_endpoint
-def create_entity_type():
-    """
-    Crea un nuovo tipo di entità.
-    """
-    from ner_giuridico.entities.entity_manager import get_entity_manager
-    data = request.json
-    if not data:
-        raise ValueError("Dati mancanti nella richiesta")
-    if not data.get('name'):
-        raise ValueError("Nome entità mancante")
-    name = data['name']
-    display_name = data.get('display_name', name)
-    category = data.get('category', 'custom')
-    color = data.get('color', '#CCCCCC')
-    metadata_schema = data.get('metadata_schema', {})
-    patterns = data.get('patterns', [])
-    validate_entity_name(name)
-    validate_entity_display_name(display_name)
-    validate_entity_category(category)
-    validate_entity_color(color)
-    validate_metadata_schema(metadata_schema)
-    validate_regex_patterns(patterns)
-    entity_manager = get_entity_manager()
-    if entity_manager.entity_type_exists(name):
-        raise ValueError(f"Il tipo di entità '{name}' esiste già")
-    success = entity_manager.add_entity_type(
-        name=name,
-        display_name=display_name,
-        category=category,
-        color=color,
-        metadata_schema=metadata_schema,
-        patterns=patterns
-    )
-    if not success:
-        raise ValueError(f"Impossibile creare il tipo di entità '{name}'")
-    entity_type = entity_manager.get_entity_type(name)
-    result = {
-        "name": name,
-        "display_name": entity_type.get("display_name", name),
-        "category": entity_type.get("category", "custom"),
-        "color": entity_type.get("color", "#CCCCCC"),
-        "metadata_schema": entity_type.get("metadata_schema", {}),
-        "patterns": entity_type.get("patterns", [])
-    }
-    return jsonify({"status": "success", "message": f"Tipo di entità '{name}' creato con successo", "entity_type": result})
-
-@api_endpoint
-def update_entity_type(name: str):
-    """
-    Aggiorna un tipo di entità esistente.
-    
-    Args:
-        name: Nome del tipo di entità da aggiornare
-    """
-    from ner_giuridico.entities.entity_manager import get_entity_manager
-    data = request.json
-    if not data:
-        raise ValueError("Dati mancanti nella richiesta")
-    entity_manager = get_entity_manager()
-    if not entity_manager.entity_type_exists(name):
-        return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
-    display_name = data.get('display_name')
-    color = data.get('color')
-    metadata_schema = data.get('metadata_schema')
-    patterns = data.get('patterns')
-    current_entity = entity_manager.get_entity_type(name)
-    display_name = display_name or current_entity.get('display_name')
-    color = color or current_entity.get('color')
-    metadata_schema = metadata_schema if metadata_schema is not None else current_entity.get('metadata_schema', {})
-    patterns = patterns if patterns is not None else current_entity.get('patterns', [])
-    validate_entity_name(name, is_update=True)
-    validate_entity_display_name(display_name)
-    validate_entity_color(color)
-    validate_metadata_schema(metadata_schema)
-    validate_regex_patterns(patterns)
-    success = entity_manager.update_entity_type(
-        name=name,
-        display_name=display_name,
-        color=color,
-        metadata_schema=metadata_schema,
-        patterns=patterns
-    )
-    if not success:
-        raise ValueError(f"Impossibile aggiornare il tipo di entità '{name}'")
-    entity_type = entity_manager.get_entity_type(name)
-    result = {
-        "name": name,
-        "display_name": entity_type.get("display_name", name),
-        "category": entity_type.get("category", "custom"),
-        "color": entity_type.get("color", "#CCCCCC"),
-        "metadata_schema": entity_type.get("metadata_schema", {}),
-        "patterns": entity_type.get("patterns", [])
-    }
-    return jsonify({"status": "success", "message": f"Tipo di entità '{name}' aggiornato con successo", "entity_type": result})
-
-@api_endpoint
-def delete_entity_type(name: str):
-    """
-    Elimina un tipo di entità.
-    
-    Args:
-        name: Nome del tipo di entità da eliminare.
-    
-    Returns:
-        Risultato dell'eliminazione.
-    """
-    logger.info(f"Ricevuta richiesta di eliminazione per l'entità: {name}")
-    
+@app.route('/api/entity_types/<entity_id>', methods=['GET'])
+@login_required
+def get_entity_type(entity_id):
+    """API per ottenere un tipo di entità specifico."""
     try:
-        from ner_giuridico.entities.entity_manager import get_entity_manager
+        entity_manager = get_entity_manager()
+        entity = entity_manager.get_entity(entity_id)
+        
+        if not entity:
+            return jsonify({
+                "status": "error",
+                "message": f"Tipo di entità con ID {entity_id} non trovato"
+            }), 404
+        
+        entity_data = {
+            "id": entity.id,
+            "name": entity.name,
+            "display_name": entity.display_name,
+            "category": entity.category,
+            "color": entity.color,
+            "description": entity.description,
+            "metadata_schema": entity.metadata_schema,
+            "patterns": entity.patterns,
+            "system": entity.system
+        }
+        
+        return jsonify({
+            "status": "success",
+            "entity_type": entity_data
+        })
+    except Exception as e:
+        logger.error(f"Errore nel recupero del tipo di entità: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nel recupero del tipo di entità: {str(e)}"
+        }), 500
+
+@app.route('/api/entity_types', methods=['POST'])
+@login_required
+def create_entity_type():
+    """API per creare un nuovo tipo di entità."""
+    try:
+        data = request.json
+        
+        # Validazione dei dati
+        required_fields = ['name', 'display_name', 'category', 'color']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Campo obbligatorio mancante: {field}"
+                }), 400
+        
+        # Verifica formato del nome (maiuscolo senza spazi)
+        if not data['name'].isupper() or ' ' in data['name']:
+            return jsonify({
+                "status": "error",
+                "message": "Il nome deve essere in maiuscolo e senza spazi"
+            }), 400
+        
+        # Crea l'entità
+        entity = EntityType(
+            id=str(uuid.uuid4()),
+            name=data['name'],
+            display_name=data['display_name'],
+            category=data['category'],
+            color=data['color'],
+            description=data.get('description', ''),
+            metadata_schema=data.get('metadata_schema', {}),
+            patterns=data.get('patterns', []),
+            system=False
+        )
+        
+        # Salva l'entità
+        entity_manager = get_entity_manager()
+        success = entity_manager.add_entity(entity)
+        
+        if not success:
+            return jsonify({
+                "status": "error",
+                "message": f"Impossibile creare il tipo di entità '{data['name']}'"
+            }), 500
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Tipo di entità '{data['name']}' creato con successo",
+            "entity_type": {
+                "id": entity.id,
+                "name": entity.name,
+                "display_name": entity.display_name,
+                "category": entity.category,
+                "color": entity.color,
+                "description": entity.description,
+                "metadata_schema": entity.metadata_schema,
+                "patterns": entity.patterns,
+                "system": entity.system
+            }
+        })
+    except Exception as e:
+        logger.error(f"Errore nella creazione del tipo di entità: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nella creazione del tipo di entità: {str(e)}"
+        }), 500
+
+@app.route('/api/entity_types/<entity_id>', methods=['PUT'])
+@login_required
+def update_entity_type(entity_id):
+    """API per aggiornare un tipo di entità esistente."""
+    try:
+        data = request.json
         entity_manager = get_entity_manager()
         
         # Verifica che l'entità esista
-        if not entity_manager.entity_type_exists(name):
-            logger.warning(f"Tentativo di eliminare l'entità inesistente: {name}")
-            return jsonify({"status": "error", "message": f"Tipo di entità '{name}' non trovato"}), 404
-        
-        # Ottieni informazioni sull'entità
-        entity_type = entity_manager.get_entity_type(name)
-        logger.debug(f"Informazioni entità: {entity_type}")
-        
-        # Verifica che l'entità non sia predefinita
-        if entity_type.get("category") != "custom":
-            logger.warning(f"Tentativo di eliminare l'entità predefinita: {name}")
+        entity = entity_manager.get_entity(entity_id)
+        if not entity:
             return jsonify({
-                "status": "error", 
-                "message": f"Non è possibile eliminare il tipo di entità predefinito '{name}'",
-                "error_type": "ProtectedEntityError"
+                "status": "error",
+                "message": f"Tipo di entità con ID {entity_id} non trovato"
+            }), 404
+        
+        # Non permettere la modifica dell'ID o del flag system
+        # (Il name si potrebbe permettere, ma potrebbe causare problemi di riferimento)
+        if 'id' in data:
+            data.pop('id')
+        
+        if 'system' in data:
+            data.pop('system')
+        
+        # Aggiorna i campi
+        for key, value in data.items():
+            if hasattr(entity, key):
+                setattr(entity, key, value)
+        
+        # Salva le modifiche
+        success = entity_manager.update_entity(entity)
+        
+        if not success:
+            return jsonify({
+                "status": "error",
+                "message": f"Impossibile aggiornare il tipo di entità '{entity.name}'"
+            }), 500
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Tipo di entità '{entity.name}' aggiornato con successo",
+            "entity_type": {
+                "id": entity.id,
+                "name": entity.name,
+                "display_name": entity.display_name,
+                "category": entity.category,
+                "color": entity.color,
+                "description": entity.description,
+                "metadata_schema": entity.metadata_schema,
+                "patterns": entity.patterns,
+                "system": entity.system
+            }
+        })
+    except Exception as e:
+        logger.error(f"Errore nell'aggiornamento del tipo di entità: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nell'aggiornamento del tipo di entità: {str(e)}"
+        }), 500
+
+@app.route('/api/entity_types/<entity_id>', methods=['DELETE'])
+@login_required
+def delete_entity_type(entity_id):
+    """API per eliminare un tipo di entità."""
+    try:
+        entity_manager = get_entity_manager()
+        
+        # Verifica che l'entità esista
+        entity = entity_manager.get_entity(entity_id)
+        if not entity:
+            return jsonify({
+                "status": "error",
+                "message": f"Tipo di entità con ID {entity_id} non trovato"
+            }), 404
+        
+        # Non permettere l'eliminazione di entità di sistema
+        if entity.system:
+            return jsonify({
+                "status": "error",
+                "message": f"Impossibile eliminare l'entità di sistema '{entity.name}'"
             }), 403
         
         # Verifica che l'entità non sia in uso
-        has_annotations = check_entity_type_in_use(name)
-        if has_annotations:
-            logger.warning(f"Impossibile eliminare l'entità {name} perché è in uso in alcune annotazioni")
-            return jsonify({
-                "status": "error", 
-                "message": f"Impossibile eliminare il tipo di entità '{name}' perché è in uso in alcune annotazioni",
-                "error_type": "EntityInUseError"
-            }), 409  # Conflict
-        
+        # Questa funzione dovrà essere implementata in base alle tue esigenze
+        """  if is_entity_in_use(entity_id):
+                return jsonify({
+                    "status": "error",
+                    "message": f"Impossibile eliminare l'entità '{entity.name}' perché è in uso"
+                }), 409
+            """
         # Elimina l'entità
-        success = entity_manager.remove_entity_type(name)
+        success = entity_manager.remove_entity(entity_id)
         
         if not success:
-            logger.error(f"Errore interno durante l'eliminazione dell'entità {name}")
             return jsonify({
-                "status": "error", 
-                "message": f"Impossibile eliminare il tipo di entità '{name}' a causa di un errore interno"
+                "status": "error",
+                "message": f"Impossibile eliminare il tipo di entità '{entity.name}'"
             }), 500
         
-        # Salva le modifiche nel database
-        try:
-            entity_manager.save_entities_to_database()
-            logger.info(f"Entità {name} eliminata con successo e database aggiornato")
-        except Exception as e:
-            logger.warning(f"Entità {name} eliminata ma errore nel salvataggio del database: {e}")
-        
         return jsonify({
-            "status": "success", 
-            "message": f"Tipo di entità '{name}' eliminato con successo"
+            "status": "success",
+            "message": f"Tipo di entità '{entity.name}' eliminato con successo"
         })
     except Exception as e:
-        logger.error(f"Errore non gestito nell'eliminazione dell'entità {name}: {e}")
-        logger.exception(e)
+        logger.error(f"Errore nell'eliminazione del tipo di entità: {e}")
         return jsonify({
-            "status": "error", 
-            "message": f"Errore durante l'eliminazione: {str(e)}",
-            "error_type": type(e).__name__
+            "status": "error",
+            "message": f"Errore nell'eliminazione del tipo di entità: {str(e)}"
         }), 500
 
+@app.route('/api/entity_categories', methods=['GET'])
+@login_required
+def get_entity_categories():
+    """API per ottenere tutte le categorie di entità."""
+    try:
+        entity_manager = get_entity_manager()
+        categories = entity_manager.get_categories()
+        
+        return jsonify({
+            "status": "success",
+            "categories": categories
+        })
+    except Exception as e:
+        logger.error(f"Errore nel recupero delle categorie: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nel recupero delle categorie: {str(e)}"
+        }), 500
+
+@app.route('/api/test_pattern', methods=['POST'])
+@login_required
+def test_pattern():
+    """API per testare un pattern regex su un testo di esempio."""
+    try:
+        data = request.json
+        pattern = data.get('pattern')
+        text = data.get('text')
+        
+        if not pattern or not text:
+            return jsonify({
+                "status": "error",
+                "message": "Pattern e testo sono richiesti"
+            }), 400
+        
+        # Testa il pattern
+        import re
+        try:
+            regex = re.compile(pattern)
+            matches = []
+            
+            for match in regex.finditer(text):
+                matches.append({
+                    "text": match.group(0),
+                    "start": match.start(),
+                    "end": match.end(),
+                    "groups": [match.group(i) for i in range(1, len(match.groups()) + 1)]
+                })
+            
+            return jsonify({
+                "status": "success",
+                "matches_count": len(matches),
+                "matches": matches
+            })
+        except re.error as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Pattern regex non valido: {str(e)}"
+            }), 400
+        
+    except Exception as e:
+        logger.error(f"Errore nel test del pattern: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nel test del pattern: {str(e)}"
+        }), 500
+  
 def check_entity_type_in_use(entity_type_name: str) -> bool:
     """
     Verifica se un tipo di entità è in uso in annotazioni esistenti.

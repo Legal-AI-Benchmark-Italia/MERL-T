@@ -40,12 +40,12 @@
         <div class="entity-type-list mb-auto" id="entityTypeList">
             {% for entity_type in entity_types %}
             <div class="entity-type"
-                 data-entity-type="{{ entity_type.id }}"
-                 style="background-color: {{ entity_type.color or '#6c757d' }}; border-left: 5px solid {{ entity_type.color or '#6c757d' }};"
-                 title="{{ entity_type.name }} (Shortcut: Alt+{{ loop.index }})">
+                data-entity-type="{{ entity_type.id }}"
+                style="background-color: {{ entity_type.color or '#6c757d' }}; border-left: 5px solid {{ entity_type.color or '#6c757d' }};"
+                title="{{ entity_type.name }} (Shortcut: Alt+{{ loop.index }})">
                 <span class="entity-name">{{ entity_type.name }}</span>
                 <span class="badge bg-light text-dark rounded-pill ms-2 entity-counter" data-count-type="{{ entity_type.id }}">0</span>
-                <kbd class="shortcut-badge d-none d-lg-inline">Alt+{{ loop.index }}</kbd> <!-- Hide on smaller screens -->
+                <kbd class="shortcut-badge d-none d-lg-inline">Alt+{{ loop.index }}</kbd>
             </div>
             {% endfor %}
         </div>

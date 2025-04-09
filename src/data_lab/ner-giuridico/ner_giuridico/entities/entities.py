@@ -1,61 +1,19 @@
 """
 Modulo per la definizione delle entità giuridiche riconosciute dal sistema NER-Giuridico.
+Versione unificata.
 """
 
-from enum import Enum, auto
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Set
-
-
-class EntityType(Enum):
-    """Enumerazione dei tipi di entità giuridiche riconosciute dal sistema."""
-    
-    # Riferimenti normativi
-    ARTICOLO_CODICE = auto()
-    LEGGE = auto()
-    DECRETO = auto()
-    REGOLAMENTO_UE = auto()
-    
-    # Riferimenti giurisprudenziali
-    SENTENZA = auto()
-    ORDINANZA = auto()
-    
-    # Concetti giuridici
-    CONCETTO_GIURIDICO = auto()
-    
-    @classmethod
-    def get_normative_types(cls) -> Set["EntityType"]:
-        """Restituisce l'insieme dei tipi di entità normative."""
-        return {
-            cls.ARTICOLO_CODICE,
-            cls.LEGGE,
-            cls.DECRETO,
-            cls.REGOLAMENTO_UE
-        }
-    
-    @classmethod
-    def get_jurisprudence_types(cls) -> Set["EntityType"]:
-        """Restituisce l'insieme dei tipi di entità giurisprudenziali."""
-        return {
-            cls.SENTENZA,
-            cls.ORDINANZA
-        }
-    
-    @classmethod
-    def get_concept_types(cls) -> Set["EntityType"]:
-        """Restituisce l'insieme dei tipi di entità concettuali."""
-        return {
-            cls.CONCETTO_GIURIDICO
-        }
-
-
+from dataclasses import dataclass, field
+from typing import Dict, List, Any, Optional
+from .entity_manager import EntityType
 @dataclass
 class Entity:
     """Classe che rappresenta un'entità giuridica riconosciuta."""
     
     # Informazioni di base dell'entità
+    id: str  # ID univoco per l'entità
     text: str  # Testo originale dell'entità
-    type: EntityType  # Tipo di entità
+    type_id: str  # ID del tipo di entità
     start_char: int  # Posizione di inizio nel testo
     end_char: int  # Posizione di fine nel testo
     
@@ -63,13 +21,13 @@ class Entity:
     normalized_text: Optional[str] = None  # Forma normalizzata dell'entità
     
     # Metadati specifici per tipo di entità
-    metadata: Dict[str, Any] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # Punteggio di confidenza (utile per il ranking e la visualizzazione)
+    confidence: float = 1.0
     
     def __post_init__(self):
         """Inizializza i valori predefiniti dopo la creazione dell'istanza."""
-        if self.metadata is None:
-            self.metadata = {}
-        
         if self.normalized_text is None:
             self.normalized_text = self.text
     
@@ -81,12 +39,14 @@ class Entity:
             Dizionario rappresentante l'entità.
         """
         return {
+            "id": self.id,
             "text": self.text,
-            "type": self.type.name,
+            "type_id": self.type_id,
             "start_char": self.start_char,
             "end_char": self.end_char,
             "normalized_text": self.normalized_text,
-            "metadata": self.metadata
+            "metadata": self.metadata,
+            "confidence": self.confidence
         }
     
     @classmethod
@@ -101,14 +61,15 @@ class Entity:
             Istanza di Entity.
         """
         return cls(
+            id=data.get("id", ""),
             text=data["text"],
-            type=EntityType[data["type"]],
+            type_id=data["type_id"],
             start_char=data["start_char"],
             end_char=data["end_char"],
             normalized_text=data.get("normalized_text"),
-            metadata=data.get("metadata", {})
+            metadata=data.get("metadata", {}),
+            confidence=data.get("confidence", 1.0)
         )
-
 
 @dataclass
 class NormativeReference:

@@ -11,10 +11,10 @@ from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 
 from .config import config
 from .entities.entities import (
-    Entity, EntityType, NormativeReference, 
+    Entity, NormativeReference, 
     JurisprudenceReference, LegalConcept
 )
-from .entities.entity_manager import get_entity_manager
+from .entities.entity_manager import get_entity_manager, EntityType
 
 logger = logging.getLogger(__name__)
 

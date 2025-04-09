@@ -1,183 +1,201 @@
+<!-- entity_types.html -->
 {% extends "base.html" %}
 
-{% block title %}NER-Giuridico - Tipi di Entità{% endblock %}
+{% block title %}NER-Giuridico - Gestione Tipi di Entità{% endblock %}
 {% block page_id %}entity_types{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0"><i class="fas fa-tags me-2"></i>Gestione Tipi di Entità</h4>
-    <button id="add-entity-type-btn" class="btn btn-sm btn-primary">
-        <i class="fas fa-plus me-1"></i> Nuovo Tipo
-    </button>
-</div>
-
-<!-- Filters -->
-<div class="row g-3 mb-3">
-    <div class="col-md-6">
-        <input type="search" id="entity-search-input" class="form-control form-control-sm" placeholder="Cerca per nome...">
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0"><i class="fas fa-tags me-2"></i>Gestione Tipi di Entità</h4>
+        <button id="add-entity-btn" class="btn btn-primary">
+            <i class="fas fa-plus me-1"></i> Nuovo Tipo
+        </button>
     </div>
-    <div class="col-md-6">
-        <select id="category-filter-select" class="form-select form-select-sm">
-            <option value="">Tutte le categorie</option>
-            <option value="normative">Normativa</option>
-            <option value="jurisprudence">Giurisprudenziale</option>
-            <option value="concepts">Concetto</option>
-            <option value="custom">Personalizzata</option>
-        </select>
-    </div>
-</div>
 
-<!-- Entity Types Table -->
-<div class="card">
-    <div class="table-responsive">
-        <table class="table table-hover mb-0" id="entity-types-table">
-            <thead class="table-light">
-                <tr>
-                    <th>Nome ID</th>
-                    <th>Nome Visualizzato</th>
-                    <th>Categoria</th>
-                    <th>Colore</th>
-                    <th class="text-end">Azioni</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Rows added by JS -->
-                <tr id="loading-row" class="d-none">
-                    <td colspan="5" class="text-center py-4">
-                        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                        <span class="ms-2">Caricamento...</span>
-                    </td>
-                </tr>
-                 <tr id="empty-row" class="d-none">
-                    <td colspan="5" class="text-center py-4 text-muted">Nessun tipo di entità trovato.</td>
-                </tr>
-            </tbody>
-        </table>
+    <!-- Filtri e ricerca -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="search" id="entity-search" class="form-control" placeholder="Cerca tipi di entità...">
+            </div>
+        </div>
+        <div class="col-md-6">
+            <select id="category-filter" class="form-select">
+                <option value="all">Tutte le categorie</option>
+                <option value="normative">Normativa</option>
+                <option value="jurisprudence">Giurisprudenziale</option>
+                <option value="concepts">Concetto</option>
+                <option value="custom">Personalizzata</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Lista delle entità -->
+    <div id="entity-list" class="entity-list">
+        <!-- Contenuto generato dinamicamente -->
+        <div class="text-center p-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Caricamento...</span>
+            </div>
+        </div>
     </div>
 </div>
 
-<!-- Entity Type Row Template (for JS) -->
-<template id="entity-type-row-template">
-    <tr data-entity-name="">
-        <td class="font-monospace fw-bold"></td>
-        <td></td>
-        <td><span class="badge rounded-pill"></span></td>
-        <td>
-            <span class="color-preview"></span>
-            <code class="small"></code>
-        </td>
-        <td class="text-end">
-            <button class="btn btn-sm btn-outline-secondary edit-entity-btn" title="Modifica"><i class="fas fa-edit"></i></button>
-            <button class="btn btn-sm btn-outline-danger delete-entity-btn" title="Elimina"><i class="fas fa-trash-alt"></i></button>
-        </td>
-    </tr>
-</template>
-
-<!-- Entity Type Form Modal -->
-<div class="modal fade" id="entityTypeModal" tabindex="-1" aria-labelledby="entityTypeModalLabel" aria-hidden="true" data-bs-backdrop="static">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="entityTypeModalLabel">Nuovo Tipo di Entità</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <form id="entity-type-form" novalidate>
-          <div class="modal-body">
-                <input type="hidden" id="edit-mode" value="create">
-                <input type="hidden" id="original-name">
-
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="entity-name" class="form-label">Nome Identificativo*</label>
-                            <input type="text" id="entity-name" class="form-control form-control-sm font-monospace" placeholder="NOME_ENTITA" required pattern="^[A-Z0-9_]+$">
-                            <div class="form-text small">Maiuscolo, numeri, underscore. Non modificabile dopo la creazione.</div>
-                            <div class="invalid-feedback">Nome non valido o già esistente.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="display-name" class="form-label">Nome Visualizzato*</label>
-                            <input type="text" id="display-name" class="form-control form-control-sm" placeholder="Nome Entità" required maxlength="100">
-                             <div class="invalid-feedback">Nome visualizzato richiesto.</div>
-                        </div>
-                         <div class="mb-3">
-                            <label for="category" class="form-label">Categoria*</label>
-                            <select id="category" class="form-select form-select-sm" required>
-                                <option value="custom" selected>Personalizzata</option>
-                                <option value="normative">Normativa</option>
-                                <option value="jurisprudence">Giurisprudenziale</option>
-                                <option value="concepts">Concetto</option>
-                            </select>
-                             <div class="invalid-feedback">Seleziona una categoria.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="color" class="form-label">Colore*</label>
-                            <div class="d-flex align-items-center">
-                                <input type="color" id="color" class="form-control form-control-color form-control-sm me-2" value="#CCCCCC" required title="Scegli un colore">
-                                <code id="color-preview" class="small">#CCCCCC</code>
+<!-- Modale per l'aggiunta/modifica di entità -->
+<div class="modal fade" id="entityModal" tabindex="-1" aria-labelledby="entityModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="entityModalLabel">Nuovo Tipo di Entità</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="entity-form" data-mode="add" data-entity-id="">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="entity-name" class="form-label">Nome Identificativo*</label>
+                                <input type="text" id="entity-name" class="form-control form-control-sm font-monospace" placeholder="NOME_ENTITA" required pattern="^[A-Z0-9_]+$">
+                                <div class="form-text small">Maiuscolo, numeri, underscore. Non modificabile dopo la creazione.</div>
                             </div>
-                            <div id="color-sample" class="mt-2">Esempio evidenziazione</div>
+                            
+                            <div class="mb-3">
+                                <label for="display-name" class="form-label">Nome Visualizzato*</label>
+                                <input type="text" id="display-name" class="form-control form-control-sm" placeholder="Nome Entità" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="category" class="form-label">Categoria*</label>
+                                <select id="category" class="form-select form-select-sm" required>
+                                    <option value="normative">Normativa</option>
+                                    <option value="jurisprudence">Giurisprudenziale</option>
+                                    <option value="concepts">Concetto</option>
+                                    <option value="custom" selected>Personalizzata</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="color" class="form-label">Colore*</label>
+                                <div class="d-flex align-items-center">
+                                    <input type="color" id="color" class="form-control form-control-color me-2" value="#CCCCCC" required>
+                                    <div id="color-preview" class="color-preview" style="background-color: #CCCCCC; color: #000; padding: 0.5rem; border-radius: 0.25rem; width: 100px; text-align: center;">#CCCCCC</div>
+                                </div>
+                                <div id="entity-preview" class="mt-2 p-2 rounded text-center" style="background-color: #CCCCCC; color: #000;">Esempio di entità</div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Descrizione</label>
+                                <textarea id="description" class="form-control form-control-sm" rows="2" placeholder="Descrivi brevemente questo tipo di entità"></textarea>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="metadata-schema" class="form-label">Schema Metadati (JSON)</label>
+                                <textarea id="metadata-schema" class="form-control form-control-sm font-monospace" rows="4" placeholder='{\n  "campo1": "string",\n  "campo2": "number"\n}'></textarea>
+                                <div class="form-text small">Definisce i campi extra per questo tipo di entità.</div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="patterns" class="form-label">Pattern RegEx (uno per riga)</label>
+                                <textarea id="patterns" class="form-control form-control-sm font-monospace" rows="4" placeholder="^legge\s+(?:n\.\s*)?(\d+)(?:/(\d{4}))?"></textarea>
+                                <div class="form-text small">Pattern per il riconoscimento automatico.</div>
+                            </div>
                         </div>
                     </div>
-                    <div class="col-md-6">
-                         <div class="mb-3">
-                            <label for="metadata-schema" class="form-label">Schema Metadati (JSON)</label>
-                            <textarea id="metadata-schema" class="form-control form-control-sm font-monospace" rows="4" placeholder='{\n  "campo1": "string",\n  "campo2": "number"\n}'></textarea>
-                            <div class="form-text small">Opzionale. Definisce campi extra.</div>
-                             <div class="invalid-feedback" id="metadata-validation">Schema JSON non valido.</div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="patterns" class="form-label">Pattern Regex (uno per riga)</label>
-                            <textarea id="patterns" class="form-control form-control-sm font-monospace" rows="4" placeholder="^art\.\s*\d+"></textarea>
-                            <div class="form-text small">Opzionale. Per riconoscimento automatico.</div>
-                            <div class="invalid-feedback" id="patterns-validation">Uno o più pattern non sono validi.</div>
-                        </div>
+                    
+                    <div class="mt-3">
+                        <details>
+                            <summary class="text-primary cursor-pointer">
+                                <i class="fas fa-info-circle me-1"></i> Aiuto sui pattern regex
+                            </summary>
+                            <div class="card card-body bg-light mt-2">
+                                <h6>Esempi di pattern utili:</h6>
+                                <ul class="small">
+                                    <li><code>legge\s+(?:n\.\s*)?(\d+)(?:/(\d{4}))?</code> - Corrisponde a "legge 241/1990" o "legge n. 241 del 1990"</li>
+                                    <li><code>art\.\s*(\d+(?:\s*-?\s*\w+)?)</code> - Corrisponde a "art. 1414" o "art. 1414-bis"</li>
+                                    <li><code>d\.lgs\.\s*(?:n\.\s*)?(\d+)(?:/(\d{4}))?</code> - Corrisponde a "d.lgs. 50/2016" o "d.lgs. n. 50 del 2016"</li>
+                                </ul>
+                                <p class="small mb-0">I pattern utilizzano la sintassi delle espressioni regolari di JavaScript. I gruppi di cattura tra parentesi tonde possono essere utilizzati per estrarre informazioni.</p>
+                            </div>
+                        </details>
                     </div>
                 </div>
-
-                <!-- Pattern Tester -->
-                <details class="mt-3">
-                    <summary class="cursor-pointer text-primary small"><i class="fas fa-flask me-1"></i> Testa Pattern Regex</summary>
-                    <div class="card card-body bg-light mt-2 p-2">
-                        <div class="mb-2">
-                            <label for="test-text" class="form-label small">Testo di esempio:</label>
-                            <textarea id="test-text" class="form-control form-control-sm font-monospace" rows="3"></textarea>
-                        </div>
-                        <button type="button" id="test-patterns-btn" class="btn btn-sm btn-outline-secondary">Testa</button>
-                        <div id="test-results" class="mt-2 d-none">
-                            <p class="small mb-1">Risultati (<span id="match-count">0</span>):</p>
-                            <pre id="test-output" class="bg-white p-2 rounded border small" style="max-height: 100px; overflow-y: auto;"></pre>
-                        </div>
-                    </div>
-                </details>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annulla</button>
-            <button type="submit" id="save-entity-type-btn" class="btn btn-sm btn-primary">Salva</button>
-          </div>
-      </form>
-    </div>
-  </div>
-</div>
-
-<!-- Confirm Delete Entity Type Modal -->
-<div class="modal fade" id="confirmDeleteEntityTypeModal" tabindex="-1" aria-labelledby="confirmDeleteEntityTypeModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="confirmDeleteEntityTypeModalLabel">Conferma Eliminazione Tipo Entità</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div class="modal-body">
-        Sei sicuro di voler eliminare il tipo di entità "<strong id="entity-type-to-delete-name"></strong>"?
-        <div id="delete-warning-in-use" class="alert alert-warning small mt-2 d-none">
-            <i class="fas fa-exclamation-triangle me-1"></i> Attenzione: Questo tipo è usato in alcune annotazioni. L'eliminazione potrebbe causare problemi.
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                    <button type="submit" id="save-entity-btn" class="btn btn-primary">Salva</button>
+                </div>
+            </form>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-        <button type="button" class="btn btn-danger" id="confirm-delete-entity-type-btn">Elimina</button>
-      </div>
     </div>
-  </div>
 </div>
+
+<!-- Modale per la conferma di eliminazione -->
+<div class="modal fade" id="deleteEntityModal" tabindex="-1" aria-labelledby="deleteEntityModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteEntityModalLabel">Conferma Eliminazione</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Sei sicuro di voler eliminare il tipo di entità "<strong id="entity-name-to-delete"></strong>"?</p>
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-1"></i> Attenzione: L'eliminazione potrebbe invalidare annotazioni esistenti che utilizzano questo tipo di entità.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" id="confirm-delete-btn" class="btn btn-danger">Elimina</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modale per il test dei pattern -->
+<div class="modal fade" id="patternTestModal" tabindex="-1" aria-labelledby="patternTestModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="patternTestModalLabel">Test Pattern RegEx</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="test-pattern" class="form-label">Pattern da testare</label>
+                    <input type="text" id="test-pattern" class="form-control font-monospace">
+                </div>
+                
+                <div class="mb-3">
+                    <label for="test-text" class="form-label">Testo di esempio</label>
+                    <textarea id="test-text" class="form-control" rows="4" placeholder="Inserisci un testo su cui testare il pattern..."></textarea>
+                </div>
+                
+                <button id="run-test-btn" class="btn btn-primary">
+                    <i class="fas fa-play me-1"></i> Esegui Test
+                </button>
+                
+                <div id="test-results" class="mt-3 d-none">
+                    <h6>Risultati (<span id="matches-count">0</span> corrispondenze):</h6>
+                    <div id="matches-list" class="p-3 border rounded bg-light">
+                        <!-- Risultati del test -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+    import { initEntityManager } from "{{ url_for('static', filename='js/entityManager.js') }}";
+    document.addEventListener('DOMContentLoaded', initEntityManager);
+</script>
 {% endblock %}

@@ -109,6 +109,7 @@ try:
         from ner_giuridico.training.ner_trainer import train_from_annotations
     elif IMPORT_PATH == "src":
         from ner_giuridico.utils.converter import (
+        from ner_giuridico.utils.converter import (
             convert_annotations_to_spacy_format,
             convert_annotations_to_ner_format,
             convert_spacy_to_conll,
@@ -816,6 +817,7 @@ def cmd_test(args):
         except ImportError:
             # Try alternative path
             from tests.test import run_all_tests
+            from tests.test import run_all_tests
     
         # Run the tests
         logger.info("Running system tests...")
@@ -846,8 +848,7 @@ def cmd_test(args):
             traceback.print_exc()
         return 1
 
-def cmd_setup(args):
-    """Set up the system environment."""
+""" def cmd_setup(args):
     try:
         # Import setup module
         try:
@@ -883,6 +884,7 @@ def cmd_setup(args):
         if args.verbose:
             traceback.print_exc()
         return 1
+ """
 
 def cmd_version(args):
     """Display version information."""
@@ -1081,7 +1083,7 @@ Command Groups:
     
     # setup command
     setup_parser = subparsers.add_parser('setup', help='Set up the system environment')
-    setup_parser.set_defaults(func=cmd_setup)
+    #setup_parser.set_defaults(func=cmd_setup)
     
     # version command
     version_parser = subparsers.add_parser('version', help='Display version information')

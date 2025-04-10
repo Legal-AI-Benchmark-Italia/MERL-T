@@ -92,38 +92,29 @@ function loadInitialData() {
 
     const annotationsScript = document.getElementById('initial-annotations');
     const entityTypesScript = document.getElementById('entity-types-data');
-
     try {
-        if (annotationsScript) {
-            annotations = JSON.parse(annotationsScript.textContent || '[]') || [];
-            annotations.forEach((ann, index) => {
-                if (!ann.id) ann.id = `temp_${Date.now()}_${index}`; // Ensure IDs exist
-            });
-            console.log(`Loaded ${annotations.length} annotations.`);
-        } else {
-            console.warn("Initial annotations script tag (#initial-annotations) not found.");
-        }
         if (entityTypesScript) {
-            entityTypes = JSON.parse(entityTypesScript.textContent || '[]') || [];
+            const rawEntityTypes = JSON.parse(entityTypesScript.textContent || '[]') || [];
+            
+            // Converti nel formato atteso
+            entityTypes = rawEntityTypes.map(et => {
+                return {
+                    id: et.id,
+                    name: et.name || et.display_name, // Supporta entrambi i formati
+                    color: et.color
+                };
+            });
+            
+            // Crea la mappa per lookup veloce
             entityTypesMap = new Map(entityTypes.map(et => [et.id, et]));
+            
             console.log(`Loaded ${entityTypes.length} entity types.`);
-             // Populate clear by type select
-             if (clearByTypeSelect) {
-                 clearByTypeSelect.innerHTML = '<option value="">Seleziona tipo...</option>'; // Reset
-                 entityTypes.forEach(et => {
-                     const option = document.createElement('option');
-                     option.value = et.id;
-                     option.textContent = et.name;
-                     clearByTypeSelect.appendChild(option);
-                 });
-             }
         } else {
             console.warn("Entity types script tag (#entity-types-data) not found.");
         }
     } catch (e) {
-        console.error("Error parsing initial data:", e);
-        showNotification("Errore nel caricamento dei dati iniziali.", "danger");
-        annotations = [];
+        console.error("Error parsing entity types data:", e);
+        showNotification("Errore nel caricamento dei tipi di entità.", "danger");
         entityTypes = [];
         entityTypesMap = new Map();
     }

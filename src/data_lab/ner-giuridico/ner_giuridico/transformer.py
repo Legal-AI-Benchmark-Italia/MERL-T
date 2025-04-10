@@ -15,7 +15,9 @@ from transformers import (
 )
 
 from .config import config
-from .entities.entities import Entity, EntityType
+from .entities.entities import Entity
+from .entities.entity_manager import EntityType
+
 
 logger = logging.getLogger(__name__)
 

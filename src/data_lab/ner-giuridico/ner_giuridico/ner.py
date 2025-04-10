@@ -8,12 +8,12 @@ import logging
 from typing import List, Dict, Any, Optional, Union, Tuple, Type, Protocol
 
 from .config import config
-from .entities.entities import Entity, EntityType
+from .entities.entities import Entity
 from .preprocessing import TextPreprocessor
 from .rule_based import RuleBasedRecognizer
 from .transformer import TransformerRecognizer
 from .normalizer import EntityNormalizer
-from .entities.entity_manager import get_entity_manager, DynamicEntityManager
+from .entities.entity_manager import get_entity_manager, EntityType
 
 logger = logging.getLogger(__name__)
 

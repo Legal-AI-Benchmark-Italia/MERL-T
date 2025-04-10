@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Pattern, Tuple, Union
 
 from .config import config
-from .entities.entities import Entity, EntityType
-from .entities.entity_manager import get_entity_manager
+from .entities.entities import Entity
+from .entities.entity_manager import get_entity_manager, EntityType
 
 logger = logging.getLogger(__name__)
 

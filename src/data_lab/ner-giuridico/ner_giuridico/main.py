@@ -109,13 +109,12 @@ try:
         from ner_giuridico.training.ner_trainer import train_from_annotations
     elif IMPORT_PATH == "src":
         from ner_giuridico.utils.converter import (
-        from ner_giuridico.utils.converter import (
             convert_annotations_to_spacy_format,
             convert_annotations_to_ner_format,
             convert_spacy_to_conll,
             save_annotations_for_training
         )
-        from training.ner_trainer import train_from_annotations
+        from ner_giuridico.training.ner_trainer import train_from_annotations
     OPTIONAL_MODULES_LOADED = True
 except ImportError:
     logger.warning("Some optional modules could not be imported. Related commands may not be available.")
@@ -817,7 +816,6 @@ def cmd_test(args):
         except ImportError:
             # Try alternative path
             from tests.test import run_all_tests
-            from tests.test import run_all_tests
     
         # Run the tests
         logger.info("Running system tests...")
@@ -916,8 +914,7 @@ def cmd_version(args):
                 print(f"transformers: {transformers.__version__}")
             except ImportError:
                 print("transformers: Not installed")
-                
-                
+                      
             try:
                 import fastapi
                 print(f"FastAPI: {fastapi.__version__}")

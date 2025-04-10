@@ -386,7 +386,6 @@ class NERTrainer:
                 set_seed
             )
             from datasets import Dataset, DatasetDict
-            import torch
             import evaluate
             import numpy as np
             
@@ -791,7 +790,6 @@ class NERTrainer:
                 EarlyStoppingCallback
             )
             from datasets import Dataset, DatasetDict
-            import torch
             import evaluate
             import numpy as np
             

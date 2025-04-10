@@ -239,7 +239,7 @@ class TransformerRecognizer:
         self.model_name = config.get("models.transformer.model_name", "dbmdz/bert-base-italian-xxl-cased")
         self.max_length = config.get("models.transformer.max_length", 512)
         self.batch_size = config.get("models.transformer.batch_size", 16)
-        self.device = config.get("models.transformer.device", "cuda" if torch.cuda.is_available() else "cpu")
+#        self.device = config.get("models.transformer.device", "cuda" if torch.cuda.is_available() else "cpu")
         self.quantization = config.get("models.transformer.quantization", False)
     
         # Load the model and tokenizer

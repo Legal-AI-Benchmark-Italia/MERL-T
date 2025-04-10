@@ -3,7 +3,6 @@ Modulo per il riconoscimento di entità basato su modelli transformer per il sis
 """
 
 import logging
-import torch
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple

@@ -20,6 +20,9 @@ let currentSort = 'position'; // 'position' or 'type'
 let currentSearchTerm = '';
 let highlightingEngine = null;
 let clearByTypeModalInstance = null;
+// ++ Aggiunte per stato documento ++
+let documentStatus = 'pending'; // Default status ('pending', 'completed', 'skipped')
+let documentStatusModalInstance = null; // Placeholder se servirà un modal specifico
 
 // --- DOM Elements ---
 // Declare vars, will be assigned in cacheDOMElements
@@ -28,6 +31,11 @@ let autoAnnotateBtn, clearSelectionBtn, editBtn, saveBtn, cancelBtn, editControl
 let zoomInBtn, zoomOutBtn, zoomResetBtn;
 let sortPositionBtn, sortTypeBtn, searchInput;
 let clearAllBtn, clearByTypeModalEl, clearByTypeSelect, confirmClearByTypeBtn;
+// ++ Aggiunte per stato documento ++
+let markCompletedBtn, markSkippedBtn, statusIndicator, nextDocumentBtn;
+// Placeholder per modal, anche se ora usiamo confirm()
+let documentStatusModalEl, confirmChangeStatusBtn;
+
 
 // --- Initialization ---
 function cacheDOMElements() {
@@ -59,24 +67,41 @@ function cacheDOMElements() {
     clearByTypeSelect = document.getElementById('clear-entity-type-select');
     confirmClearByTypeBtn = document.getElementById('confirm-clear-type-btn');
 
+    // ++ Aggiunte per stato documento ++
+    markCompletedBtn = document.getElementById('mark-completed-btn');
+    markSkippedBtn = document.getElementById('mark-skipped-btn');
+    statusIndicator = document.getElementById('document-status-indicator');
+    nextDocumentBtn = document.getElementById('next-document-btn');
+    // Cache anche se non usati attivamente con confirm()
+    documentStatusModalEl = document.getElementById('documentStatusModal');
+    confirmChangeStatusBtn = document.getElementById('confirm-status-change-btn');
+
     // Crucial Check: Ensure required elements are found
     if (!textContentEl) {
         console.error("FATAL: textContentEl (#text-content) not found!");
         throw new Error("Required element #text-content is missing.");
     }
-     if (!entityTypeListEl) {
+    if (!entityTypeListEl) {
         console.warn("Warning: entityTypeListEl (#entityTypeList) not found. Entity selection shortcuts won't work.");
     }
-     if (clearByTypeModalEl) {
+    if (!statusIndicator) {
+         console.warn("Warning: statusIndicator (#document-status-indicator) not found. Status UI won't update.");
+    }
+    // ... (altri controlli esistenti)
+
+    if (clearByTypeModalEl) {
          try {
             clearByTypeModalInstance = new bootstrap.Modal(clearByTypeModalEl);
          } catch(e) {
-             console.error("Error initializing Bootstrap Modal:", e);
+             console.error("Error initializing Bootstrap Modal (Clear By Type):", e);
              clearByTypeModalInstance = null; // Prevent errors later
          }
      } else {
         console.warn("Warning: clearByTypeModalEl (#clearByTypeModal) not found. Clear by type functionality disabled.");
      }
+    // Aggiungere inizializzazione modal stato se necessario in futuro
+    // if (documentStatusModalEl) { ... }
+
     console.log("DOM elements cached.");
 }
 
@@ -90,27 +115,55 @@ function loadInitialData() {
     }
     console.log("Document ID:", currentDocId);
 
+    // Caricamento Annotazioni Esistenti (dal tag script)
     const annotationsScript = document.getElementById('initial-annotations');
+    try {
+         if (annotationsScript) {
+             const rawAnnotations = JSON.parse(annotationsScript.textContent || '[]') || [];
+             // Basic validation of loaded annotations
+             annotations = rawAnnotations.filter(ann =>
+                 ann.id != null &&
+                 ann.start != null &&
+                 ann.end != null &&
+                 ann.start < ann.end && // Basic check
+                 ann.text != null &&
+                 ann.type != null
+             );
+             if (annotations.length !== rawAnnotations.length) {
+                 console.warn("Some initial annotations were filtered out due to missing/invalid data.");
+             }
+             console.log(`Loaded ${annotations.length} initial annotations.`);
+         } else {
+             console.warn("Initial annotations script tag (#initial-annotations) not found. Assuming no initial annotations.");
+             annotations = [];
+         }
+     } catch (e) {
+         console.error("Error parsing initial annotations data:", e);
+         showNotification("Errore nel caricamento delle annotazioni esistenti.", "danger");
+         annotations = [];
+     }
+
+
+    // Caricamento Tipi di Entità (dal tag script)
     const entityTypesScript = document.getElementById('entity-types-data');
     try {
         if (entityTypesScript) {
             const rawEntityTypes = JSON.parse(entityTypesScript.textContent || '[]') || [];
-            
-            // Converti nel formato atteso
-            entityTypes = rawEntityTypes.map(et => {
-                return {
-                    id: et.id,
-                    name: et.name || et.display_name, // Supporta entrambi i formati
-                    color: et.color
-                };
-            });
-            
-            // Crea la mappa per lookup veloce
-            entityTypesMap = new Map(entityTypes.map(et => [et.id, et]));
-            
+            entityTypes = rawEntityTypes.map(et => ({
+                id: et.id,
+                name: et.name || et.display_name, // Support both formats
+                color: et.color || '#6c757d' // Default color if missing
+            })).filter(et => et.id != null && et.name != null); // Ensure basic validity
+            entityTypesMap = new Map(entityTypes.map(et => [et.id.toString(), et])); // Ensure map keys are strings if IDs are numbers
+
+            if (entityTypes.length !== rawEntityTypes.length) {
+                console.warn("Some entity types were filtered out due to missing ID or name.");
+            }
             console.log(`Loaded ${entityTypes.length} entity types.`);
         } else {
             console.warn("Entity types script tag (#entity-types-data) not found.");
+            entityTypes = [];
+            entityTypesMap = new Map();
         }
     } catch (e) {
         console.error("Error parsing entity types data:", e);
@@ -121,7 +174,71 @@ function loadInitialData() {
     console.log("Initial data loaded.");
 }
 
+// ++ Nuova funzione per caricare lo stato del documento ++
+function loadDocumentStatus() {
+    console.log("Loading document status...");
+    // Get status from data attribute on the text content element
+    const statusAttr = textContentEl?.dataset.docStatus;
+    if (statusAttr && ['pending', 'completed', 'skipped'].includes(statusAttr)) {
+        documentStatus = statusAttr;
+        console.log("Document status loaded from attribute:", documentStatus);
+    } else {
+        console.warn(`No valid document status found in data-doc-status attribute (found: ${statusAttr}). Using default: ${documentStatus}`);
+        // Potresti voler impostare un default o loggare un errore più specifico
+        // documentStatus = 'pending'; // Assicurati sia il default desiderato
+    }
+    updateStatusUI(); // Aggiorna l'UI subito dopo il caricamento
+}
+
 // --- Rendering & UI Updates ---
+
+// ++ Nuova funzione per aggiornare l'UI dello stato ++
+function updateStatusUI() {
+    if (!statusIndicator) {
+        // console.warn("Cannot update status UI: statusIndicator element not found.");
+        return; // Non fare nulla se l'elemento non c'è
+    }
+
+    // Rimuovi classi di stato precedenti per sicurezza
+    statusIndicator.classList.remove('bg-secondary', 'bg-success', 'bg-warning', 'text-dark', 'text-white');
+
+    let statusText = 'In Corso';
+    let statusClass = 'bg-secondary';
+    let textClass = 'text-white'; // Default text color
+
+    // Aggiorna testo, stile e stato pulsanti
+    if (documentStatus === 'completed') {
+        statusText = 'Completato';
+        statusClass = 'bg-success';
+        textClass = 'text-white';
+        if (markCompletedBtn) markCompletedBtn.disabled = true; // Disabilita se già completato
+        if (markSkippedBtn) markSkippedBtn.disabled = false; // Riabilita "Salta" se era disabilitato
+        // Potresti voler disabilitare *tutta* l'interfaccia di annotazione qui
+        // disableAnnotationInterface(true);
+    } else if (documentStatus === 'skipped') {
+        statusText = 'Saltato';
+        statusClass = 'bg-warning';
+        textClass = 'text-dark'; // Warning di Bootstrap spesso sta meglio con testo scuro
+        if (markSkippedBtn) markSkippedBtn.disabled = true; // Disabilita se già saltato
+        if (markCompletedBtn) markCompletedBtn.disabled = false; // Riabilita "Completa"
+        // disableAnnotationInterface(true); // Anche qui potresti disabilitare l'annotazione
+    } else { // 'pending' or any other fallback state
+        statusText = 'In Corso';
+        statusClass = 'bg-secondary';
+        textClass = 'text-white';
+        if (markCompletedBtn) markCompletedBtn.disabled = false;
+        if (markSkippedBtn) markSkippedBtn.disabled = false;
+        // disableAnnotationInterface(false); // Assicurati che l'interfaccia sia abilitata
+    }
+
+    statusIndicator.textContent = statusText;
+    statusIndicator.classList.add(statusClass, textClass);
+    // console.log(`Status UI updated to: ${statusText} (${statusClass})`);
+}
+
+
+// -- Funzioni Esistenti (renderAnnotationList, updateEntityTypeCounters, etc.) --
+// Assicurati che queste funzioni non vengano modificate involontariamente
 function renderAnnotationList() {
     if (!annotationsContainerEl || !annotationCountEl) return;
     // console.log("Rendering annotation list..."); // Can be noisy, enable if needed
@@ -130,8 +247,9 @@ function renderAnnotationList() {
     // 1. Sort
     const sortedAnnotations = [...annotations].sort((a, b) => {
         if (currentSort === 'type') {
-            const typeA = entityTypesMap.get(a.type)?.name || a.type;
-            const typeB = entityTypesMap.get(b.type)?.name || b.type;
+            // Usa toString() per sicurezza se gli ID non sono stringhe
+            const typeA = entityTypesMap.get(a.type?.toString())?.name || a.type?.toString() || 'N/D';
+            const typeB = entityTypesMap.get(b.type?.toString())?.name || b.type?.toString() || 'N/D';
             if (typeA.toLowerCase() < typeB.toLowerCase()) return -1;
             if (typeA.toLowerCase() > typeB.toLowerCase()) return 1;
         }
@@ -143,7 +261,7 @@ function renderAnnotationList() {
     const searchTerm = currentSearchTerm.toLowerCase().trim();
     const filteredAnnotations = searchTerm
         ? sortedAnnotations.filter(ann => {
-            const entityName = entityTypesMap.get(ann.type)?.name.toLowerCase() || '';
+            const entityName = entityTypesMap.get(ann.type?.toString())?.name.toLowerCase() || '';
             const annotationText = ann.text.toLowerCase();
             return annotationText.includes(searchTerm) || entityName.includes(searchTerm);
           })
@@ -174,14 +292,14 @@ function renderAnnotationList() {
                    return; // Skip this item if template parts are missing
                 }
 
-                const entityType = entityTypesMap.get(ann.type);
+                const entityType = entityTypesMap.get(ann.type?.toString()); // Usa toString() per sicurezza
 
                 itemEl.dataset.annotationId = ann.id;
                 itemEl.dataset.start = ann.start;
                 itemEl.dataset.end = ann.end;
                 itemEl.dataset.type = ann.type; // Keep type id for potential filtering
 
-                typeBadge.textContent = entityType?.name || ann.type || 'N/D'; // Fallback name
+                typeBadge.textContent = entityType?.name || ann.type?.toString() || 'N/D'; // Fallback name
                 const color = entityType?.color || '#6c757d'; // Default grey color
                 typeBadge.style.backgroundColor = color;
                 itemEl.style.borderLeftColor = color;
@@ -209,7 +327,10 @@ function updateEntityTypeCounters() {
     if (!counters || counters.length === 0) return; // Check if counters exist
 
     const counts = annotations.reduce((acc, ann) => {
-        acc[ann.type] = (acc[ann.type] || 0) + 1;
+        const typeKey = ann.type?.toString(); // Usa toString() per consistenza
+        if (typeKey) {
+             acc[typeKey] = (acc[typeKey] || 0) + 1;
+        }
         return acc;
     }, {});
 
@@ -227,6 +348,7 @@ function updateHighlighting() {
     if (highlightingEngine && textContentEl && !isEditingText) { // Only highlight if not editing
         // console.log("Applying highlights..."); // Enable if needed
         try {
+            // Passa la mappa con chiavi stringa per coerenza
             highlightingEngine.applyHighlights(textContentEl, annotations, entityTypesMap);
             // console.log("Highlights applied."); // Enable if needed
         } catch (e) {
@@ -239,15 +361,18 @@ function updateHighlighting() {
 }
 
 function setActiveEntityType(typeId) {
-    selectedEntityTypeId = typeId;
+    // Converti typeId a stringa se non lo è già, per confronto con dataset
+    const typeIdStr = typeId?.toString();
+    selectedEntityTypeId = typeIdStr; // Salva come stringa o null/undefined
+
     entityTypeListEl?.querySelectorAll('.entity-type').forEach(el => {
-        // Use strict equality check for the dataset attribute
-        el.classList.toggle('selected', el.dataset.entityType === typeId);
+        // Confronta stringhe
+        el.classList.toggle('selected', el.dataset.entityType === typeIdStr);
     });
-    console.log("Selected entity type ID:", typeId); // Log the ID for clarity
+    console.log("Selected entity type ID:", selectedEntityTypeId); // Log the ID for clarity
      // Provide user feedback
-     if (typeId) {
-         const typeName = entityTypesMap.get(typeId)?.name || typeId;
+     if (selectedEntityTypeId) {
+         const typeName = entityTypesMap.get(selectedEntityTypeId)?.name || selectedEntityTypeId;
          showNotification(`Tipo selezionato: ${typeName}. Seleziona testo per annotare.`, 'info', null, 2000); // Short duration
      }
 }
@@ -268,59 +393,47 @@ function updateZoom() {
     textContentEl.style.fontSize = zoomPercentage;
 }
 
+
 // --- Annotation Actions ---
 async function handleTextSelection(event) {
-    // Prevent triggering on clicks within existing highlights if they are interactive
-    // This depends on how HighlightingEngine adds elements. Example:
-    // if (event.target.closest('.highlight-span')) { // Adjust selector if needed
-    //     console.log("Clicked on existing highlight, ignoring selection.");
-    //     return;
-    // }
+    // ++ Aggiunta: Non permettere nuove annotazioni se lo stato è 'completed' o 'skipped' ++
+    if (documentStatus === 'completed' || documentStatus === 'skipped') {
+        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile aggiungere annotazioni.`, 'warning');
+        clearSelection(); // Pulisci la selezione visuale
+        return;
+    }
+    // -- Fine Aggiunta --
 
     if (isEditingText) {
-        // console.log("Ignoring text selection while editing."); // Enable if needed
         return;
     }
     if (!selectedEntityTypeId) {
-        // console.log("Ignoring text selection, no entity type selected."); // Enable if needed
         return;
     }
 
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        // console.log("Ignoring empty/collapsed selection."); // Enable if needed
         return;
     }
 
     const range = selection.getRangeAt(0);
     const container = range.commonAncestorContainer;
 
-    // Ensure selection is truly within the editable text content element
     if (!textContentEl || !textContentEl.contains(container)) {
         console.warn("Selection occurred outside #text-content. Ignoring.");
-        clearSelection(); // Clear potentially invalid selection state
+        clearSelection();
         return;
     }
 
-    // --- Accurate Offset Calculation ---
-    // This remains tricky and depends HEAVILY on HighlightingEngine's output.
-    // If HighlightingEngine wraps text in spans, simple textContent length won't work reliably.
-    // A more robust approach might involve traversing the DOM nodes within the range.
-    // For simplicity, we'll stick to the textContent approach but add warnings.
-    // CONSIDER using a library specifically for range/offset calculations if issues persist.
-
     let start, end, text;
     try {
-        // Use the HighlightingEngine's method if it provides one, otherwise fallback
         if (highlightingEngine && typeof highlightingEngine.getRangeOffsets === 'function') {
             ({ start, end } = highlightingEngine.getRangeOffsets(textContentEl, range));
         } else {
-            // Fallback (potentially less accurate with complex highlighting)
              console.warn("Using fallback offset calculation. May be inaccurate if highlighting modifies DOM structure significantly.");
              const preSelectionRange = document.createRange();
              preSelectionRange.selectNodeContents(textContentEl);
              preSelectionRange.setEnd(range.startContainer, range.startOffset);
-             // Use textContent for offset calculation - assumes highlighting doesn't add non-visible chars affecting length
              start = preSelectionRange.toString().length;
              end = start + range.toString().length;
         }
@@ -333,29 +446,24 @@ async function handleTextSelection(event) {
         return;
     }
 
-    // --- End Offset Calculation ---
-
-
-    if (!text.trim()) { // Ignore whitespace-only selections
+    if (!text.trim()) {
         console.log("Ignoring whitespace-only selection.");
-        selection.removeAllRanges(); // Clear the visual selection
+        selection.removeAllRanges();
         return;
     }
 
     const newAnnotation = {
-        // No ID needed here, backend should assign it
         start: start,
         end: end,
         text: text,
-        type: selectedEntityTypeId // Use the currently selected type ID
+        type: selectedEntityTypeId // Usa l'ID stringa salvato
     };
 
     console.log("Attempting to create annotation:", newAnnotation);
-    selection.removeAllRanges(); // Clear selection immediately after getting data
+    selection.removeAllRanges();
     showLoading("Salvataggio annotazione...");
 
     try {
-        // Save the annotation via API
         const savedAnnotationResult = await api.saveAnnotation(currentDocId, newAnnotation);
 
         if (!savedAnnotationResult || !savedAnnotationResult.annotation) {
@@ -363,32 +471,40 @@ async function handleTextSelection(event) {
         }
         const savedAnnotation = savedAnnotationResult.annotation;
 
-        // Ensure the saved annotation has necessary fields (id, start, end, text, type)
+        // Assicura che l'ID tipo sia stringa per consistenza
+        if(savedAnnotation.type && typeof savedAnnotation.type !== 'string') {
+            savedAnnotation.type = savedAnnotation.type.toString();
+        }
+
         if (!savedAnnotation.id || savedAnnotation.start == null || savedAnnotation.end == null || !savedAnnotation.text || !savedAnnotation.type) {
             console.error("Received invalid annotation data from API:", savedAnnotation);
             throw new Error("Dati annotazione ricevuti dal server non validi.");
         }
 
-
-        // Add the VERIFIED annotation from the server response
         annotations.push(savedAnnotation);
-        renderAnnotationList(); // Re-render the list
-        updateHighlighting(); // Update highlights in the text
-        showNotification(`Annotazione "${entityTypesMap.get(savedAnnotation.type)?.name || savedAnnotation.type}" creata.`, 'success');
+        renderAnnotationList();
+        updateHighlighting();
+        // Usa la mappa per ottenere il nome, usando l'ID stringa
+        const typeName = entityTypesMap.get(savedAnnotation.type)?.name || savedAnnotation.type;
+        showNotification(`Annotazione "${typeName}" creata.`, 'success');
     } catch (error) {
         console.error("Error saving annotation:", error);
-        // More specific error message if available from api.js
         const message = error.response?.data?.message || error.message || "Errore sconosciuto";
         showNotification(`Errore creazione annotazione: ${message}`, 'danger');
-        // No need to remove temporary annotation as we didn't add one optimistically
     } finally {
         hideLoading();
-        // UX Choice: Keep the entity type selected or clear it? Clearing it might be safer.
-        // setActiveEntityType(null); // Uncomment this line to clear type after successful annotation
+        // setActiveEntityType(null); // Commentato: scelta UX se mantenere o no il tipo selezionato
     }
 }
 
 async function handleDeleteAnnotation(annotationId) {
+     // ++ Aggiunta: Non permettere eliminazione se lo stato è 'completed' o 'skipped' ++
+    if (documentStatus === 'completed' || documentStatus === 'skipped') {
+        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile eliminare annotazioni.`, 'warning');
+        return;
+    }
+    // -- Fine Aggiunta --
+
     const annotationIndex = annotations.findIndex(ann => ann.id === annotationId);
     if (annotationIndex === -1) {
         console.warn(`Annotation with ID ${annotationId} not found for deletion.`);
@@ -396,27 +512,25 @@ async function handleDeleteAnnotation(annotationId) {
     }
 
     const annotationToDelete = annotations[annotationIndex];
-    const typeName = entityTypesMap.get(annotationToDelete.type)?.name || annotationToDelete.type;
+    // Usa toString() per sicurezza con la mappa
+    const typeName = entityTypesMap.get(annotationToDelete.type?.toString())?.name || annotationToDelete.type?.toString() || 'N/D';
 
-    // Optional: Ask for confirmation
-    // if (!confirm(`Sei sicuro di voler eliminare l'annotazione "${typeName}": "${annotationToDelete.text}"?`)) {
-    //     return;
-    // }
+    // Optional: Confirmation (already commented out)
+    // if (!confirm(`...`)) { return; }
 
-    // Optimistic UI update
     annotations.splice(annotationIndex, 1);
     renderAnnotationList();
     updateHighlighting();
-    showLoading("Eliminazione annotazione..."); // Show loading AFTER optimistic update
+    showLoading("Eliminazione annotazione...");
 
     try {
         await api.deleteAnnotation(currentDocId, annotationId);
         showNotification(`Annotazione "${typeName}" eliminata.`, 'success');
     } catch (error) {
         console.error(`Error deleting annotation ${annotationId}:`, error);
-        showNotification(`Errore eliminazione annotazione: ${error.message}`, 'danger');
-        // Revert UI update if deletion failed
-        annotations.splice(annotationIndex, 0, annotationToDelete); // Add it back at the original position
+        const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+        showNotification(`Errore eliminazione annotazione: ${message}`, 'danger');
+        annotations.splice(annotationIndex, 0, annotationToDelete); // Revert
         renderAnnotationList();
         updateHighlighting();
     } finally {
@@ -431,36 +545,31 @@ function handleJumpToAnnotation(annotationId) {
 
     // 1. Highlight in the list
     annotationsContainerEl?.querySelectorAll('.annotation-item').forEach(el => {
-        el.classList.remove('selected'); // Ensure only one is selected
-        if (el.dataset.annotationId === annotationId) {
+        el.classList.remove('selected');
+        // Confronta gli ID come stringhe per sicurezza (dataset sono stringhe)
+        if (el.dataset.annotationId === annotationId.toString()) {
             el.classList.add('selected');
-            // Scroll list item into view if needed
             el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     });
 
-    // 2. Scroll and potentially highlight in the main text content
+     // 2. Scroll and potentially highlight in the main text content
     if (highlightingEngine && typeof highlightingEngine.highlightAnnotation === 'function') {
          try {
-            highlightingEngine.highlightAnnotation(annotationId, textContentEl); // Pass textContentEl
+            // Passa l'ID come ricevuto (potrebbe essere numero o stringa, il motore deve gestirlo)
+            highlightingEngine.highlightAnnotation(annotationId, textContentEl);
          } catch (e) {
              console.error("Error highlighting annotation in text:", e);
-             // Fallback to simple scroll if highlighting fails
-             textContentEl.scrollTo({ top: 0, behavior: 'smooth' }); // Go to top as fallback
+             textContentEl.scrollTo({ top: 0, behavior: 'smooth' }); // Fallback
          }
     } else {
-        // Fallback: Scroll to approximate position (less reliable)
+        // Fallback scroll logic (codice esistente)
         console.warn("Highlighting engine missing highlightAnnotation method. Using fallback scroll.");
-        // Simple scroll to top might be less confusing than inaccurate scrolling
-        textContentEl.scrollTo({ top: 0, behavior: 'smooth' });
-        // Simple text search and scroll (better than approximate offset)
         const textToFind = annotation.text;
-        if (window.find) { // Browser's built-in find
-            // Reset selection to search from the beginning
+        if (window.find) {
             window.getSelection().removeAllRanges();
             const found = window.find(textToFind, false, false, true, false, true, false);
             if(found) {
-                 // Center the found text if possible (rough calculation)
                  const selection = window.getSelection();
                  if (selection && selection.rangeCount > 0) {
                      const range = selection.getRangeAt(0);
@@ -471,17 +580,24 @@ function handleJumpToAnnotation(annotationId) {
                      textContentEl.scrollTo({ top: scrollTarget, behavior: 'smooth' });
                  }
             } else {
-                 textContentEl.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll top if not found
+                 textContentEl.scrollTo({ top: 0, behavior: 'smooth' });
             }
         } else {
-            textContentEl.scrollTo({ top: 0, behavior: 'smooth' }); // Scroll top if window.find not supported
+            textContentEl.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
 }
 
 async function handleAutoAnnotate() {
+    // ++ Aggiunta: Non permettere auto-annotazione se lo stato è 'completed' o 'skipped' ++
+    if (documentStatus === 'completed' || documentStatus === 'skipped') {
+        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile eseguire il riconoscimento automatico.`, 'warning');
+        return;
+    }
+    // -- Fine Aggiunta --
+
     if (!textContentEl) return;
-    const text = getTextContent(textContentEl); // Use helper for consistency
+    const text = getTextContent(textContentEl);
     if (!text || !text.trim()) {
         showNotification("Nessun testo da analizzare.", "info");
         return;
@@ -499,20 +615,17 @@ async function handleAutoAnnotate() {
 
         if (recognizedEntities.length === 0) {
             showNotification("Nessuna nuova entità riconosciuta automaticamente.", "info");
-            return;
+            return; // Esce qui dal blocco try
         }
 
         let addedCount = 0;
-        const annotationsToSave = []; // Batch potential saves
-
-        // Filter out invalid types and overlaps
+        // Filtra tipi invalidi e sovrapposizioni
         const validNewEntities = recognizedEntities.filter(recEntity => {
-            // Check 1: Is the type known/valid in this project?
-            if (!entityTypesMap.has(recEntity.type)) {
-                console.warn(`Auto-annotate: Skipping entity with unknown type "${recEntity.type}"`, recEntity);
+            const recEntityTypeStr = recEntity.type?.toString(); // Usa stringa per lookup
+            if (!recEntityTypeStr || !entityTypesMap.has(recEntityTypeStr)) {
+                console.warn(`Auto-annotate: Skipping entity with unknown/missing type "${recEntityTypeStr}"`, recEntity);
                 return false;
             }
-            // Check 2: Does it overlap with existing annotations?
             const overlaps = annotations.some(existingAnn =>
                 (recEntity.start < existingAnn.end && recEntity.end > existingAnn.start)
             );
@@ -520,41 +633,40 @@ async function handleAutoAnnotate() {
                  console.log(`Auto-annotate: Skipping overlapping entity`, recEntity);
                  return false;
             }
-            // Basic validation
             if (recEntity.start == null || recEntity.end == null || recEntity.start >= recEntity.end || !recEntity.text) {
                  console.warn(`Auto-annotate: Skipping invalid entity data`, recEntity);
                  return false;
             }
-
             return true;
         });
 
         console.log("Valid new entities to add:", validNewEntities);
 
         if (validNewEntities.length > 0) {
-             // Backend ideally supports batch creation. If not, save one by one.
-             // Assuming batch IS NOT supported by api.saveAnnotation:
              showLoading(`Salvataggio di ${validNewEntities.length} nuove annotazioni...`);
              for (const newAnnData of validNewEntities) {
                  try {
-                    // Create the annotation structure expected by the API
                     const annotationPayload = {
                         start: newAnnData.start,
                         end: newAnnData.end,
                         text: newAnnData.text,
-                        type: newAnnData.type
+                        type: newAnnData.type?.toString() // Assicura sia stringa per API
                     };
                     const saved = await api.saveAnnotation(currentDocId, annotationPayload);
                     if (saved && saved.annotation) {
-                        annotations.push(saved.annotation); // Add the saved one from response
+                         // Assicura tipo stringa anche nella risposta
+                         if(saved.annotation.type && typeof saved.annotation.type !== 'string') {
+                           saved.annotation.type = saved.annotation.type.toString();
+                         }
+                        annotations.push(saved.annotation);
                         addedCount++;
                     } else {
                          console.warn("Auto-annotate save response missing annotation data for:", newAnnData);
                     }
                  } catch (saveError) {
                      console.error("Error saving auto-annotation:", newAnnData, saveError);
-                     // Decide how to handle partial failures - maybe show a summary error at the end
-                     showNotification(`Errore salvataggio annotazione auto: ${newAnnData.text.substring(0,20)}...`, "warning");
+                     const errorMsg = saveError.response?.data?.message || saveError.message || "Errore sconosciuto";
+                     showNotification(`Errore salvataggio annotazione auto "${newAnnData.text.substring(0,20)}...": ${errorMsg}`, "warning");
                  }
              }
 
@@ -563,16 +675,16 @@ async function handleAutoAnnotate() {
             if (addedCount > 0) {
                 showNotification(`${addedCount} nuove annotazioni aggiunte automaticamente.`, 'success');
             } else {
-                 showNotification("Nessuna nuova annotazione valida è stata salvata (potrebbero esserci stati errori).", "warning");
+                 showNotification("Nessuna nuova annotazione valida è stata salvata (controlla log per errori).", "warning");
             }
-
         } else {
             showNotification("Nessuna nuova annotazione non sovrapposta o di tipo valido trovata.", "info");
         }
 
     } catch (error) {
         console.error("Error during auto-annotation process:", error);
-        showNotification(`Errore nel riconoscimento automatico: ${error.message}`, 'danger');
+        const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+        showNotification(`Errore nel riconoscimento automatico: ${message}`, 'danger');
     } finally {
         autoAnnotateBtn.disabled = false;
         autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-1"></i> Riconoscimento Auto';
@@ -582,6 +694,13 @@ async function handleAutoAnnotate() {
 
 // --- Text Editing ---
 function toggleTextEditing(enable) {
+     // ++ Aggiunta: Non permettere modifica testo se lo stato è 'completed' o 'skipped' ++
+    if (enable && (documentStatus === 'completed' || documentStatus === 'skipped')) {
+        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile modificare il testo.`, 'warning');
+        return;
+    }
+    // -- Fine Aggiunta --
+
     if (!textContentEl || !editControlsEl || !editBtn) {
          console.error("Cannot toggle text editing: required buttons/elements missing.");
          return;
@@ -594,101 +713,93 @@ function toggleTextEditing(enable) {
     editBtn.classList.toggle('d-none', isEditingText);
 
     if (isEditingText) {
-        originalTextContent = getTextContent(textContentEl); // Store original text using helper
+        originalTextContent = getTextContent(textContentEl);
         console.log("Text editing enabled. Original text stored.");
-        // Remove highlighting during editing for clarity and to prevent issues
         if (highlightingEngine && typeof highlightingEngine.removeHighlighting === 'function') {
             console.log("Removing highlights for editing.");
             highlightingEngine.removeHighlighting(textContentEl);
         }
         textContentEl.focus();
-        // Warn user about annotation loss ONLY if annotations exist
         if (annotations.length > 0) {
-            showNotification("Attenzione: Modificare il testo invaliderà le annotazioni esistenti al salvataggio.", "warning", null, 5000); // Longer duration
+            showNotification("Attenzione: Modificare il testo invaliderà le annotazioni esistenti al salvataggio.", "warning", null, 5000);
         }
     } else {
         console.log("Text editing disabled.");
-        // Re-apply highlighting if editing is cancelled or finished without saving changes that clear annotations
-        // Ensure highlighting reflects current state (annotations might have been cleared)
-        updateHighlighting();
+        // Re-apply highlighting only if annotations still exist (might have been cleared by save)
+        if(annotations.length > 0) {
+            updateHighlighting();
+        } else {
+            // If annotations were cleared, ensure highlights are also cleared
+             if (highlightingEngine && typeof highlightingEngine.removeHighlighting === 'function') {
+                highlightingEngine.removeHighlighting(textContentEl);
+            }
+        }
     }
 }
 
 async function saveTextChanges() {
+    // Blocco implicito da toggleTextEditing, ma doppia sicurezza
+    if (documentStatus === 'completed' || documentStatus === 'skipped') return;
+
     if (!textContentEl || !saveBtn) return;
-    const newText = getTextContent(textContentEl); // Use helper
+    const newText = getTextContent(textContentEl);
 
     if (newText === originalTextContent) {
         showNotification("Nessuna modifica al testo rilevata.", "info");
-        toggleTextEditing(false); // Just exit edit mode
+        toggleTextEditing(false);
         return;
     }
 
-    // Explicit confirmation REQUIRED if annotations exist
     if (annotations.length > 0) {
         if (!confirm("Salvare le modifiche al testo eliminerà TUTTE le annotazioni esistenti per questo documento. Questa azione è irreversibile. Continuare?")) {
             console.log("User cancelled text save due to annotation warning.");
-            return; // User cancelled
+            return;
         }
         console.log("User confirmed text save, proceeding with annotation deletion.");
     } else {
-        // If no annotations, maybe a simpler confirmation or none at all?
-        // if (!confirm("Salvare le modifiche al testo?")) {
-        //     return;
-        // }
         console.log("Saving text changes (no existing annotations).");
     }
-
 
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Salvataggio...';
     showLoading("Salvataggio modifiche testo...");
 
     try {
-        // 1. Clear existing annotations LOCALLY FIRST (if any) - prevents flicker if API calls are slow
         const hadAnnotations = annotations.length > 0;
         if (hadAnnotations) {
+            // Aggiorna UI localmente *prima* delle chiamate API
             annotations = [];
-            renderAnnotationList(); // Update list (will be empty)
-            updateHighlighting(); // Update highlighting (will be empty) - does nothing if editing
-            console.log("Local annotations cleared before saving text.");
+            renderAnnotationList(); // Svuota lista UI
+            // Non serve updateHighlighting qui perchè siamo in edit mode senza highlights
+            console.log("Local annotations cleared visually before saving text.");
         }
 
-        // 2. Update document content via API
         console.log("Calling API to update document content...");
         await api.updateDocument(currentDocId, { content: newText });
         console.log("Document content updated via API.");
 
-        // 3. Clear existing annotations on the server (only if they existed)
         if (hadAnnotations) {
             console.log("Calling API to clear server-side annotations...");
-            await api.clearAnnotations(currentDocId);
+            // Chiamata API per pulire le annotazioni lato server
+            // Questa chiamata potrebbe essere inclusa nell'updateDocument o separata
+            // Qui assumiamo sia separata:
+            await api.clearAnnotations(currentDocId); // Assicurati che esista e funzioni
             console.log("Server-side annotations cleared via API.");
             showNotification("Testo aggiornato. Le annotazioni precedenti sono state eliminate.", "success");
         } else {
             showNotification("Testo aggiornato.", "success");
         }
 
-
-        originalTextContent = newText; // Update original text baseline AFTER successful save
-        toggleTextEditing(false); // Exit editing mode
-
-        // Render list and highlights again AFTER exiting edit mode to ensure UI is correct
-        renderAnnotationList();
-        updateHighlighting();
-
+        originalTextContent = newText;
+        toggleTextEditing(false); // Esce dalla modalità edit (questo gestirà re-highlighting se necessario)
 
     } catch (error) {
         console.error("Error saving text changes:", error);
-        showNotification(`Errore durante il salvataggio del testo: ${error.message}`, 'danger');
-        // Revert UI potentially? This is complex.
-        // Option 1: Revert text in editor
-        // setTextContent(textContentEl, originalTextContent);
-        // Option 2: Leave modified text, user has to cancel or try again
-        // Keep editing mode active? Maybe best to disable it to avoid confusion.
-        toggleTextEditing(false); // Exit editing mode even on error to avoid inconsistent state
-        // Re-fetch original text/annotations? Maybe too complex. Show error and let user decide.
-        showNotification("Modifiche al testo non salvate. Si prega di ricaricare o riprovare.", "danger", null, 7000);
+        const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+        showNotification(`Errore durante il salvataggio del testo: ${message}`, 'danger');
+        toggleTextEditing(false); // Esce comunque dalla modalità edit
+        // Non si fa revert automatico del testo, si informa l'utente
+        showNotification("Modifiche al testo non salvate a causa di un errore. Ricarica o riprova.", "danger", null, 7000);
     } finally {
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<i class="fas fa-save"></i> Salva';
@@ -699,17 +810,17 @@ async function saveTextChanges() {
 function cancelTextEditing() {
     if (!textContentEl) return;
     console.log("Cancelling text editing, reverting text content.");
-    // Revert text content using helper
     setTextContent(textContentEl, originalTextContent);
-    toggleTextEditing(false); // Exit edit mode (this will re-apply highlights)
+    toggleTextEditing(false);
     showNotification("Modifiche al testo annullate.", "info");
 }
 
-// --- Other Actions ---
+
+// --- Other Actions --- (Zoom, Sort, Search) - Mantenute come sono
 function handleZoom(direction) {
     const step = 0.1;
     const minZoom = 0.5;
-    const maxZoom = 3.0; // Set a max zoom too
+    const maxZoom = 3.0;
     let changed = false;
 
     if (direction === 'in') {
@@ -730,13 +841,11 @@ function handleZoom(direction) {
     }
 
     if(changed) {
-        // Round zoom to avoid floating point issues in display/style
         currentZoom = Math.round(currentZoom * 10) / 10;
         console.log("Zoom changed to:", currentZoom);
         updateZoom();
-        // Update button states (optional)
-        zoomInBtn.disabled = currentZoom >= maxZoom;
-        zoomOutBtn.disabled = currentZoom <= minZoom;
+        if(zoomInBtn) zoomInBtn.disabled = currentZoom >= maxZoom;
+        if(zoomOutBtn) zoomOutBtn.disabled = currentZoom <= minZoom;
     }
 }
 
@@ -746,59 +855,61 @@ function handleSort(type) {
         return;
     }
     if (currentSort === type) {
-        // console.log("Sort type already set to:", type); // Enable if needed
-        return; // No change needed
+        return;
     }
 
     console.log("Changing sort type to:", type);
     currentSort = type;
 
-    // Update button active states visually
     sortPositionBtn?.classList.toggle('active', type === 'position');
-    sortPositionBtn?.setAttribute('aria-pressed', type === 'position');
+    sortPositionBtn?.setAttribute('aria-pressed', (type === 'position').toString());
     sortTypeBtn?.classList.toggle('active', type === 'type');
-    sortTypeBtn?.setAttribute('aria-pressed', type === 'type');
+    sortTypeBtn?.setAttribute('aria-pressed', (type === 'type').toString());
 
-    renderAnnotationList(); // Re-render the list with the new sort order
+    renderAnnotationList();
 }
 
 function handleSearch(event) {
-    // Use requestAnimationFrame or a debounce function for high-frequency input events
-    // to avoid excessive re-rendering on fast typing. Simple version for now:
-    const newSearchTerm = event.target.value || ''; // Ensure it's a string
+    const newSearchTerm = event.target.value || '';
     if (newSearchTerm !== currentSearchTerm) {
         console.log("Search term changed:", newSearchTerm);
         currentSearchTerm = newSearchTerm;
-        renderAnnotationList(); // Re-render based on the new search term
+        renderAnnotationList();
     }
 }
 
 async function handleClearAllAnnotations() {
+    // ++ Aggiunta: Non permettere clear se lo stato è 'completed' o 'skipped' ++
+    if (documentStatus === 'completed' || documentStatus === 'skipped') {
+        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile eliminare annotazioni.`, 'warning');
+        return;
+    }
+    // -- Fine Aggiunta --
+
      if (annotations.length === 0) {
          showNotification("Nessuna annotazione da eliminare.", "info");
          return;
      }
-     if (!confirm("Sei sicuro di voler eliminare TUTTE le ("+ annotations.length +") annotazioni per questo documento? Questa azione è irreversibile.")) {
+     if (!confirm(`Sei sicuro di voler eliminare TUTTE le (${annotations.length}) annotazioni per questo documento? Questa azione è irreversibile.`)) {
          console.log("User cancelled clear all annotations.");
          return;
      }
      console.log("User confirmed clear all annotations.");
 
      showLoading("Eliminazione di tutte le annotazioni...");
-     // Optimistic UI update
-     const oldAnnotations = [...annotations]; // Keep backup for revert
+     const oldAnnotations = [...annotations];
      annotations = [];
      renderAnnotationList();
-     updateHighlighting();
+     updateHighlighting(); // Aggiorna per rimuovere highlights
 
      try {
-         await api.clearAnnotations(currentDocId); // API call without type clears all
+         await api.clearAnnotations(currentDocId);
          showNotification("Tutte le annotazioni sono state eliminate con successo.", "success");
      } catch (error) {
          console.error("Error clearing all annotations:", error);
-         showNotification(`Errore durante l'eliminazione: ${error.message}`, 'danger');
-         // Revert UI
-         annotations = oldAnnotations;
+         const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+         showNotification(`Errore durante l'eliminazione: ${message}`, 'danger');
+         annotations = oldAnnotations; // Revert
          renderAnnotationList();
          updateHighlighting();
      } finally {
@@ -807,27 +918,46 @@ async function handleClearAllAnnotations() {
 }
 
 function openClearByTypeModal() {
+    // ++ Aggiunta: Non permettere clear se lo stato è 'completed' o 'skipped' ++
+    if (documentStatus === 'completed' || documentStatus === 'skipped') {
+        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile eliminare annotazioni.`, 'warning');
+        return;
+    }
+    // -- Fine Aggiunta --
+
      if (!clearByTypeModalInstance) {
          showNotification("Funzionalità non disponibile: Modale non trovato.", "warning");
          return;
      }
-     // Reset select and disable button before showing
-     if (clearByTypeSelect) clearByTypeSelect.value = "";
+     if (clearByTypeSelect) {
+        // Popola dinamicamente le opzioni basate sui tipi presenti nelle annotazioni?
+        // O semplicemente mostra tutti i tipi definiti? Mostriamo tutti i tipi definiti.
+        clearByTypeSelect.innerHTML = '<option value="">Seleziona un tipo...</option>'; // Reset
+        entityTypes.forEach(et => {
+            const option = document.createElement('option');
+            option.value = et.id.toString(); // Usa ID stringa
+            option.textContent = et.name;
+            clearByTypeSelect.appendChild(option);
+        });
+     }
      if (confirmClearByTypeBtn) confirmClearByTypeBtn.disabled = true;
      clearByTypeModalInstance.show();
 }
 
 async function handleClearAnnotationsByType() {
+    // Blocco implicito dal modal, ma doppia sicurezza
+     if (documentStatus === 'completed' || documentStatus === 'skipped') return;
+
     if (!clearByTypeSelect || !confirmClearByTypeBtn) return;
 
-    const selectedTypeId = clearByTypeSelect.value;
+    const selectedTypeId = clearByTypeSelect.value; // Questo sarà una stringa
     if (!selectedTypeId) {
         showNotification("Seleziona un tipo di entità da eliminare.", "warning");
         return;
     }
 
     const typeName = entityTypesMap.get(selectedTypeId)?.name || selectedTypeId;
-    const count = annotations.filter(ann => ann.type === selectedTypeId).length;
+    const count = annotations.filter(ann => ann.type?.toString() === selectedTypeId).length;
 
     if (count === 0) {
         showNotification(`Nessuna annotazione di tipo "${typeName}" da eliminare.`, "info");
@@ -841,241 +971,403 @@ async function handleClearAnnotationsByType() {
     }
     console.log(`User confirmed clear annotations of type: ${typeName} (ID: ${selectedTypeId})`);
 
-
     confirmClearByTypeBtn.disabled = true;
     confirmClearByTypeBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Eliminazione...';
     showLoading(`Eliminazione annotazioni tipo "${typeName}"...`);
 
-    // Optimistic UI Update
     const originalAnnotations = [...annotations];
-    annotations = annotations.filter(ann => ann.type !== selectedTypeId);
+    annotations = annotations.filter(ann => ann.type?.toString() !== selectedTypeId);
     renderAnnotationList();
-    updateHighlighting();
-    clearByTypeModalInstance?.hide(); // Hide modal after optimistic update
+    updateHighlighting(); // Aggiorna highlights
+    clearByTypeModalInstance?.hide();
 
     try {
-        await api.clearAnnotations(currentDocId, selectedTypeId); // Pass type ID to API
+        // Passa l'ID tipo (stringa) all'API
+        await api.clearAnnotations(currentDocId, selectedTypeId);
         showNotification(`Annotazioni di tipo "${typeName}" eliminate con successo.`, "success");
     } catch (error) {
          console.error(`Error clearing annotations by type ${selectedTypeId}:`, error);
-         showNotification(`Errore durante l'eliminazione per tipo: ${error.message}`, 'danger');
-         // Revert UI
-         annotations = originalAnnotations;
+         const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+         showNotification(`Errore durante l'eliminazione per tipo: ${message}`, 'danger');
+         annotations = originalAnnotations; // Revert
          renderAnnotationList();
          updateHighlighting();
-         // Maybe re-show the modal or keep it open? Hiding is simpler.
     } finally {
-        // Reset button state even if it's hidden, for the next time modal opens
-        confirmClearByTypeBtn.disabled = false;
+        confirmClearByTypeBtn.disabled = false; // Riabilita anche se nascosto
         confirmClearByTypeBtn.innerHTML = '<i class="fas fa-trash-alt me-2"></i>Elimina annotazioni';
         hideLoading();
     }
 }
 
+// ++ Nuove funzioni per gestione stato documento ++
+
+// Funzione per cambiare lo stato del documento via API
+async function changeDocumentStatus(newStatus) {
+    // Impedisce cambi se lo stato è già quello o se manca ID
+    if (!currentDocId || newStatus === documentStatus || !['completed', 'skipped'].includes(newStatus)) {
+        console.warn(`Change status aborted. Current: ${documentStatus}, Requested: ${newStatus}, DocID: ${currentDocId}`);
+        return;
+    }
+
+    const statusText = newStatus === 'completed' ? 'Completato' : 'Saltato';
+    // Usa confirm() come da richiesta originale
+    if (!confirm(`Sei sicuro di voler contrassegnare questo documento come "${statusText}"?`)) {
+        console.log(`User cancelled changing status to ${newStatus}.`);
+        return;
+    }
+    console.log(`User confirmed changing status to ${newStatus}.`);
+
+    showLoading(`Aggiornamento stato a "${statusText}"...`);
+    // Disabilita temporaneamente i bottoni di stato per evitare doppi click
+    if (markCompletedBtn) markCompletedBtn.disabled = true;
+    if (markSkippedBtn) markSkippedBtn.disabled = true;
+
+    try {
+        // Assicurati che api.updateDocumentStatus esista e funzioni!
+        const result = await api.updateDocumentStatus(currentDocId, newStatus);
+
+        // Controlla la risposta API (adatta la struttura se necessario)
+        if (result && (result.status === 'success' || result.success === true)) { // Flessibile sulla risposta
+            const oldStatus = documentStatus;
+            documentStatus = newStatus; // Aggiorna stato locale
+            updateStatusUI(); // Aggiorna UI (disabiliterà il bottone corretto)
+            showNotification(result.message || `Documento marcato come ${statusText}.`, 'success');
+
+            // Aggiorna l'attributo data sul DOM se vuoi che rifletta lo stato senza ricaricare
+            if (textContentEl) {
+                textContentEl.dataset.docStatus = newStatus;
+            }
+
+            // Chiedi se passare al prossimo documento
+            // Attendi un breve istante prima di chiedere, per far vedere la notifica
+            setTimeout(() => {
+                if (confirm('Stato aggiornato. Vuoi passare al prossimo documento disponibile?')) {
+                    goToNextDocument();
+                }
+            }, 500); // Mezzo secondo di ritardo
+
+        } else {
+            // L'API ha risposto ma non con successo
+            throw new Error(result?.message || 'Errore sconosciuto durante l\'aggiornamento dello stato.');
+        }
+    } catch (error) {
+        console.error('Error updating document status:', error);
+        const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+        showNotification(`Errore aggiornamento stato: ${message}`, 'danger');
+        // Riabilita i bottoni se l'operazione fallisce
+        updateStatusUI(); // Richiama questo per ripristinare lo stato corretto dei bottoni
+    } finally {
+        hideLoading();
+        // Lo stato dei bottoni viene gestito da updateStatusUI, non serve riabilitarli qui esplicitamente
+    }
+}
+
+// Funzione per caricare e navigare al documento successivo
+async function goToNextDocument() {
+    if (!currentDocId) {
+        showNotification("ID documento corrente non disponibile.", "warning");
+        return;
+    }
+    if (!nextDocumentBtn) {
+         console.warn("Next document button not found.");
+         // Potrebbe comunque procedere, ma informa
+    } else {
+        nextDocumentBtn.disabled = true; // Disabilita durante il caricamento
+        nextDocumentBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Caricamento...';
+    }
+
+    showLoading('Ricerca documento successivo...');
+
+    try {
+        // Assicurati che api.getNextDocument esista e funzioni!
+        // Passa lo stato desiderato ('pending' o quello che serve)
+        const result = await api.getNextDocument(currentDocId, 'pending');
+
+        // Controlla la risposta API (adatta la struttura se necessario)
+        if (result && result.status === 'success' && result.document?.id) {
+            const nextDocId = result.document.id;
+            showNotification(`Trovato documento successivo (ID: ${nextDocId}). Reindirizzamento...`, 'info', null, 2000);
+            // Reindirizza alla pagina di annotazione del nuovo documento
+            window.location.href = `/annotate/${nextDocId}`; // Adatta l'URL se necessario
+            // Il caricamento non verrà nascosto perchè la pagina cambia
+        } else if (result && result.status === 'success' && !result.document) {
+             // Successo, ma nessun altro documento trovato
+             showNotification('Nessun altro documento "In Corso" disponibile da annotare.', 'info');
+             hideLoading(); // Nascondi qui perchè non c'è redirect
+             if(nextDocumentBtn) {
+                 nextDocumentBtn.disabled = false; // Riabilita bottone
+                 nextDocumentBtn.innerHTML = '<i class="fas fa-forward me-1"></i> Prossimo Doc.';
+             }
+        } else {
+            // L'API ha risposto ma non con successo o formato inatteso
+            throw new Error(result?.message || 'Errore nel recupero del documento successivo.');
+        }
+    } catch (error) {
+        console.error('Error getting next document:', error);
+        const message = error.response?.data?.message || error.message || "Errore sconosciuto";
+        showNotification(`Errore recupero prossimo documento: ${message}`, 'danger');
+        hideLoading(); // Nascondi in caso di errore
+        if(nextDocumentBtn) {
+            nextDocumentBtn.disabled = false; // Riabilita bottone
+            nextDocumentBtn.innerHTML = '<i class="fas fa-forward me-1"></i> Prossimo Doc.';
+        }
+    }
+    // Non c'è finally per hideLoading qui perchè il redirect lo impedirebbe
+}
 
 // --- Event Listeners Setup ---
 function setupEventListeners() {
     console.log("Setting up event listeners...");
 
-    // Entity Type Selection (using event delegation on the list)
+    // Entity Type Selection
     entityTypeListEl?.addEventListener('click', (event) => {
-        const target = event.target.closest('.entity-type'); // Find the clickable parent
-        if (target && target.dataset.entityType) { // Check if it's a valid target with ID
-            const typeId = target.dataset.entityType;
-            setActiveEntityType(typeId);
+        const target = event.target.closest('.entity-type');
+        if (target && target.dataset.entityType) {
+            setActiveEntityType(target.dataset.entityType); // Passa l'ID (stringa)
         }
     });
 
-    // Text Selection for Annotation (on text container)
-    // Use 'selectend' if available and suitable, otherwise mouseup is common
+    // Text Selection for Annotation
     textContentEl?.addEventListener('mouseup', handleTextSelection);
-    // Consider 'selectstart' to potentially clear selection early if needed
 
-    // Button Clicks
+    // Button Clicks (Annotation Controls)
     autoAnnotateBtn?.addEventListener('click', handleAutoAnnotate);
     clearSelectionBtn?.addEventListener('click', clearSelection);
+
+    // Button Clicks (Text Editing)
     editBtn?.addEventListener('click', () => toggleTextEditing(true));
     saveBtn?.addEventListener('click', saveTextChanges);
     cancelBtn?.addEventListener('click', cancelTextEditing);
+
+    // Button Clicks (Zoom)
     zoomInBtn?.addEventListener('click', () => handleZoom('in'));
     zoomOutBtn?.addEventListener('click', () => handleZoom('out'));
     zoomResetBtn?.addEventListener('click', () => handleZoom('reset'));
+
+    // Button Clicks (Sorting)
     sortPositionBtn?.addEventListener('click', () => handleSort('position'));
     sortTypeBtn?.addEventListener('click', () => handleSort('type'));
-    clearAllBtn?.addEventListener('click', handleClearAllAnnotations);
 
-    // Search Input (using 'input' for real-time feedback)
+    // Search Input
     searchInput?.addEventListener('input', handleSearch);
 
-    // --- Clear by Type Modal ---
-    // Button within the modal to trigger deletion
+    // Button Clicks (Clear Annotations)
+    clearAllBtn?.addEventListener('click', handleClearAllAnnotations);
+    // Il bottone che apre il modal "Clear by Type" usa data-bs-toggle, quindi non serve listener per aprirlo
+    // document.getElementById('open-clear-by-type-modal-btn')?.addEventListener('click', openClearByTypeModal); // Solo se non usi data-bs-toggle
+
+    // Clear by Type Modal Interactions
     confirmClearByTypeBtn?.addEventListener('click', handleClearAnnotationsByType);
-    // Enable/disable confirm button based on selection in the modal's dropdown
     clearByTypeSelect?.addEventListener('change', (event) => {
        if(confirmClearByTypeBtn) confirmClearByTypeBtn.disabled = !event.target.value;
     });
-    // Optional: Find the button that OPENS the modal (if it's not using data-bs-toggle)
-    // document.getElementById('open-clear-by-type-modal-btn')?.addEventListener('click', openClearByTypeModal);
-    // If using data-bs-toggle="modal" data-bs-target="#clearByTypeModal", you might not need a separate listener to open it.
 
-    // --- Keyboard Shortcuts ---
-    // Setup specifically
-    setupKeyboardShortcuts();
+    // ++ Aggiunti Event Listener per Stato Documento ++
+    markCompletedBtn?.addEventListener('click', () => changeDocumentStatus('completed'));
+    markSkippedBtn?.addEventListener('click', () => changeDocumentStatus('skipped'));
+    nextDocumentBtn?.addEventListener('click', goToNextDocument);
+
+    // Keyboard Shortcuts
+    setupKeyboardShortcuts(); // Chiama la funzione che inizializza KeyboardManager
 
     console.log("Event listeners set up.");
 }
 
-// --- Keyboard Shortcuts ---
+
+// --- Keyboard Shortcuts (Mantenuto il KeyboardManager esistente) ---
 const KeyboardManager = {
-    // Mappatura scorciatoie per i tipi di entità
     entityShortcuts: [],
-    
-    // Mappa la posizione fisica dei tasti numerici sulla tastiera
     keyCodeToNumber: {
-        // Numeri nella riga principale (non tastierino numerico)
-        'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4', 'Digit5': '5', 
+        'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4', 'Digit5': '5',
         'Digit6': '6', 'Digit7': '7', 'Digit8': '8', 'Digit9': '9',
-        // Tastierino numerico
         'Numpad1': '1', 'Numpad2': '2', 'Numpad3': '3', 'Numpad4': '4', 'Numpad5': '5',
         'Numpad6': '6', 'Numpad7': '7', 'Numpad8': '8', 'Numpad9': '9'
     },
-    
     init() {
         this.registerEntityShortcuts();
-        this.setupEventListeners();
-        console.log("KeyboardManager inizializzato", {
-            entityShortcuts: this.entityShortcuts,
-        });
+        // Rimuove eventuali listener precedenti prima di aggiungerne nuovi
+        document.removeEventListener('keydown', this.boundHandleKeyDown, true);
+        this.boundHandleKeyDown = this.handleKeyDown.bind(this); // Lega la funzione una sola volta
+        document.addEventListener('keydown', this.boundHandleKeyDown, true); // Usa cattura
+
+        // Rimuovi/Aggiungi listener anche sull'elemento di testo se esiste
+        if (textContentEl) {
+             textContentEl.removeEventListener('keydown', this.boundHandleKeyDown, true);
+             textContentEl.addEventListener('keydown', this.boundHandleKeyDown, true); // Usa cattura
+        }
+
+        console.log("KeyboardManager initialized", { entityShortcuts: this.entityShortcuts });
     },
-    
     registerEntityShortcuts() {
         this.entityShortcuts = [];
-        
         if (!entityTypeListEl) {
-            console.warn("entityTypeListEl non disponibile per la registrazione delle scorciatoie");
+            console.warn("entityTypeListEl not available for registering shortcuts");
             return;
         }
-        
-        // Seleziona tutti i tipi di entità e associa la scorciatoia Alt+numero
-        const entityElements = entityTypeListEl.querySelectorAll('.entity-type');
+        const entityElements = entityTypeListEl.querySelectorAll('.entity-type[data-entity-type]'); // Assicurati che abbiano l'attributo
         entityElements.forEach((el, index) => {
-            if (index < 9) { // Limita a 9 shortcut (1-9)
+            if (index < 9) { // Limit to 1-9
                 const shortcutKey = String(index + 1);
+                const entityTypeId = el.dataset.entityType; // Deve essere presente
                 this.entityShortcuts.push({
                     key: shortcutKey,
-                    type: el.dataset.entityType,
+                    type: entityTypeId, // Salva l'ID tipo (stringa)
                     element: el,
-                    displayName: el.querySelector('.entity-name')?.textContent || el.dataset.entityType
+                    displayName: el.querySelector('.entity-name')?.textContent.trim() || entityTypeId
                 });
-                
-                // Aggiorna il badge visibile con la scorciatoia
                 this.addShortcutBadge(el, shortcutKey);
             }
         });
-        
-        console.log(`Registrate ${this.entityShortcuts.length} scorciatoie per tipi di entità`);
+        console.log(`Registered ${this.entityShortcuts.length} entity type shortcuts`);
     },
-
     addShortcutBadge(element, key) {
         let badge = element.querySelector('.shortcut-badge');
         if (!badge) {
             badge = document.createElement('span');
-            badge.className = 'shortcut-badge badge bg-secondary ms-1';
-            element.appendChild(badge);
+            // Aggiungi classi Bootstrap per stile e margine
+            badge.className = 'shortcut-badge badge rounded-pill bg-secondary ms-1 small';
+            // Inseriscilo magari prima del contatore se esiste
+            const counter = element.querySelector('.entity-counter');
+            if(counter) {
+                 element.insertBefore(badge, counter);
+            } else {
+                element.appendChild(badge);
+            }
         }
         badge.textContent = `Alt+${key}`;
-        badge.classList.remove('d-none');
+        badge.classList.remove('d-none'); // Assicura sia visibile
     },
-    
-    setupEventListeners() {
-        document.removeEventListener('keydown', this.handleKeyDown.bind(this));
-        document.addEventListener('keydown', this.handleKeyDown.bind(this), true);
-        
-        if (textContentEl) {
-            textContentEl.removeEventListener('keydown', this.handleKeyDown.bind(this));
-            textContentEl.addEventListener('keydown', this.handleKeyDown.bind(this), true);
-        }
-    },
-    
+    // boundHandleKeyDown: null, // Riferimento alla funzione bindata per rimuoverla
+
     handleKeyDown(event) {
+        // Se stiamo scrivendo in un input, textarea, o nel contentEditable (ma *non* il nostro textContentEl),
+        // O se un modal è aperto, ignora le scorciatoie.
+        // Aggiunta verifica per stato documento: ignora scorciatoie se completato/saltato? (Opzionale)
         if (this.shouldIgnoreKeyEvent(event)) {
+            // console.log("Ignoring key event:", event.key, event.target);
             return;
         }
-        
-        // Alt + tasto numerico
-        if (event.altKey && !event.ctrlKey && !event.shiftKey && this.isNumberKey(event)) {
+
+        // Gestione scorciatoie (logica esistente)
+        const alt = event.altKey;
+        const ctrl = event.ctrlKey;
+        const shift = event.shiftKey;
+        const key = event.key.toLowerCase();
+        const code = event.code;
+
+        // Alt + Numero (1-9) per tipo entità
+        if (alt && !ctrl && !shift && this.isNumberKey(event)) {
             this.handleEntityShortcut(event);
-            return;
+            return; // Importante: return per non processare altre shortcut
         }
-        
-        // Alt + A per annotazione automatica
-        if (event.altKey && !event.ctrlKey && !event.shiftKey && 
-            (event.key.toLowerCase() === 'a' || event.code === 'KeyA')) {
+
+        // Alt + A per Auto-Annotate
+        if (alt && !ctrl && !shift && (key === 'a' || code === 'KeyA')) {
             this.handleAutoAnnotateShortcut(event);
             return;
         }
-        
-        // Escape o Ctrl+Z per annullare selezione
-        if (event.key === 'Escape' || (event.ctrlKey && event.key.toLowerCase() === 'z')) {
-            this.handleClearSelectionShortcut(event);
-            return;
+
+        // Escape o Ctrl+Z per Clear Selection
+        // Ctrl+Z potrebbe interferire con undo nativo se contentEditable è attivo.
+        // Escape è più sicuro.
+        if (key === 'escape' /*|| (ctrl && !alt && !shift && key === 'z')*/) {
+             this.handleClearSelectionShortcut(event);
+             return;
         }
+
+        // ++ Aggiunta scorciatoie stato documento (Esempio) ++
+        // Alt + C per Completato
+        if (alt && !ctrl && !shift && (key === 'c' || code === 'KeyC')) {
+             event.preventDefault();
+             event.stopPropagation();
+             if (markCompletedBtn && !markCompletedBtn.disabled) {
+                 this.addVisualFeedback(markCompletedBtn, 'btn-flash');
+                 changeDocumentStatus('completed'); // Chiama direttamente la funzione
+             }
+             return;
+        }
+        // Alt + S per Saltato
+        if (alt && !ctrl && !shift && (key === 's' || code === 'KeyS')) {
+             event.preventDefault();
+             event.stopPropagation();
+             if (markSkippedBtn && !markSkippedBtn.disabled) {
+                 this.addVisualFeedback(markSkippedBtn, 'btn-flash');
+                 changeDocumentStatus('skipped'); // Chiama direttamente la funzione
+             }
+             return;
+        }
+         // Alt + N per Prossimo Documento
+         if (alt && !ctrl && !shift && (key === 'n' || code === 'KeyN')) {
+             event.preventDefault();
+             event.stopPropagation();
+             if (nextDocumentBtn && !nextDocumentBtn.disabled) {
+                 this.addVisualFeedback(nextDocumentBtn, 'btn-flash');
+                 goToNextDocument(); // Chiama direttamente la funzione
+             }
+             return;
+         }
     },
-    
     isNumberKey(event) {
         return this.keyCodeToNumber[event.code] || /^[1-9]$/.test(event.key);
     },
-    
     getNumberFromKey(event) {
-        return this.keyCodeToNumber[event.code] || 
-               (/^[1-9]$/.test(event.key) ? event.key : null);
+        return this.keyCodeToNumber[event.code] || (/^[1-9]$/.test(event.key) ? event.key : null);
     },
-    
     shouldIgnoreKeyEvent(event) {
-        return isEditingText || 
-               document.querySelector('.modal.show') || 
-               event.target.tagName === 'INPUT' || 
-               event.target.tagName === 'TEXTAREA' ||
-               (event.target.hasAttribute('contenteditable') && 
-                event.target.getAttribute('contenteditable') === 'true' &&
-                event.target !== textContentEl);
+        const target = event.target;
+        const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        const isOurContentArea = target === textContentEl;
+        const modalOpen = document.querySelector('.modal.show');
+
+        // Ignora se:
+        // 1. Un modal è aperto
+        // 2. L'evento proviene da un input/textarea/contentEditable generico
+        // 3. Stiamo modificando il testo principale (isEditingText) E l'evento NON è Escape (per permettere cancel)
+        // 4. Il documento è completato o saltato (blocca la maggior parte delle scorciatoie qui?)
+        // 5. L'evento è Alt+S e il target è l'input di ricerca (evita conflitto con "Salva Pagina") - specifico browser/OS?
+
+        if (modalOpen) return true;
+        if (isInput && !isOurContentArea) return true; // Ignora se in input/textarea/altro contentEditable
+        if (isEditingText && event.key !== 'Escape') return true; // Ignora quasi tutto in modalità modifica testo
+
+        // Aggiunta opzionale: bloccare scorciatoie se documento non è 'pending'?
+        // if (documentStatus !== 'pending' && !(event.altKey && (event.key === 'n' || event.code === 'KeyN'))) { // Permetti solo 'Next'
+        //     console.log("Ignoring shortcut because document status is:", documentStatus);
+        //     return true;
+        // }
+
+
+        return false;
     },
-    
     handleEntityShortcut(event) {
-        event.preventDefault();
-        event.stopPropagation();
-        
+        event.preventDefault(); // Impedisce azioni default (es. Alt+1 focus menu)
+        event.stopPropagation(); // Ferma la propagazione
         const numericKey = this.getNumberFromKey(event);
         if (!numericKey) return;
-        
         const shortcut = this.entityShortcuts.find(s => s.key === numericKey);
         if (!shortcut) return;
-        
-        setActiveEntityType(shortcut.type);
-        shortcut.element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        setActiveEntityType(shortcut.type); // Usa l'ID tipo salvato
+        shortcut.element?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         this.addVisualFeedback(shortcut.element, 'keyboard-activate');
     },
-    
     handleAutoAnnotateShortcut(event) {
         event.preventDefault();
         event.stopPropagation();
-        
-        if (autoAnnotateBtn) {
+        if (autoAnnotateBtn && !autoAnnotateBtn.disabled) { // Controlla se il bottone è abilitato
             this.addVisualFeedback(autoAnnotateBtn, 'btn-flash');
-            handleAutoAnnotate();
+            handleAutoAnnotate(); // Chiama la funzione globale
         }
     },
-    
     handleClearSelectionShortcut(event) {
+        // Non serve prevent default per Escape solitamente, ma non fa male
         event.preventDefault();
         event.stopPropagation();
-        
-        if (clearSelectionBtn) {
+        if (clearSelectionBtn) { // Bottone opzionale
             this.addVisualFeedback(clearSelectionBtn, 'btn-flash');
         }
-        clearSelection();
+        clearSelection(); // Chiama la funzione globale
     },
-    
     addVisualFeedback(element, className, duration = 300) {
         if (!element) return;
         element.classList.add(className);
@@ -1083,113 +1375,150 @@ const KeyboardManager = {
     }
 };
 
-// --- Update setupKeyboardShortcuts function ---
+// Chiamata per inizializzare il gestore scorciatoie
 function setupKeyboardShortcuts() {
     console.log("Initializing keyboard manager...");
-    KeyboardManager.init();
+    KeyboardManager.init(); // Chiama l'init del manager
 }
 
-// --- Update showKeyboardShortcutsInfo function ---
+// Mostra le scorciatoie (aggiornata per includere le nuove)
 function showKeyboardShortcutsInfo() {
-    // Build message based on registered shortcuts
-    let message = "Scorciatoie: Esc/Ctrl+Z (Annulla Sel.)";
-    
+    let messages = ["Esc (Annulla Sel.)"]; // Inizia con le scorciatoie base
+
     if (KeyboardManager.entityShortcuts.length > 0) {
-        message += ", " + KeyboardManager.entityShortcuts
-            .map(s => `Alt+${s.key} (${s.displayName})`)
-            .join(', ');
-    }
-    
-    if (autoAnnotateBtn) {
-        message += ", Alt+A (Auto-Annotate)";
+        messages.push(KeyboardManager.entityShortcuts
+            .map(s => `Alt+${s.key} (${s.displayName.substring(0, 15)}${s.displayName.length > 15 ? '...' : ''})`) // Tronca nomi lunghi
+            .join(', '));
     }
 
-    showNotification(message, 'info', 'Scorciatoie da Tastiera', 7000);
+    if (autoAnnotateBtn) messages.push("Alt+A (Auto)");
+    if (markCompletedBtn) messages.push("Alt+C (Completa)");
+    if (markSkippedBtn) messages.push("Alt+S (Salta)");
+    if (nextDocumentBtn) messages.push("Alt+N (Prossimo)");
+
+    // Unisci i messaggi, magari su più righe se troppi
+    const fullMessage = messages.join(', ');
+    showNotification(fullMessage, 'info', 'Scorciatoie Tastiera', 8000); // Durata maggiore
 }
 
-// --- Update entity type list template in HTML ---
-// Find where entity types are rendered and add shortcut badge span
-function renderEntityTypeList() {
-    // ...existing code...
-    entityTypeListEl.querySelectorAll('.entity-type').forEach((el, index) => {
-        if (index < 9) {
-            // Add shortcut badge if not exists
-            if (!el.querySelector('.shortcut-badge')) {
-                const badge = document.createElement('span');
-                badge.className = 'shortcut-badge badge bg-secondary ms-1 d-none';
-                badge.textContent = `Alt+${index + 1}`;
-                el.appendChild(badge);
+// Funzione ausiliaria (opzionale) per disabilitare/abilitare controlli annotazione
+/*
+function disableAnnotationInterface(disable = true) {
+    console.log(`Setting annotation interface disabled state to: ${disable}`);
+    const elementsToDisable = [
+        entityTypeListEl, textContentEl, annotationsContainerEl,
+        autoAnnotateBtn, clearSelectionBtn, editBtn, saveBtn, cancelBtn,
+        clearAllBtn, document.getElementById('open-clear-by-type-modal-btn'), // Bottone che apre il modal
+         searchInput
+        // Aggiungi altri controlli se necessario
+    ];
+    elementsToDisable.forEach(el => {
+        if (el) {
+            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'SELECT') {
+                el.disabled = disable;
+            } else {
+                // Per div o altri contenitori, potresti aggiungere una classe CSS
+                el.classList.toggle('disabled-ui', disable);
+                // Per textContentEl specificamente
+                if (el === textContentEl) {
+                    el.contentEditable = disable ? 'false' : (isEditingText ? 'true' : 'false'); // Ripristina contentEditable corretto
+                }
             }
         }
     });
-    // ...existing code...
+     // Disabilita/Riabilita anche le scorciatoie? Potrebbe essere complesso.
+     // KeyboardManager.enabled = !disable; // Aggiungere stato a KeyboardManager
 }
+*/
 
 // --- Public Init Function ---
 export function initAnnotator() {
     console.log('Initializing Annotator Page...');
     try {
-        cacheDOMElements(); // Find elements first
-        loadInitialData(); // Load data (needs docId from cached element)
+        cacheDOMElements(); // Trova elementi DOM
+        loadInitialData(); // Carica dati iniziali (annotazioni, tipi entità) da script/attributi
+        loadDocumentStatus(); // ++ Carica stato documento ++
 
-        // Initialize Highlighting Engine AFTER DOM is ready and data potentially loaded
-        highlightingEngine = new HighlightingEngine(/* pass options if needed */);
-        console.log("Highlighting engine initialized.");
+        // Initialize Highlighting Engine
+        // Assicurati che HighlightingEngine sia importato correttamente
+        if (typeof HighlightingEngine !== 'undefined') {
+            highlightingEngine = new HighlightingEngine(/* pass options if needed */);
+            console.log("Highlighting engine initialized.");
+        } else {
+             console.error("HighlightingEngine not found/imported. Highlighting will not work.");
+             // Potresti voler mostrare un errore all'utente o usare un fallback
+             highlightingEngine = null; // Assicura sia null
+        }
 
-        setupEventListeners(); // Setup interactions and keyboard shortcuts
+
+        setupEventListeners(); // Imposta listener per bottoni, selezione, ecc. (include setupKeyboardShortcuts)
 
         // Initial Render Cycle
-        renderAnnotationList();
-        updateHighlighting();
-        updateZoom();
-        handleSort(currentSort); // Apply default sort and update buttons
+        renderEntityTypeList(); // Assicura che la lista tipi sia renderizzata prima di contatori/highlighting
+        renderAnnotationList(); // Renderizza la lista annotazioni
+        updateHighlighting();  // Applica highlighting iniziale
+        updateZoom();          // Imposta zoom iniziale
+        handleSort(currentSort); // Applica sort default e aggiorna UI bottoni sort
 
         console.log("Annotator initialization complete.");
-        showKeyboardShortcutsInfo(); // Show shortcuts info after successful init
+        // Mostra le scorciatoie dopo che tutto è pronto
+        setTimeout(showKeyboardShortcutsInfo, 500); // Piccolo ritardo per non sovrapporsi ad altre notifiche
 
     } catch (error) {
          console.error("FATAL ERROR during annotator initialization:", error);
-         // Display a user-friendly error message on the page itself if possible
          const body = document.body;
          const errorDiv = document.createElement('div');
-         errorDiv.style.color = 'red';
-         errorDiv.style.padding = '20px';
-         errorDiv.style.border = '2px solid red';
-         errorDiv.style.backgroundColor = '#ffebeb';
+         errorDiv.className = 'alert alert-danger m-3'; // Usa classi Bootstrap
+         errorDiv.setAttribute('role', 'alert');
          errorDiv.innerHTML = `<strong>Errore Critico Inizializzazione Annotatore:</strong><br>${error.message}<br>L'applicazione potrebbe non funzionare correttamente. Si prega di ricaricare la pagina o contattare il supporto.`;
-         if(textContentEl) {
-             textContentEl.innerHTML = ''; // Clear potentially broken content
-             textContentEl.appendChild(errorDiv);
-         } else if (body) {
-             body.prepend(errorDiv); // Add to top of body if text content not found
-         }
-         // Optionally hide other controls to prevent further errors
-         document.getElementById('controls-column')?.classList.add('d-none'); // Example
-         document.getElementById('main-content-column')?.classList.add('w-100'); // Example
+
+         // Prova a inserire l'errore in un contenitore principale o nel body
+         const mainContainer = document.querySelector('.container, .container-fluid') || body; // Trova un contenitore comune
+         mainContainer.prepend(errorDiv); // Aggiungi all'inizio
+
+         // Nascondi colonne principali per evitare interazioni con UI rotta
+         document.getElementById('controls-column')?.classList.add('d-none');
+         document.getElementById('main-content-column')?.classList.add('d-none');
+         document.getElementById('annotations-column')?.classList.add('d-none');
     }
 }
 
+// --- Helper function per renderizzare la lista dei tipi (se necessario separatamente) ---
+function renderEntityTypeList() {
+    if (!entityTypeListEl || entityTypes.length === 0) {
+        // console.log("Skipping entity type list rendering.");
+        return;
+    }
+    // Qui potresti avere logica per creare dinamicamente gli elementi della lista
+    // Se sono già nell'HTML, questa funzione potrebbe solo aggiornare i contatori
+    // o assicurare che i badge delle scorciatoie siano presenti.
+    // L'esempio attuale assume che gli elementi .entity-type siano già nell'HTML.
+    // Aggiorna i contatori iniziali (saranno 0 se le annotazioni non sono ancora caricate)
+    updateEntityTypeCounters();
+     // Assicura che i badge shortcut siano aggiunti (se non già fatto da KeyboardManager)
+     KeyboardManager.registerEntityShortcuts(); // Chiamarlo qui assicura che i badge siano aggiunti
+}
+
+
 // --- Auto-run Initialization ---
-// Ensure the DOM is fully loaded before running the initialization logic
+// Logica esistente per avviare l'init solo se siamo nella pagina corretta
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initIfAnnotationPage);
 } else {
-    // DOMContentLoaded has already fired
     initIfAnnotationPage();
 }
 
 function initIfAnnotationPage() {
-    // Verifica se siamo nella pagina di annotazione cercando elementi chiave
     const isAnnotationPage = Boolean(
-        document.getElementById('text-content') && 
-        document.getElementById('entityTypeList')
+        document.getElementById('text-content') &&
+        (document.getElementById('entityTypeList') || document.getElementById('annotationsContainer')) // Rende la condizione un po' più flessibile
     );
 
     if (!isAnnotationPage) {
-        console.log("Non siamo nella pagina di annotazione, skip inizializzazione annotatore.");
+        console.log("Not on the annotation page, skipping annotator initialization.");
         return;
     }
 
-    // Se siamo nella pagina corretta, inizializza l'annotatore
-    initAnnotator();
+    console.log("Annotation page detected, proceeding with initialization.");
+    initAnnotator(); // Chiama la funzione di inizializzazione principale
 }

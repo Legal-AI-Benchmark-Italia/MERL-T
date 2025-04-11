@@ -626,3 +626,117 @@ kbd {
         font-size: 0.75rem;
     }
 }
+
+/* --- Document Status Styles --- */
+.document-status-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.65rem;
+}
+
+.document-status-badge .status-icon {
+    margin-right: 0.4rem;
+}
+
+.doc-card {
+    position: relative;
+    transition: all 0.2s ease-in-out;
+}
+
+.doc-card.border-primary {
+    box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb), 0.2);
+}
+
+.doc-card .form-check {
+    margin-bottom: 0;
+}
+
+.doc-card .document-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.doc-card .card-header .badge {
+    margin-left: auto;
+}
+
+/* --- Status Filter Buttons --- */
+.status-filter-btn.active {
+    background-color: var(--bs-primary);
+    color: white;
+    border-color: var(--bs-primary);
+}
+
+.status-filter-btn:not(.active) {
+    opacity: 0.7;
+}
+
+.status-filter-btn:hover:not(.active) {
+    opacity: 1;
+}
+
+/* --- Bulk Actions Toolbar --- */
+.bulk-actions-toolbar {
+    transition: all 0.2s ease-in-out;
+    background-color: rgba(var(--bs-primary-rgb), 0.05) !important;
+}
+
+.bulk-actions-toolbar.d-none {
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+/* --- Document Navigation --- */
+.document-navigation-controls {
+    position: sticky;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 900;
+    display: flex;
+    justify-content: flex-end;
+    pointer-events: none;
+}
+
+.document-navigation-controls .btn {
+    pointer-events: auto;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+/* Highlight document card with status */
+.document-card[data-status="completed"] {
+    border-left: 5px solid var(--bs-success);
+}
+
+.document-card[data-status="skipped"] {
+    border-left: 5px solid var(--bs-warning);
+}
+
+.document-card[data-status="pending"] {
+    border-left: 5px solid var(--bs-secondary);
+}
+
+/* Status indicator styles */
+#document-status-indicator {
+    transition: all 0.3s ease;
+}
+
+#document-status-indicator.bg-success {
+    animation: pulse-success 1.5s ease-in-out;
+}
+
+#document-status-indicator.bg-warning {
+    animation: pulse-warning 1.5s ease-in-out;
+}
+
+@keyframes pulse-success {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--bs-success-rgb), 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(var(--bs-success-rgb), 0); }
+}
+
+@keyframes pulse-warning {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(var(--bs-warning-rgb), 0.4); }
+    50% { box-shadow: 0 0 0 8px rgba(var(--bs-warning-rgb), 0); }
+}

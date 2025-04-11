@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Script to ensure the metadata column exists in the documents table.
-Run this script to fix document display issues with multiple uploads.
+Script per aggiungere direttamente il campo status alla tabella documents.
+Da eseguire una sola volta.
 """
 
 import os
@@ -10,113 +10,85 @@ import logging
 import sys
 from pathlib import Path
 
-# Setup logging
+# Configurazione logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger('db_fix')
+logger = logging.getLogger('db_update')
 
 def find_db_path():
-    """Find the database path in the project."""
-    # Common paths to check
+    """Cerca il database in vari percorsi possibili."""
     potential_paths = [
         'data/annotations.db',
         'ner_giuridico/annotation/data/annotations.db',
         'src/data_lab/ner-giuridico/ner_giuridico/annotation/data/annotations.db'
     ]
     
+    # Prima controlla i percorsi comuni
     for path in potential_paths:
         if os.path.exists(path):
             return path
     
-    # Recursive search up to 3 levels up
+    # Cerca ricorsivamente se non trovato nei percorsi comuni
     current_dir = Path.cwd()
-    for _ in range(4):
-        for root, dirs, files in os.walk(current_dir):
-            for file in files:
-                if file == 'annotations.db':
-                    return os.path.join(root, file)
-        
-        parent = current_dir.parent
-        if parent == current_dir:  # Reached root directory
-            break
-        current_dir = parent
+    for root, dirs, files in os.walk(current_dir):
+        for file in files:
+            if file == 'annotations.db':
+                return os.path.join(root, file)
     
     return None
 
-def check_column_exists(conn, table, column):
-    """Check if a column exists in a table."""
-    cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({table})")
-    columns = cursor.fetchall()
-    for col in columns:
-        if col[1] == column:
-            return True
-    return False
-
-def add_metadata_column(db_path):
-    """Add the metadata column to the documents table."""
-    logger.info(f"Working with database at: {db_path}")
+def add_status_column(db_path):
+    """Aggiunge la colonna status alla tabella documents."""
+    logger.info(f"Aggiunta della colonna status alla tabella documents in: {db_path}")
     
     try:
-        # Connect to the database
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Check if the documents table exists
+        # Verifica se la tabella documents esiste
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='documents'")
         if not cursor.fetchone():
-            logger.error("The 'documents' table doesn't exist in the database")
-            conn.close()
+            logger.error("La tabella 'documents' non esiste nel database")
             return False
         
-        # Check if metadata column already exists
-        if check_column_exists(conn, 'documents', 'metadata'):
-            logger.info("The 'metadata' column already exists in the 'documents' table")
-            conn.close()
-            return True
+        # Verifica se la colonna status già esiste
+        cursor.execute("PRAGMA table_info(documents)")
+        columns = cursor.fetchall()
+        column_names = [col[1] for col in columns]
         
-        # Add the metadata column
-        cursor.execute("ALTER TABLE documents ADD COLUMN metadata TEXT")
-        conn.commit()
-        
-        # Verify the column was added
-        if check_column_exists(conn, 'documents', 'metadata'):
-            logger.info("Successfully added 'metadata' column to the 'documents' table")
-            conn.close()
-            return True
-        else:
-            logger.error("Error adding the 'metadata' column")
-            conn.close()
-            return False
+        if 'status' not in column_names:
+            # Aggiungi la colonna status
+            logger.info("Aggiunta della colonna 'status' con valore predefinito 'pending'")
+            cursor.execute("ALTER TABLE documents ADD COLUMN status TEXT DEFAULT 'pending'")
             
+            # Aggiorna le righe esistenti
+            cursor.execute("UPDATE documents SET status = 'pending' WHERE status IS NULL")
+            
+            # Crea indice per le query
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")
+            
+            conn.commit()
+            logger.info("Colonna 'status' aggiunta con successo")
+        else:
+            logger.info("La colonna 'status' esiste già")
+        
+        conn.close()
+        return True
     except Exception as e:
-        logger.error(f"Error during migration: {e}")
-        if 'conn' in locals():
-            conn.close()
+        logger.error(f"Errore durante l'aggiornamento del database: {e}")
         return False
 
-def main():
-    # Find the database path
+if __name__ == "__main__":
     db_path = find_db_path()
     
     if not db_path:
-        logger.error("Database not found. The application must be initialized first.")
+        logger.error("Database annotations.db non trovato")
         sys.exit(1)
     
-    if not os.path.exists(db_path):
-        logger.error(f"The database file doesn't exist: {db_path}")
-        sys.exit(1)
+    logger.info(f"Database trovato in: {db_path}")
     
-    logger.info(f"Found database at: {db_path}")
-    
-    # Add the metadata column
-    success = add_metadata_column(db_path)
-    
-    if success:
-        logger.info("✅ Database migration completed successfully!")
+    if add_status_column(db_path):
+        logger.info("✅ Aggiornamento completato con successo!")
         sys.exit(0)
     else:
-        logger.error("❌ Database migration failed.")
+        logger.error("❌ Errore durante l'aggiornamento")
         sys.exit(1)
-
-if __name__ == "__main__":
-    main()

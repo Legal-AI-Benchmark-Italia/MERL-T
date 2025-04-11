@@ -362,6 +362,50 @@ def load_logged_in_user():
         session.clear()
         g.user = None
 
+# Aggiungi questo decorator a app.py all'inizio del file, dopo le importazioni
+
+def api_error_handler(func):
+    """
+    Decorator per gestire uniformemente gli errori delle API.
+    Converte le eccezioni in risposte JSON con codici di stato appropriati.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ValueError as e:
+            annotation_logger.warning(f"API Validation Error in {func.__name__}: {str(e)}")
+            return jsonify({
+                "status": "error", 
+                "message": str(e), 
+                "error_type": "ValidationError"
+            }), 400
+        except FileNotFoundError as e:
+            annotation_logger.warning(f"API Resource Not Found in {func.__name__}: {str(e)}")
+            return jsonify({
+                "status": "error", 
+                "message": str(e), 
+                "error_type": "NotFoundError"
+            }), 404
+        except PermissionError as e:
+            annotation_logger.warning(f"API Permission Error in {func.__name__}: {str(e)}")
+            return jsonify({
+                "status": "error", 
+                "message": str(e), 
+                "error_type": "PermissionError"
+            }), 403
+        except Exception as e:
+            annotation_logger.error(f"API Unhandled Error in {func.__name__}: {str(e)}", exc_info=True)
+            return jsonify({
+                "status": "error", 
+                "message": "Si è verificato un errore interno nel server", 
+                "error_type": type(e).__name__
+            }), 500
+    
+    # Mantenere lo stesso nome della funzione per Flask
+    wrapper.__name__ = func.__name__
+    return wrapper
+
 # --- API Endpoints ---
 
 @app.route('/api/user_stats')
@@ -385,15 +429,44 @@ def api_user_stats():
     stats = db_manager.get_user_stats(user_id, days)
     return jsonify(stats)
 
+@app.route('/api/users')
+@login_required
+@admin_required
+def api_get_users():
+    """API endpoint per ottenere la lista degli utenti."""
+    try:
+        users = db_manager.get_all_users()
+        
+        # Rimuovere campi sensibili come password
+        for user in users:
+            if 'password' in user:
+                user.pop('password', None)
+        
+        return jsonify({
+            "status": "success",
+            "users": users
+        })
+    except Exception as e:
+        annotation_logger.error(f"Error fetching users: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nel recupero degli utenti: {str(e)}"
+        }), 500
+
 @app.route('/assignments')
 @login_required
 def assignments():
-    """
-    Visualizza i documenti assegnati all'utente corrente.
-    """
-    user_id = session.get('user_id')
-    docs = db_manager.get_user_assignments(user_id)
-    return render_template('assignments.html', documents=docs)
+    """Mostra i documenti assegnati all'utente corrente."""
+    try:
+        user_id = g.user['id']
+        status_filter = request.args.get('status')
+        
+        assigned_docs = db_manager.get_documents(status=status_filter, assigned_to=user_id)
+        return render_template('assignments.html', documents=assigned_docs, current_status=status_filter)
+    except Exception as e:
+        annotation_logger.error(f"Error fetching assignments for user {g.user['id']}: {e}", exc_info=True)
+        flash("Si è verificato un errore nel caricamento dei documenti assegnati.", "danger")
+        return render_template('assignments.html', documents=[], current_status=status_filter)
 
 @app.route('/api/assign_document', methods=['POST'])
 @admin_required
@@ -427,6 +500,110 @@ def api_assign_document():
     return jsonify({
         "status": "success", 
         "message": f"Documento assegnato con successo a {user['username']}"
+    })
+
+@app.route('/api/document_status', methods=['POST'])
+@login_required
+def api_update_document_status():
+    """API endpoint per cambiare lo stato di un documento."""
+    data = request.json
+    doc_id = data.get('doc_id')
+    status = data.get('status')
+    
+    if not doc_id or not status:
+        raise ValueError("ID documento ('doc_id') e stato ('status') sono richiesti.")
+    
+    valid_statuses = ['pending', 'completed', 'skipped']
+    if status not in valid_statuses:
+        raise ValueError(f"Stato non valido: {status}. Valori accettati: {', '.join(valid_statuses)}")
+    
+    # Optional: Permission check
+    document = db_manager.get_document(doc_id)
+    if not document:
+        raise FileNotFoundError(f"Documento con ID {doc_id} non trovato.")
+    
+    # Verifica che l'utente sia assegnato al documento o sia admin
+    if document.get('assigned_to') != g.user['id'] and g.user.get('role') != 'admin':
+        raise PermissionError("Non hai i permessi per modificare lo stato di questo documento.")
+    
+    success = db_manager.update_document_status(doc_id, status, g.user['id'])
+    if not success:
+        raise RuntimeError(f"Errore durante l'aggiornamento dello stato del documento {doc_id}.")
+    
+    annotation_logger.info(f"User '{g.user['username']}' changed document {doc_id} status to {status}.")
+    
+    return jsonify({
+        "status": "success", 
+        "message": f"Stato del documento aggiornato a '{status}'."
+    })
+
+@app.route('/api/next_document', methods=['GET'])
+@login_required
+def api_get_next_document():
+    """API endpoint per ottenere il documento successivo da annotare."""
+    current_doc_id = request.args.get('current_doc_id')
+    status_filter = request.args.get('status', 'pending')
+    
+    if not current_doc_id:
+        raise ValueError("ID del documento corrente ('current_doc_id') è richiesto.")
+    
+    # Filtra per documenti assegnati all'utente corrente (a meno che non sia admin)
+    user_id = g.user['id'] if g.user.get('role') != 'admin' else None
+    
+    next_doc = db_manager.get_next_document(current_doc_id, user_id, status_filter)
+    
+    if not next_doc:
+        return jsonify({
+            "status": "info",
+            "message": "Nessun altro documento disponibile.",
+            "document": None
+        })
+    
+    return jsonify({
+        "status": "success",
+        "document": next_doc
+    })
+
+@app.route('/api/document_batch_assign', methods=['POST'])
+@admin_required
+def api_batch_assign_documents():
+    """API endpoint per assegnare documenti in batch a un utente."""
+    data = request.json
+    doc_ids = data.get('doc_ids', [])
+    user_id = data.get('user_id')
+    
+    if not doc_ids or not user_id:
+        raise ValueError("Lista di ID documenti ('doc_ids') e ID utente ('user_id') sono richiesti.")
+    
+    if not isinstance(doc_ids, list):
+        raise ValueError("'doc_ids' deve essere una lista di ID documento.")
+    
+    # Verifica che l'utente esista
+    user = db_manager.get_user_by_id(user_id)
+    if not user:
+        raise FileNotFoundError(f"Utente con ID {user_id} non trovato.")
+    
+    results = {
+        "success": [],
+        "failed": []
+    }
+    
+    for doc_id in doc_ids:
+        try:
+            success = db_manager.assign_document(doc_id, user_id, g.user['id'])
+            if success:
+                results["success"].append(doc_id)
+            else:
+                results["failed"].append({"id": doc_id, "reason": "Errore durante l'assegnazione"})
+        except Exception as e:
+            results["failed"].append({"id": doc_id, "reason": str(e)})
+    
+    annotation_logger.info(f"Admin '{g.user['username']}' batch assigned {len(results['success'])} documents to user '{user.get('username')}'.")
+    
+    return jsonify({
+        "status": "success" if results["success"] else "error",
+        "message": f"{len(results['success'])} documenti assegnati con successo a {user.get('username')}.",
+        "results": results
     })
 
 # --- Rotte per l'autenticazione ---
@@ -1230,40 +1407,37 @@ def update_document():
         annotation_logger.error(f"Errore nell'aggiornamento del documento: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route('/api/documents')
+@app.route('/api/documents', methods=['GET'])
 @login_required
 def api_get_documents():
-    """
-    API per ottenere la lista dei documenti.
-    """
-    try:
-        documents = db_manager.get_documents()
+    """API endpoint per ottenere la lista dei documenti con metadati."""
+    # Filtra per stato se specificato
+    status = request.args.get('status')
+    
+    # Admin può vedere tutti i documenti, altrimenti filtra per quelli assegnati
+    user_id = None if g.user.get('role') == 'admin' else g.user['id']
+    
+    documents = db_manager.get_documents(status=status, assigned_to=user_id)
+    all_annotations_map = db_manager.get_annotations()  # Fetch all once
+
+    for doc in documents:
+        doc_id = doc['id']
+        doc_annotations = all_annotations_map.get(doc_id, [])
+        doc['annotation_count'] = len(doc_annotations)
+        word_count = doc.get('word_count', 0)
         
-        # Per ogni documento, aggiungi il conteggio delle annotazioni
-        all_annotations = load_annotations()
-        for doc in documents:
-            doc_id = doc['id']
-            doc_annotations = all_annotations.get(doc_id, [])
-            doc['annotation_count'] = len(doc_annotations)
-            
-            # Calcola progresso (esempio semplice: percentuale di parole annotate)
-            try:
-                word_count = doc.get('word_count', 0)
-                if word_count > 0:
-                    # Assumiamo che ogni annotazione copra in media 2 parole
-                    annotated_words = min(len(doc_annotations) * 2, word_count)
-                    doc['annotated_percent'] = round((annotated_words / word_count) * 100)
-                else:
-                    doc['annotated_percent'] = 0
-            except Exception as e:
-                annotation_logger.error(f"Errore nel calcolo del progresso: {e}")
-                doc['annotated_percent'] = 0
-        
-        return jsonify({"status": "success", "documents": documents})
-    except Exception as e:
-        annotation_logger.error(f"API Error in api_get_documents: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-       
+        # Calcolo progresso annotazioni
+        if word_count > 0:
+            annotated_chars = sum(ann['end'] - ann['start'] for ann in doc_annotations)
+            avg_ann_len = 15  # Stima caratteri medi per annotazione
+            estimated_annotated_chars = len(doc_annotations) * avg_ann_len
+            progress = min(round((estimated_annotated_chars / (word_count * 5)) * 100), 100) if word_count else 0
+            doc['annotated_percent'] = progress
+        else:
+            doc['annotated_percent'] = 100 if doc['annotation_count'] > 0 else 0
+    
+    return jsonify({"status": "success", "documents": documents})
+      
 @app.route('/api/bulk_delete_documents', methods=['POST'])
 @login_required
 def bulk_delete_documents():

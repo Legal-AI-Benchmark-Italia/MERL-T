@@ -118,6 +118,21 @@
                         <span class="input-group-text"><i class="fas fa-search"></i></span>
                         <input type="text" class="form-control" id="document-search" placeholder="Cerca nei documenti...">
                     </div>
+
+                    <!-- Bulk Actions Toolbar -->
+                    <div class="bulk-actions-toolbar mb-3 p-2 bg-light rounded border {% if g.user and g.user.role == 'admin' %}d-flex{% else %}d-none{% endif %} justify-content-between align-items-center">
+                        <div>
+                            <span class="me-2"><span class="selected-docs-counter">0</span> documenti selezionati</span>
+                            <button id="clear-selection-btn" class="btn btn-sm btn-outline-secondary me-1" disabled>
+                                <i class="fas fa-times me-1"></i> Deseleziona
+                            </button>
+                        </div>
+                        <div>
+                            <button id="batch-assign-btn" class="btn btn-sm btn-primary" disabled>
+                                <i class="fas fa-user-tag me-1"></i> Assegna selezionati
+                            </button>
+                        </div>
+                    </div>
                     
                     <!-- Container flessibile per i documenti (supporta sia vista grid che list) -->
                     <div id="document-list" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
@@ -133,6 +148,11 @@
                                                 <h6 class="card-title document-title mb-0 ms-2">{{ doc.title }}</h6>
                                             </label>
                                         </div>
+                                        <span class="badge {% if doc.status == 'completed' %}bg-success{% elif doc.status == 'skipped' %}bg-warning{% else %}bg-secondary{% endif %} assigned-badge">
+                                            {% if doc.status == 'completed' %}Completato
+                                            {% elif doc.status == 'skipped' %}Saltato
+                                            {% else %}In Corso{% endif %}
+                                        </span>
                                     </div>
                                     <div class="card-body pb-0">
                                         <p class="card-text document-preview mb-2">{{ doc.text[:120] }}...</p>
@@ -275,4 +295,37 @@
     </div>
   </div>
   
+<!-- Batch Assignment Modal -->
+<div class="modal fade" id="batchAssignModal" tabindex="-1" aria-labelledby="batchAssignModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="batchAssignModalLabel">Assegna Documenti in Batch</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Seleziona l'utente a cui assegnare <strong id="docs-selected-count">0</strong> documenti:</p>
+                <div class="mb-3">
+                    <select id="batch-user-select" class="form-select">
+                        <option value="" selected disabled>-- Seleziona utente --</option>
+                    </select>
+                </div>
+                <div class="alert alert-info small">
+                    <i class="fas fa-info-circle me-1"></i> L'assegnazione sovrascriverà qualsiasi assegnazione precedente per questi documenti.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" id="confirm-batch-assign-btn" class="btn btn-primary" disabled>
+                    <i class="fas fa-user-tag me-1"></i> Assegna
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+{{ super() }}
+<script type="module" src="{{ url_for('static', filename='js/batchAssignment.js') }}"></script>
+{% endblock %}
 {% endblock %}

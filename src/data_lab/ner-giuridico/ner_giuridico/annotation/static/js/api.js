@@ -73,7 +73,6 @@ export const api = {
     deleteUser: (userId) => request(`/admin/users/${userId}`, { method: 'DELETE' }),
     
     // Document Endpoints
-    getDocuments: () => request('/documents'),
     uploadDocument: (formData) => request('/upload_document', { method: 'POST', body: formData, headers: {} }), // Add /api/ prefix
     deleteDocument: (docId) => request('/delete_document', { method: 'POST', body: { doc_id: docId } }),
     updateDocument: (docId, data) => request('/update_document', { method: 'POST', body: { doc_id: docId, ...data } }),
@@ -81,6 +80,32 @@ export const api = {
         method: 'POST', 
         body: { doc_ids: docIds } 
     }),
+    // Aggiorna stato documento
+    updateDocumentStatus: (docId, status) => request('/document_status', { 
+        method: 'POST', 
+        body: { doc_id: docId, status: status } 
+    }),
+
+    // Ottieni documento successivo
+    getNextDocument: (currentDocId, status = 'pending') => 
+        request(`/next_document?current_doc_id=${currentDocId}&status=${status}`),
+
+    // Assegnazione batch di documenti
+    batchAssignDocuments: (docIds, userId) => request('/document_batch_assign', {
+        method: 'POST',
+        body: { doc_ids: docIds, user_id: userId }
+    }),
+
+    // Estendi getDocuments per supportare filtri
+    getDocuments: (filters = {}) => {
+        const queryParams = new URLSearchParams();
+        if (filters.status) queryParams.append('status', filters.status);
+        
+        const endpoint = `/documents${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+        return request(endpoint);
+    },
+
+    getUsers: () => request('/users'),
     // Annotation Endpoints
     saveAnnotation: (docId, annotation) => request('/save_annotation', { method: 'POST', body: { doc_id: docId, annotation } }),
     deleteAnnotation: (docId, annotationId) => request('/delete_annotation', { method: 'POST', body: { doc_id: docId, annotation_id: annotationId } }),

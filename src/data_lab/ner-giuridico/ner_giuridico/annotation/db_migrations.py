@@ -52,7 +52,15 @@ class MigrationManager:
             "function": self._migration_002_add_metadata_to_documents
         })
 
+        # Add the new migration for status column
+        self.migrations.append({
+        "version": "003_add_status_to_documents",
+        "description": "Add a status column to the documents table",
+        "function": self._migration_003_add_status_to_documents
+    })
     
+        logger.debug(f"Registered {len(self.migrations)} migrations.")
+
     def _create_migrations_table(self):
         """Create the migrations tracking table if it doesn't exist."""
         with sqlite3.connect(self.db_path) as conn:
@@ -190,6 +198,27 @@ class MigrationManager:
                     raise
             else:
                 logger.info("Column metadata already exists in documents table")
+
+    def _migration_003_add_status_to_documents(self, conn, cursor):
+        """Add status column to documents table for tracking completion state."""
+        self.logger.info("Running migration 003: Add status to documents")
+        
+        if not self._check_table_exists(cursor, 'documents'):
+            self.logger.error("Table 'documents' does not exist. Cannot apply migration 003.")
+            raise RuntimeError("Prerequisite table 'documents' missing for migration 003")
+
+        if not self._check_column_exists(cursor, 'documents', 'status'):
+            self.logger.info("Adding 'status' column to 'documents' table with default 'pending'")
+            cursor.execute("ALTER TABLE documents ADD COLUMN status TEXT DEFAULT 'pending'")
+            # Update existing rows to have the default status
+            cursor.execute("UPDATE documents SET status = 'pending' WHERE status IS NULL")
+            self.logger.info("Column 'status' added with default value 'pending'.")
+            
+            # Create index for better query performance when filtering by status
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")
+            self.logger.info("Index 'idx_documents_status' created.")
+        else:
+            self.logger.info("Column 'status' already exists in 'documents'.")
 
 def run_migrations(db_path: str):
     """

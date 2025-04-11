@@ -230,27 +230,6 @@ class AnnotationDBManager:
             logger.error(f"Errore nella creazione dell'utente: {e}")
             return None
 
-    def get_user_by_username(self, username: str) -> dict:
-        """
-        Ottiene un utente dal database tramite username.
-        
-        Args:
-            username: Nome utente
-                
-        Returns:
-            Dizionario con i dati dell'utente o None se non trovato
-        """
-        try:
-            with self._get_db() as (conn, cursor):
-                cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-                row = cursor.fetchone()
-                if not row:
-                    return None
-                return dict(row)
-        except Exception as e:
-            logger.error(f"Errore nel recupero dell'utente: {e}")
-            return None
-
     def verify_user(self, username: str, password: str) -> dict:
         """
         Verifica le credenziali di un utente.
@@ -665,7 +644,7 @@ class AnnotationDBManager:
             self.logger.error(f"Error retrieving user by username: {e}")
             self.logger.exception(e)
             return None
-
+    
     # ---- Operazioni di backup ----
     
     def create_backup(self) -> str:
@@ -716,16 +695,37 @@ class AnnotationDBManager:
     
     # ---- Operazioni sui documenti ----
     
-    def get_documents(self) -> List[Dict[str, Any]]:
+    def get_documents(self, status=None, assigned_to=None) -> List[Dict[str, Any]]:
         """
-        Ottiene tutti i documenti dal database.
+        Ottiene tutti i documenti dal database con filtri opzionali.
+        
+        Args:
+            status: Filtra per stato (pending, completed, skipped)
+            assigned_to: Filtra per utente assegnato
         
         Returns:
             Lista di documenti
         """
         try:
             with self._get_db() as (conn, cursor):
-                cursor.execute("SELECT * FROM documents ORDER BY date_created DESC")
+                query = "SELECT * FROM documents"
+                params = []
+                
+                # Costruisci la query dinamicamente in base ai filtri
+                conditions = []
+                if status:
+                    conditions.append("status = ?")
+                    params.append(status)
+                if assigned_to:
+                    conditions.append("assigned_to = ?")
+                    params.append(assigned_to)
+                    
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                    
+                query += " ORDER BY date_created DESC"
+                
+                cursor.execute(query, params)
                 rows = cursor.fetchall()
                 
                 documents = []
@@ -749,7 +749,7 @@ class AnnotationDBManager:
             self.logger.error(f"Error retrieving documents: {e}")
             self.logger.exception(e)
             return []
-    
+
     def get_document(self, doc_id: str) -> Dict[str, Any]:
         """
         Ottiene un documento specifico dal database.
@@ -941,6 +941,128 @@ class AnnotationDBManager:
             logger.error(f"Errore nell'aggiornamento del documento: {e}")
             return False
     
+    def update_document_status(self, doc_id: str, status: str, user_id: str = None) -> bool:
+        """
+        Aggiorna lo stato di un documento.
+        
+        Args:
+            doc_id: ID del documento
+            status: Nuovo stato (pending, completed, skipped)
+            user_id: ID utente che effettua la modifica (opzionale)
+                
+        Returns:
+            True se aggiornato con successo, False altrimenti
+        """
+        valid_statuses = ['pending', 'completed', 'skipped']
+        if status not in valid_statuses:
+            self.logger.warning(f"Invalid status '{status}' requested for doc {doc_id}")
+            return False
+            
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    "UPDATE documents SET status = ?, date_modified = ? WHERE id = ?",
+                    (status, datetime.datetime.now().isoformat(), doc_id)
+                )
+                success = cursor.rowcount > 0
+                
+                if success and user_id:
+                    # Log the activity
+                    self.log_user_activity(
+                        user_id=user_id,
+                        action_type=f"update_document_status",
+                        document_id=doc_id,
+                        details=f"Changed status to {status}"
+                    )
+                    
+                return success
+        except Exception as e:
+            self.logger.error(f"Error updating document status: {e}")
+            return False
+
+    def get_next_document(self, current_doc_id: str, user_id: str = None, status: str = 'pending') -> Dict[str, Any]:
+        """
+        Trova il prossimo documento (in ordine di data) per l'utente specificato.
+        
+        Args:
+            current_doc_id: ID del documento corrente
+            user_id: ID dell'utente (filtro opzionale)
+            status: Stato dei documenti da considerare (default: pending)
+            
+        Returns:
+            Documento successivo o None se non trovato
+        """
+        try:
+            # Ottieni la data di creazione del documento corrente
+            current_doc = self.get_document(current_doc_id)
+            if not current_doc:
+                return None
+                
+            current_date = current_doc.get('date_created')
+            
+            with self._get_db() as (conn, cursor):
+                query = """
+                    SELECT * FROM documents 
+                    WHERE date_created > ? AND status = ?
+                """
+                params = [current_date, status]
+                
+                if user_id:
+                    query += " AND assigned_to = ?"
+                    params.append(user_id)
+                    
+                query += " ORDER BY date_created ASC LIMIT 1"
+                
+                cursor.execute(query, params)
+                row = cursor.fetchone()
+                
+                if row:
+                    doc = dict(row)
+                    # Process metadata like in get_documents
+                    if 'metadata' in doc and doc['metadata']:
+                        try:
+                            doc['metadata'] = json.loads(doc['metadata'])
+                        except json.JSONDecodeError:
+                            doc['metadata'] = {}
+                    else:
+                        doc['metadata'] = {}
+                        
+                    return doc
+                    
+                # Se non ci sono documenti successivi, prova a ottenere il primo documento
+                query = """
+                    SELECT * FROM documents 
+                    WHERE id != ? AND status = ?
+                """
+                params = [current_doc_id, status]
+                
+                if user_id:
+                    query += " AND assigned_to = ?"
+                    params.append(user_id)
+                    
+                query += " ORDER BY date_created ASC LIMIT 1"
+                
+                cursor.execute(query, params)
+                row = cursor.fetchone()
+                
+                if row:
+                    doc = dict(row)
+                    if 'metadata' in doc and doc['metadata']:
+                        try:
+                            doc['metadata'] = json.loads(doc['metadata'])
+                        except json.JSONDecodeError:
+                            doc['metadata'] = {}
+                    else:
+                        doc['metadata'] = {}
+                    return doc
+                    
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error getting next document: {e}")
+            return None
+
+
     # ---- Operazioni sulle annotazioni ----
     
     def get_annotations(self, doc_id: str = None) -> Dict[str, List[Dict[str, Any]]]:

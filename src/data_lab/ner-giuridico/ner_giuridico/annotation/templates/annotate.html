@@ -8,27 +8,33 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
     <div>
         <h4 class="mb-0">{{ document.title }}</h4>
-        <small class="text-muted">
-            <i class="fas fa-file-word me-1"></i> {{ document.word_count }} parole |
-            <i class="fas fa-calendar-alt me-1"></i> {{ document.date_created.split('T')[0] if document.date_created else 'N/A' }}
-        </small>
+        <div class="d-flex align-items-center">
+            <small class="text-muted me-3">
+                <i class="fas fa-file-word me-1"></i> {{ document.word_count }} parole |
+                <i class="fas fa-calendar-alt me-1"></i> {{ format_date(document.date_created) if document.date_created else 'N/A' }}
+            </small>
+            <span id="document-status-indicator" class="badge {% if document.status == 'completed' %}bg-success{% elif document.status == 'skipped' %}bg-warning{% else %}bg-secondary{% endif %} ms-2">
+                {% if document.status == 'completed' %}Completato
+                {% elif document.status == 'skipped' %}Saltato
+                {% else %}In Corso{% endif %}
+            </span>
+        </div>
     </div>
     <div class="mt-2 mt-md-0">
-        <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary me-2">
+        <div class="btn-group me-2">
+            <button id="next-document-btn" class="btn btn-sm btn-primary" title="Passa al documento successivo">
+                <i class="fas fa-forward me-1"></i> Successivo
+            </button>
+            <button id="mark-completed-btn" class="btn btn-sm btn-success" title="Contrassegna come completato" {% if document.status == 'completed' %}disabled{% endif %}>
+                <i class="fas fa-check-circle me-1"></i> Completato
+            </button>
+            <button id="mark-skipped-btn" class="btn btn-sm btn-warning" title="Salta (nessuna entità da annotare)" {% if document.status == 'skipped' %}disabled{% endif %}>
+                <i class="fas fa-fast-forward me-1"></i> Salta
+            </button>
+        </div>
+        <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
             <i class="fas fa-arrow-left me-1"></i> Lista Documenti
         </a>
-        <!-- Add other actions like edit/clear here if needed, perhaps in a dropdown -->
-         <div class="btn-group">
-            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                <i class="fas fa-cog"></i> Azioni
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end">
-                <li><button class="dropdown-item" id="edit-text-btn"><i class="fas fa-edit fa-fw me-2"></i>Modifica Testo</button></li>
-                <li><hr class="dropdown-divider"></li>
-                <li><button class="dropdown-item text-danger" id="clear-all-annotations-btn"><i class="fas fa-trash-alt fa-fw me-2"></i>Elimina Tutte</button></li>
-                <li><button class="dropdown-item text-warning" data-bs-toggle="modal" data-bs-target="#clearByTypeModal"><i class="fas fa-filter fa-fw me-2"></i>Elimina per Tipo</button></li>
-            </ul>
-        </div>
     </div>
 </div>
 
@@ -75,6 +81,7 @@
         <div id="text-content"
              contenteditable="false"
              data-doc-id="{{ document.id }}"
+             data-doc-status="{{ document.status or 'pending' }}"
              data-word-count="{{ document.word_count }}">
             {{- document.text -}} {# Use '-' to strip whitespace for contenteditable #}
         </div>

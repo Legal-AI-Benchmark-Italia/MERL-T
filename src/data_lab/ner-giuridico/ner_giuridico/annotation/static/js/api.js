@@ -157,5 +157,20 @@ export const api = {
         }
         // You can add custom error handling here
         throw error;
-    }
+    },
+    // Entity Type Import/Export
+    exportEntityTypes: (download = false) => 
+        request(`/entity_types/export?download=${download}`, {
+            method: 'GET'
+        }),
+
+    importEntityTypes: (formData) => {
+        // FormData deve contenere il file 'file' e il parametro 'mode' (merge/replace)
+        return request('/entity_types/import', {
+            method: 'POST',
+            body: formData,
+            headers: {} // Rimuovi Content-Type per lasciare che il browser lo imposti correttamente con FormData
+        });
+}
+
 };

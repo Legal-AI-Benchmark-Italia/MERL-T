@@ -1,4 +1,3 @@
-<!-- entity_types.html -->
 {% extends "base.html" %}
 
 {% block title %}NER-Giuridico - Gestione Tipi di Entità{% endblock %}
@@ -8,9 +7,17 @@
 <div class="container">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h4 class="mb-0"><i class="fas fa-tags me-2"></i>Gestione Tipi di Entità</h4>
-        <button id="add-entity-btn" class="btn btn-primary">
-            <i class="fas fa-plus me-1"></i> Nuovo Tipo
-        </button>
+        <div>
+            <button id="import-entities-btn" class="btn btn-outline-primary me-2">
+                <i class="fas fa-file-import me-1"></i> Importa
+            </button>
+            <button id="export-entities-btn" class="btn btn-outline-primary me-2">
+                <i class="fas fa-file-export me-1"></i> Esporta
+            </button>
+            <button id="add-entity-btn" class="btn btn-primary">
+                <i class="fas fa-plus me-1"></i> Nuovo Tipo
+            </button>
+        </div>
     </div>
 
     <!-- Filtri e ricerca -->
@@ -187,6 +194,49 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal per l'importazione delle entità -->
+<div class="modal fade" id="importEntitiesModal" tabindex="-1" aria-labelledby="importEntitiesModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importEntitiesModalLabel">Importa Tipi di Entità</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="import-entities-form">
+                    <div class="mb-3">
+                        <label for="entity-import-file" class="form-label">File JSON da importare</label>
+                        <input type="file" class="form-control" id="entity-import-file" accept=".json" required>
+                        <div class="form-text">Seleziona un file JSON esportato da NER-Giuridico.</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label d-block">Modalità di importazione</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="import-mode" id="mode-merge" value="merge" checked>
+                            <label class="form-check-label" for="mode-merge">Unisci</label>
+                            <div class="form-text">Aggiorna le entità esistenti e aggiunge le nuove.</div>
+                        </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="radio" name="import-mode" id="mode-replace" value="replace">
+                            <label class="form-check-label" for="mode-replace">Sostituisci</label>
+                            <div class="form-text">Elimina tutte le entità esistenti e importa le nuove. Le entità di sistema non verranno eliminate.</div>
+                        </div>
+                    </div>
+                    
+                    <div id="import-result"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="submit" form="import-entities-form" id="submit-import-btn" class="btn btn-primary">
+                    <i class="fas fa-file-import me-1"></i> Importa
+                </button>
             </div>
         </div>
     </div>

@@ -17,7 +17,7 @@ import time
 from functools import wraps
 from pathlib import Path
 from typing import List, Dict, Any
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session, flash, g, abort
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session, flash, g, abort, make_response
 from werkzeug.utils import secure_filename
 import configparser
 from pathlib import Path
@@ -606,6 +606,197 @@ def api_batch_assign_documents():
         "results": results
     })
 
+@app.route('/api/entity_types/export', methods=['GET'])
+@login_required
+@admin_required
+def export_entity_types():
+    """API per esportare tutti i tipi di entità in formato JSON."""
+    try:
+        entity_manager = get_entity_manager()
+        entities = entity_manager.get_all_entities()
+        
+        entities_data = []
+        for entity in entities:
+            entities_data.append({
+                "id": entity.id,
+                "name": entity.name,
+                "display_name": entity.display_name,
+                "category": entity.category,
+                "color": entity.color,
+                "description": entity.description,
+                "metadata_schema": entity.metadata_schema,
+                "patterns": entity.patterns,
+                "system": entity.system
+            })
+        
+        if request.args.get('download', 'false').lower() == 'true':
+            # Genera un nome di file con timestamp
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"entity_types_export_{timestamp}.json"
+            
+            # Crea una risposta per il download
+            response = make_response(json.dumps(entities_data, indent=2, ensure_ascii=False))
+            response.headers.set('Content-Type', 'application/json')
+            response.headers.set('Content-Disposition', f'attachment; filename="{filename}"')
+            return response
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Esportati {len(entities_data)} tipi di entità",
+            "entity_types": entities_data
+        })
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'esportazione dei tipi di entità: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore: {str(e)}"
+        }), 500
+
+@app.route('/api/entity_types/import', methods=['POST'])
+@login_required
+@admin_required
+def import_entity_types():
+    """API per importare tipi di entità da un file JSON."""
+    try:
+        if 'file' not in request.files:
+            return jsonify({
+                "status": "error",
+                "message": "Nessun file caricato"
+            }), 400
+            
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({
+                "status": "error",
+                "message": "Nessun file selezionato"
+            }), 400
+            
+        if not file.filename.endswith('.json'):
+            return jsonify({
+                "status": "error",
+                "message": "Il file deve essere in formato JSON"
+            }), 400
+            
+        # Leggi e valida il JSON
+        try:
+            content = file.read().decode('utf-8')
+            entities_data = json.loads(content)
+            
+            if not isinstance(entities_data, list):
+                return jsonify({
+                    "status": "error",
+                    "message": "Il file JSON deve contenere un array di entità"
+                }), 400
+        except Exception as e:
+            return jsonify({
+                "status": "error",
+                "message": f"Errore nella lettura del file JSON: {str(e)}"
+            }), 400
+        
+        # Flag per la modalità di importazione
+        mode = request.form.get('mode', 'merge')  # 'merge' o 'replace'
+        
+        entity_manager = get_entity_manager()
+        
+        if mode == 'replace':
+            # Rimuovi tutti i tipi di entità non di sistema
+            current_entities = entity_manager.get_all_entities()
+            for entity in current_entities:
+                if not entity.system:
+                    entity_manager.remove_entity(entity.id)
+        
+        # Importa le entità
+        imported = 0
+        skipped = 0
+        errors = []
+        
+        for entity_data in entities_data:
+            try:
+                # Verifica se l'entità ha tutti i campi necessari
+                required_fields = ["name", "display_name", "category", "color"]
+                for field in required_fields:
+                    if field not in entity_data:
+                        errors.append(f"Entità {entity_data.get('name', 'unknown')} manca del campo {field}")
+                        continue
+                
+                # Verifica se esiste già un'entità con lo stesso nome
+                existing_entity = None
+                for e in entity_manager.get_all_entities():
+                    if e.name == entity_data["name"]:
+                        existing_entity = e
+                        break
+                
+                # Se l'entità esiste già e la modalità è merge, aggiornala
+                if existing_entity and mode == 'merge':
+                    # Se è un'entità di sistema, non aggiornare
+                    if existing_entity.system:
+                        skipped += 1
+                        continue
+                    
+                    # Aggiorna i campi tranne l'ID e il flag system
+                    entity_id = existing_entity.id
+                    system_flag = existing_entity.system
+                    
+                    entity = EntityType(
+                        id=entity_id,
+                        name=entity_data["name"],
+                        display_name=entity_data["display_name"],
+                        category=entity_data["category"],
+                        color=entity_data["color"],
+                        description=entity_data.get("description", ""),
+                        metadata_schema=entity_data.get("metadata_schema", {}),
+                        patterns=entity_data.get("patterns", []),
+                        system=system_flag
+                    )
+                    
+                    entity_manager.update_entity(entity)
+                    imported += 1
+                # Se l'entità non esiste o se la modalità è replace, creala
+                elif not existing_entity or mode == 'replace':
+                    # Genera un nuovo ID e imposta system=False
+                    entity = EntityType(
+                        id=str(uuid.uuid4()),
+                        name=entity_data["name"],
+                        display_name=entity_data["display_name"],
+                        category=entity_data["category"],
+                        color=entity_data["color"],
+                        description=entity_data.get("description", ""),
+                        metadata_schema=entity_data.get("metadata_schema", {}),
+                        patterns=entity_data.get("patterns", []),
+                        system=False
+                    )
+                    
+                    entity_manager.add_entity(entity)
+                    imported += 1
+                # Se l'entità esiste ma non è in modalità merge, saltala
+                else:
+                    skipped += 1
+            except Exception as e:
+                errors.append(f"Errore importando {entity_data.get('name', 'unknown')}: {str(e)}")
+                skipped += 1
+        
+        # Prepara la risposta
+        status = "success" if imported > 0 else "warning"
+        message = f"Importati {imported} tipi di entità"
+        if skipped > 0:
+            message += f", saltati {skipped} tipi"
+        if errors:
+            message += f". {len(errors)} errori."
+        
+        return jsonify({
+            "status": status,
+            "message": message,
+            "imported": imported,
+            "skipped": skipped,
+            "errors": errors
+        })
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'importazione dei tipi di entità: {e}")
+        return jsonify({
+            "status": "error",
+            "message": f"Errore: {str(e)}"
+        }), 500
 # --- Rotte per l'autenticazione ---
 
 @app.route('/login', methods=['GET', 'POST'])

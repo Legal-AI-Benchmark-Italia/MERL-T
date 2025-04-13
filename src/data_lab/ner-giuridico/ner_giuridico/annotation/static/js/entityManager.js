@@ -49,6 +49,9 @@ export function initEntityManager() {
     
     // Configura gli event listener
     setupEventListeners();
+    
+    // Configura il sistema di importazione/esportazione
+    setupImportExport();
 }
 
 /**
@@ -78,6 +81,143 @@ function setupEventListeners() {
     document.getElementById('entity-search')?.addEventListener('input', (e) => {
         searchEntities(e.target.value);
     });
+}
+
+/**
+ * Configura il sistema di importazione/esportazione
+ */
+function setupImportExport() {
+    const exportBtn = document.getElementById('export-entities-btn');
+    const importBtn = document.getElementById('import-entities-btn');
+    
+    if (exportBtn) {
+        exportBtn.addEventListener('click', handleExportEntities);
+    }
+    
+    if (importBtn) {
+        importBtn.addEventListener('click', function() {
+            // Mostra il modal di importazione
+            const importModalEl = document.getElementById('importEntitiesModal');
+            if (importModalEl) {
+                const importModal = new bootstrap.Modal(importModalEl);
+                importModal.show();
+            } else {
+                console.error("Modal di importazione non trovato nel DOM");
+                showNotification("Componente di importazione non trovato", "danger");
+            }
+        });
+    }
+    
+    // Setup del form di importazione
+    const importForm = document.getElementById('import-entities-form');
+    if (importForm) {
+        importForm.addEventListener('submit', handleImportEntities);
+    }
+}
+
+/**
+ * Gestisce l'esportazione delle entità
+ */
+async function handleExportEntities() {
+    try {
+        // Inizia il download del file
+        window.location.href = '/api/entity_types/export?download=true';
+        showNotification("Download dei tipi di entità avviato", "success");
+    } catch (error) {
+        console.error("Errore nell'esportazione delle entità:", error);
+        showNotification(`Errore: ${error.message}`, 'danger');
+    }
+}
+
+/**
+ * Gestisce l'importazione delle entità
+ */
+async function handleImportEntities(event) {
+    event.preventDefault();
+    
+    const fileInput = document.getElementById('entity-import-file');
+    const modeRadios = document.getElementsByName('import-mode');
+    
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        showNotification('Seleziona un file JSON da importare', 'warning');
+        return;
+    }
+    
+    // Trova il valore selezionato per la modalità
+    let mode = 'merge'; // Default
+    for (const radio of modeRadios) {
+        if (radio.checked) {
+            mode = radio.value;
+            break;
+        }
+    }
+    
+    // Crea FormData per l'upload
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('mode', mode);
+    
+    // Disabilita il pulsante durante il caricamento
+    const submitBtn = document.getElementById('submit-import-btn');
+    const importModalEl = document.getElementById('importEntitiesModal');
+    let importModal = null;
+    
+    if (importModalEl) {
+        importModal = bootstrap.Modal.getInstance(importModalEl);
+        if (!importModal) {
+            importModal = new bootstrap.Modal(importModalEl);
+        }
+    }
+    
+    if (submitBtn) submitBtn.disabled = true;
+    showLoading();
+    
+    try {
+        const result = await api.importEntityTypes(formData);
+        
+        if (result.status === 'success' || result.status === 'warning') {
+            showNotification(result.message, result.status);
+            
+            // Se ci sono errori, mostrali
+            const importResultEl = document.getElementById('import-result');
+            if (result.errors && result.errors.length > 0 && importResultEl) {
+                const errorDetails = document.createElement('div');
+                errorDetails.innerHTML = `
+                    <div class="alert alert-warning mt-3">
+                        <h6>Dettagli Errori:</h6>
+                        <ul>
+                            ${result.errors.map(err => `<li>${err}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                
+                importResultEl.innerHTML = '';
+                importResultEl.appendChild(errorDetails);
+            }
+            
+            // Ricarica la lista delle entità
+            if (result.imported > 0) {
+                loadEntities();
+            }
+            
+            if (importModal) {
+                setTimeout(() => {
+                    importModal.hide();
+                }, 3000);
+            }
+        } else {
+            throw new Error(result.message || "Errore durante l'importazione");
+        }
+    } catch (error) {
+        console.error("Errore nell'importazione delle entità:", error);
+        showNotification(`Errore: ${error.message}`, 'danger');
+    } finally {
+        if (submitBtn) submitBtn.disabled = false;
+        hideLoading();
+        
+        // Reset form
+        fileInput.value = '';
+    }
 }
 
 /**
@@ -162,13 +302,13 @@ function renderEntities(entitiesToRender) {
                 <div class="entity-details small">
                     <div class="mb-2">
                         <strong>Schema metadati:</strong>
-                        ${Object.keys(entity.metadata_schema).length > 0 
+                        ${Object.keys(entity.metadata_schema || {}).length > 0 
                             ? `<code>${JSON.stringify(entity.metadata_schema)}</code>` 
                             : '<span class="text-muted">Nessuno</span>'}
                     </div>
                     <div>
                         <strong>Pattern:</strong>
-                        ${entity.patterns.length > 0 
+                        ${entity.patterns && entity.patterns.length > 0 
                             ? `<div class="mt-1">${entity.patterns.map(p => `<code class="d-block mb-1">${p}</code>`).join('')}</div>` 
                             : '<span class="text-muted">Nessuno</span>'}
                     </div>
@@ -250,8 +390,8 @@ function showEntityModal(entity = null) {
         categorySelectEl.value = entity.category;
         colorInputEl.value = entity.color;
         descriptionInputEl.value = entity.description || '';
-        metadataSchemaEl.value = JSON.stringify(entity.metadata_schema, null, 2);
-        patternsInputEl.value = entity.patterns.join('\n');
+        metadataSchemaEl.value = JSON.stringify(entity.metadata_schema || {}, null, 2);
+        patternsInputEl.value = (entity.patterns || []).join('\n');
         
         // Disabilita la modifica per le entità di sistema
         if (entity.system) {
@@ -312,7 +452,7 @@ function showDeleteModal(entity) {
  * Mostra la modale per testare i pattern di un'entità
  */
 function showPatternTestModal(entity) {
-    // Implementa questa funzione in base alle tue esigenze
+    // Implementazione esistente...
 }
 
 /**
@@ -440,7 +580,45 @@ function updateColorPreview() {
  * Valida il form dell'entità
  */
 function validateEntityForm() {
-    // Implementa la validazione in base alle tue esigenze
+    // Nome entità (solo se nuovo)
+    if (entityFormEl.dataset.mode === 'add' && entityNameInputEl) {
+        const name = entityNameInputEl.value.trim();
+        
+        if (!name) {
+            showNotification('Il nome dell\'entità è obbligatorio', 'danger');
+            entityNameInputEl.focus();
+            return false;
+        }
+        
+        if (!name.match(/^[A-Z0-9_]+$/)) {
+            showNotification('Il nome dell\'entità deve contenere solo lettere maiuscole, numeri e underscore', 'danger');
+            entityNameInputEl.focus();
+            return false;
+        }
+    }
+    
+    // Nome visualizzato
+    if (displayNameInputEl) {
+        const displayName = displayNameInputEl.value.trim();
+        
+        if (!displayName) {
+            showNotification('Il nome visualizzato è obbligatorio', 'danger');
+            displayNameInputEl.focus();
+            return false;
+        }
+    }
+    
+    // Schema metadati (se presente)
+    if (metadataSchemaEl && metadataSchemaEl.value.trim()) {
+        try {
+            JSON.parse(metadataSchemaEl.value.trim());
+        } catch (error) {
+            showNotification('Formato JSON non valido per lo schema dei metadati', 'danger');
+            metadataSchemaEl.focus();
+            return false;
+        }
+    }
+    
     return true;
 }
 

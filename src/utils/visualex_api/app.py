@@ -10,16 +10,16 @@ from quart import Quart, request, jsonify, render_template, send_file, Response,
 from quart_cors import cors
 import structlog
 
-from visualex_api.tools.config import HISTORY_LIMIT, RATE_LIMIT, RATE_LIMIT_WINDOW
-from visualex_api.tools.norma import Norma, NormaVisitata
-from visualex_api.services.brocardi_scraper import BrocardiScraper
-from visualex_api.services.normattiva_scraper import NormattivaScraper
-from visualex_api.services.eurlex_scraper import EurlexScraper
-from visualex_api.services.pdfextractor import extract_pdf
-from visualex_api.tools.sys_op import WebDriverManager
-from visualex_api.tools.urngenerator import complete_date_or_parse, urn_to_filename
-from visualex_api.tools.treextractor import get_tree
-from visualex_api.tools.text_op import format_date_to_extended, parse_article_input
+from .tools.config import HISTORY_LIMIT, RATE_LIMIT, RATE_LIMIT_WINDOW
+from .tools.norma import Norma, NormaVisitata
+from .services.brocardi_scraper import BrocardiScraper
+from .services.normattiva_scraper import NormattivaScraper
+from .services.eurlex_scraper import EurlexScraper
+from .services.pdfextractor import extract_pdf
+from .tools.sys_op import WebDriverManager
+from .tools.urngenerator import complete_date_or_parse, urn_to_filename
+from .tools.treextractor import get_tree
+from .tools.text_op import format_date_to_extended, parse_article_input
 
 # Configurazione del logging
 logging.basicConfig(

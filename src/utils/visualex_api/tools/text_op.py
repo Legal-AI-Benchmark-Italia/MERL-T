@@ -15,11 +15,11 @@ logging.basicConfig(level=logging.INFO,
 async def parse_article_input(article_string, normurn):
     """
     Pulisce e valida la stringa degli articoli, supporta range e articoli separati da virgole.
-    Supporta estensioni degli articoli (es. 1-bis, 2-ter).
+    Supporta estensioni degli articoli (es. 1-bis, 2-ter) e numeri decimali (es. 635-quater.1).
     Utilizza get_tree per gestire correttamente i range con articoli aggiuntivi solo quando necessario.
     
     Arguments:
-    article_string -- Stringa contenente gli articoli (es. "1, 2-bis, 3, 4-6, 7-ter")
+    article_string -- Stringa contenente gli articoli (es. "1, 2-bis, 3, 4-6, 7-ter, 635-quater.1")
     normurn -- URL dell'atto per estrarre la lista completa degli articoli
     """
     logging.info("Parsing article input string")
@@ -79,8 +79,9 @@ async def parse_article_input(article_string, normurn):
                 return {"error": error_message}  # Restituisci un messaggio di errore serializzabile
 
         else:
-            # Regex per verificare se la parte è un articolo con estensione (es. 1-bis, 2-ter)
-            single_article_match = re.match(r'^(\d+(-[a-z]+)?)$', part, re.IGNORECASE)
+            # Regex aggiornata per verificare se la parte è un articolo con estensione 
+            # e potenzialmente un punto seguito da numeri (es. 1-bis, 2-ter, 635-quater.1)
+            single_article_match = re.match(r'^(\d+(-[a-z]+)?(\.\d+)?)$', part, re.IGNORECASE)
             if single_article_match:
                 logging.debug(f"Found single article: {part}")
                 # Aggiungi l'articolo direttamente senza chiamare get_tree

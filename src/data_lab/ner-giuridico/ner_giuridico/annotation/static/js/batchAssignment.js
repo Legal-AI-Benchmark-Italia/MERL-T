@@ -81,7 +81,7 @@ function updateUserSelect() {
     
     availableUsers.forEach(user => {
         // Filtriamo solo gli annotatori
-        if (user.role === 'annotator') {
+        if (user.role === 'annotator'|| user.role === 'admin') {
             const option = document.createElement('option');
             option.value = user.id;
             option.textContent = user.full_name || user.username;

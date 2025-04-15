@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 
 from .config import config
 from .entities.entities import (
-    Entity, NormativeReference, 
+    Entity, LawReference, 
     JurisprudenceReference, LegalConcept
 )
 from .entities.entity_manager import get_entity_manager, EntityType
@@ -339,8 +339,8 @@ class EntityNormalizer:
         Returns:
             Entità normalizzata
         """
-        if entity.type in EntityType.get_normative_types():
-            return self._normalize_normative_reference(entity)
+        if entity.type in EntityType.get_law_types():
+            return self._normalize_law_reference(entity)
         elif entity.type in EntityType.get_jurisprudence_types():
             return self._normalize_jurisprudence_reference(entity)
         elif entity.type in EntityType.get_concept_types():
@@ -372,18 +372,18 @@ class EntityNormalizer:
         category = entity_info.get("category", "custom")
         
         # Normalizza in base alla categoria
-        if category == "normative":
-            return self._normalize_normative_reference(entity)
+        if category == "law":
+            return self._normalize_law_reference(entity)
         elif category == "jurisprudence":
             return self._normalize_jurisprudence_reference(entity)
-        elif category == "concepts":
+        elif category == "doctrine":
             return self._normalize_legal_concept(entity)
         else:
             # Se la categoria non è riconosciuta, restituisci l'entità così com'è
             entity.normalized_text = entity.text.lower()
             return entity
     
-    def _normalize_normative_reference(self, entity: Entity) -> Entity:
+    def _normalize_law_reference(self, entity: Entity) -> Entity:
         """
         Normalizza un riferimento normativo.
         
@@ -1058,9 +1058,9 @@ class EntityNormalizer:
             # Costruisci la query in base al tipo di entità
             entity_type_category = self._get_entity_category(entity_type_name)
             
-            if entity_type_category == "normative":
+            if entity_type_category == "law":
                 query = """
-                MATCH (n:NormativeReference {normalized_text: $normalized_text})
+                MATCH (n:LawReference {normalized_text: $normalized_text})
                 RETURN n
                 """
             elif entity_type_category == "jurisprudence":
@@ -1068,7 +1068,7 @@ class EntityNormalizer:
                 MATCH (j:JurisprudenceReference {normalized_text: $normalized_text})
                 RETURN j
                 """
-            elif entity_type_category == "concepts":
+            elif entity_type_category == "doctrine":
                 query = """
                 MATCH (c:LegalConcept {name: $normalized_text})
                 RETURN c
@@ -1121,11 +1121,11 @@ class EntityNormalizer:
         
         # Altrimenti, cerca di determinare la categoria dal nome
         if "ARTICOLO" in entity_type_name or "LEGGE" in entity_type_name or "DECRETO" in entity_type_name or "REGOLAMENTO" in entity_type_name:
-            return "normative"
+            return "law"
         elif "SENTENZA" in entity_type_name or "ORDINANZA" in entity_type_name:
             return "jurisprudence"
         elif "CONCETTO" in entity_type_name:
-            return "concepts"
+            return "doctrine"
         else:
             return "custom"
     
@@ -1140,9 +1140,9 @@ class EntityNormalizer:
             Dizionario di riferimenti strutturati per categoria.
         """
         structured_references = {
-            "normative": [],
+            "law": [],
             "jurisprudence": [],
-            "concepts": [],
+            "doctrine": [],
             "custom": []
         }
         
@@ -1152,15 +1152,15 @@ class EntityNormalizer:
             entity_category = self._get_entity_category(entity_type_name)
             
             # Crea il riferimento strutturato in base alla categoria
-            if entity_category == "normative":
-                reference = self._create_normative_reference(entity)
-                structured_references["normative"].append(reference)
+            if entity_category == "law":
+                reference = self._create_law_reference(entity)
+                structured_references["law"].append(reference)
             elif entity_category == "jurisprudence":
                 reference = self._create_jurisprudence_reference(entity)
                 structured_references["jurisprudence"].append(reference)
-            elif entity_category == "concepts":
+            elif entity_category == "doctrine":
                 reference = self._create_legal_concept(entity)
-                structured_references["concepts"].append(reference)
+                structured_references["doctrine"].append(reference)
             else:
                 # Per tipi di entità personalizzati
                 reference = entity.to_dict()
@@ -1168,7 +1168,7 @@ class EntityNormalizer:
         
         return structured_references
     
-    def _create_normative_reference(self, entity: Entity) -> Union[NormativeReference, Dict[str, Any]]:
+    def _create_law_reference(self, entity: Entity) -> Union[LawReference, Dict[str, Any]]:
         """
         Crea un riferimento normativo strutturato da un'entità.
         
@@ -1181,10 +1181,10 @@ class EntityNormalizer:
         metadata = entity.metadata or {}
         entity_type = entity.type
         
-        # Se NormativeReference è disponibile, usalo
-        if 'NormativeReference' in globals():
+        # Se LawReference è disponibile, usalo
+        if 'LawReference' in globals():
             # Crea il riferimento normativo
-            normative_ref = NormativeReference(
+            law_ref = LawReference(
                 type=entity_type,
                 original_text=entity.text,
                 normalized_text=entity.normalized_text or entity.text,
@@ -1196,7 +1196,7 @@ class EntityNormalizer:
                 nome_comune=metadata.get("nome_comune")
             )
             
-            return normative_ref
+            return law_ref
         else:
             # Altrimenti, crea un dizionario
             return {

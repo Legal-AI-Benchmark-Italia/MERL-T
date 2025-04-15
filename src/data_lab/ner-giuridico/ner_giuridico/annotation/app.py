@@ -1942,7 +1942,7 @@ def validate_entity_display_name(display_name: str) -> None:
 
 def validate_entity_category(category: str) -> None:
     """Valida la categoria di un'entità."""
-    valid_categories = ['normative', 'jurisprudence', 'concepts', 'custom']
+    valid_categories = ['law', 'jurisprudence', 'doctrine', 'custom']
     if not category:
         raise ValueError("La categoria dell'entità è obbligatoria")
     if category not in valid_categories:

@@ -25,7 +25,7 @@ class EntityType:
     id: str  # UUID o stringa univoca
     name: str  # Nome identificativo (es. "LEGGE")
     display_name: str  # Nome per visualizzazione (es. "Legge")
-    category: str  # Categoria (es. "normative")
+    category: str  # Categoria (es. "law")
     color: str  # Colore in formato esadecimale (es. "#D4380D")
     description: str = ""  # Descrizione opzionale
     metadata_schema: Dict[str, str] = field(default_factory=dict)  # Schema dei metadati
@@ -80,9 +80,9 @@ class EntityManager:
         # Inizializza strutture dati
         self.entities: Dict[str, EntityType] = {}
         self.categories: Dict[str, Set[str]] = {
-            "normative": set(),
+            "law": set(),
             "jurisprudence": set(),
-            "concepts": set(),
+            "doctrine": set(),
             "custom": set()
         }
         
@@ -164,7 +164,7 @@ class EntityManager:
             id=str(uuid.uuid4()),
             name="LEGGE",
             display_name="Legge",
-            category="normative",
+            category="law",
             color="#D4380D",
             description="Atto normativo approvato dal Parlamento",
             metadata_schema={

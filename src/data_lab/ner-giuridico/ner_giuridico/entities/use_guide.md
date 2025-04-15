@@ -45,9 +45,9 @@ Per modificare le entità e le categorie predefinite, ecco come dovresti procede
 
 ```python
    self.entity_categories = {
-       "normative": set(),
+       "law": set(),
        "jurisprudence": set(),
-       "concepts": set(),
+       "doctrine": set(),
        "custom": set(),
        "procedural": set()  # Nuova categoria
    }
@@ -57,7 +57,7 @@ Per modificare le entità e le categorie predefinite, ecco come dovresti procede
 
 ```python
    def validate_entity_category(category: str) -> None:
-       valid_categories = ['normative', 'jurisprudence', 'concepts', 'custom', 'procedural']  # Aggiunta nuova categoria
+       valid_categories = ['law', 'jurisprudence', 'doctrine', 'custom', 'procedural']  # Aggiunta nuova categoria
        # Resto della funzione...
 ```
 
@@ -66,9 +66,9 @@ Per modificare le entità e le categorie predefinite, ecco come dovresti procede
 ```html
    <select id="category" required>
        <option value="custom">Personalizzata</option>
-       <option value="normative">Normativa</option>
+       <option value="law">Normativa</option>
        <option value="jurisprudence">Giurisprudenziale</option>
-       <option value="concepts">Concetto</option>
+       <option value="doctrine">Concetto</option>
        <option value="procedural">Procedurale</option>  <!-- Nuova categoria -->
    </select>
 ```
@@ -104,7 +104,7 @@ Per modificare le entità e le categorie predefinite, ecco come dovresti procede
    self.add_entity_type(
        name="CONCETTO_GIURIDICO",
        display_name="Principio Giuridico",  # Nome modificato
-       category="concepts",
+       category="doctrine",
        color="#26A69A",  # Colore modificato
        metadata_schema={"categoria": "string", "definizione": "string", "fonte": "string"}  # Schema modificato
    )
@@ -136,7 +136,7 @@ Se vuoi consentire la modifica delle entità predefinite (scelta rischiosa), puo
 
 ```python
    # Commenta o rimuovi questo controllo per consentire la modifica della categoria
-   # if original_category != "custom" and original_category in ["normative", "jurisprudence", "concepts"]:
+   # if original_category != "custom" and original_category in ["law", "jurisprudence", "doctrine"]:
    #     self.logger.error(f"Non è possibile cambiare la categoria di un'entità predefinita: {name}")
    #     return False
 ```
@@ -174,7 +174,7 @@ I colori delle entità predefinite sono definiti nel metodo `_load_default_entit
 self.add_entity_type(
     name="ARTICOLO_CODICE",
     display_name="Articolo di Codice",
-    category="normative",
+    category="law",
     color="#FF5722",  # Colore modificato
     metadata_schema={"codice": "string", "articolo": "string"}
 )

@@ -48,14 +48,14 @@ class FeedbackRequest(BaseModel):
 class EntityRequest(BaseModel):
     name: str = Field(..., description="Nome identificativo dell'entità")
     display_name: str = Field(..., description="Nome visualizzato dell'entità")
-    category: str = Field(..., description="Categoria dell'entità (normative, jurisprudence, concepts, custom)")
+    category: str = Field(..., description="Categoria dell'entità (law, jurisprudence, doctrine, custom)")
     color: str = Field(..., description="Colore dell'entità in formato esadecimale")
     metadata_schema: Dict[str, str] = Field(default_factory=dict, description="Schema dei metadati dell'entità")
     patterns: Optional[List[str]] = Field(default=None, description="Pattern regex per il riconoscimento")
 
 class EntityUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, description="Nome visualizzato dell'entità")
-    category: Optional[str] = Field(default=None, description="Categoria dell'entità (normative, jurisprudence, concepts, custom)")
+    category: Optional[str] = Field(default=None, description="Categoria dell'entità (law, jurisprudence, doctrine, custom)")
     color: Optional[str] = Field(default=None, description="Colore dell'entità in formato esadecimale")
     metadata_schema: Optional[Dict[str, str]] = Field(default=None, description="Schema dei metadati dell'entità")
     patterns: Optional[List[str]] = Field(default=None, description="Pattern regex per il riconoscimento")
@@ -430,7 +430,7 @@ async def get_entities(
     Ottiene la lista dei tipi di entità.
     
     Args:
-        category: (Opzionale) Filtra per categoria (normative, jurisprudence, concepts, custom).
+        category: (Opzionale) Filtra per categoria (law, jurisprudence, doctrine, custom).
     
     Returns:
         Lista di tipi di entità.
@@ -550,7 +550,7 @@ async def update_entity(
             current_entity = entity_manager.get_entity_type(entity_name)
             original_category = current_entity.get("category", "custom")
             
-            if original_category != "custom" and original_category in ["normative", "jurisprudence", "concepts"] and entity.category != original_category:
+            if original_category != "custom" and original_category in ["law", "jurisprudence", "doctrine"] and entity.category != original_category:
                 logger.warning(f"Tentativo di cambiare la categoria di un'entità predefinita: {entity_name}")
                 raise HTTPException(
                     status_code=403,

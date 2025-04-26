@@ -16,3 +16,4 @@ ngrok*
 *pids.txt
 *.ini
 *.yaml
+knowledge_base/*/*/*

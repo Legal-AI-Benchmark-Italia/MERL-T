@@ -12,8 +12,8 @@ from typing import List, Dict, Optional
 
 import pdfplumber
 
-from pdf_chunker.custom_tokenizer import tokenize_sentences
-from pdf_chunker.cleaner import TextCleaner
+from .custom_tokenizer import tokenize_sentences
+from .cleaner import TextCleaner
 
 class PDFProcessor:
     """
@@ -362,13 +362,13 @@ class PDFProcessor:
     
     def process_text_to_chunks(self, text: str) -> List[Dict]:
         """
-        Processa il testo pulito e lo divide in chunk.
+        Processa il testo pulito, lo divide in chunk e applica la pulizia finale.
         
         Args:
             text: Testo pulito da processare
             
         Returns:
-            Lista di dizionari rappresentanti i chunk con metadati
+            Lista di dizionari rappresentanti i chunk puliti con metadati
         """
         all_chunks = []
         
@@ -380,22 +380,23 @@ class PDFProcessor:
             paragraphs = self.split_into_paragraphs(text)
             text_chunks = self.create_semantic_chunks(paragraphs)
         
-        # Crea dizionari per ogni chunk
+        # Crea dizionari per ogni chunk e applica pulizia finale
         for i, chunk_text in enumerate(text_chunks):
-            # Applica pulizia avanzata se abilitata
-            if self.cleaner and chunk_text:
-                # FIX: Handle tuple return value by unpacking
-                cleaned_result = self.cleaner.clean_text(chunk_text)
-                # Check if the result is a tuple (from our enhanced TextCleaner)
-                if isinstance(cleaned_result, tuple):
-                    chunk_text = cleaned_result[0]  # Extract just the text
-                else:
-                    chunk_text = cleaned_result  # For backward compatibility
             
+            # Verifica se il testo del chunk è vuoto o solo spazi prima di procedere
+            if not chunk_text or chunk_text.isspace():
+                self.logger.warning(f"Chunk {i} vuoto o composto da soli spazi, saltato.")
+                continue
+
             # Trova le prime parole per un identificativo più significativo
-            first_words = ' '.join(chunk_text.split()[:5]).replace(' ', '_')
+            # Fallback nel caso in cui chunk_text sia vuoto dopo la creazione (improbabile ma sicuro)
+            first_words_text = chunk_text if chunk_text else f"empty_chunk_{i}"
+            first_words = ' '.join(first_words_text.split()[:5]).replace(' ', '_')
             first_words = re.sub(r'[^\w]', '', first_words)
+            # Assicura che ci sia un identificativo anche per chunk vuoti
+            first_words = first_words if first_words else f"id_{i}"
             
+            # Crea il dizionario chunk iniziale
             chunk_dict = {
                 "chunk_id": f"chunk_{i:04d}_{first_words[:30]}",
                 "text": chunk_text,
@@ -403,26 +404,46 @@ class PDFProcessor:
                 "chars": len(chunk_text),
                 "index": i
             }
+            
+            # Modifica: Applica la pulizia dettagliata usando clean_chunk sul dizionario
+            if self.cleaner:
+                try:
+                    # Passa una copia per evitare effetti collaterali inaspettati
+                    cleaned_chunk_dict = self.cleaner.clean_chunk(chunk_dict.copy())
+                    # Verifica che il risultato sia ancora un dizionario e abbia il testo
+                    if isinstance(cleaned_chunk_dict, dict) and 'text' in cleaned_chunk_dict:
+                        # Controlla se il testo pulito è vuoto
+                        if not cleaned_chunk_dict['text'] or cleaned_chunk_dict['text'].isspace():
+                            self.logger.warning(f"Chunk {i} ({chunk_dict['chunk_id']}) è diventato vuoto dopo la pulizia, saltato.")
+                            continue # Salta l'aggiunta di questo chunk vuoto
+                        chunk_dict = cleaned_chunk_dict # Usa il chunk pulito
+                    else:
+                        self.logger.warning(f"Pulizia del chunk {i} ({chunk_dict['chunk_id']}) ha restituito un risultato non valido, usando chunk originale.")
+                except Exception as clean_err:
+                     self.logger.error(f"Errore durante la pulizia del chunk {i} ({chunk_dict['chunk_id']}): {clean_err}")
+                     # Continua con il chunk non pulito in caso di errore grave
+            
             all_chunks.append(chunk_dict)
         
+        self.logger.info(f"Processati {len(text_chunks)} chunk grezzi, {len(all_chunks)} chunk finali aggiunti.")
         return all_chunks
     def process_pdf(self, pdf_path: str) -> List[Dict]:
         """
-        Processa completamente un PDF e restituisce i chunk.
+        Processa completamente un PDF e restituisce i chunk puliti.
         
         Args:
             pdf_path: Percorso del file PDF
             
         Returns:
-            Lista di dizionari rappresentanti i chunk con metadati
+            Lista di dizionari rappresentanti i chunk puliti con metadati
         """
         # Estrai il testo dal PDF
         raw_text = self.extract_text_from_pdf(pdf_path)
         
-        # Pulisci il testo
-        clean_text = self.clean_text(raw_text)
+        # Pulisci il testo grezzo (rimozione header/footer, spazi, ecc.)
+        clean_initial_text = self.clean_text(raw_text)
         
-        # Processa il testo in chunk
-        chunks = self.process_text_to_chunks(clean_text)
+        # Processa il testo in chunk (la pulizia finale avviene qui)
+        chunks = self.process_text_to_chunks(clean_initial_text)
         
         return chunks

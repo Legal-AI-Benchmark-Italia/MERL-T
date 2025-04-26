@@ -31,30 +31,30 @@ class Config:
         pass
     
     # Cartelle di input e output (ora dinamiche)
-    INPUT_FOLDER = PROJECT_ROOT / "src" / "data" / "dottrina" / "raw_sources" / "diritto_civile"
-    OUTPUT_FOLDER = PROJECT_ROOT / "src" / "data" / "dottrina" / "raw_txt" / "diritto_civile"
+    INPUT_FOLDER = PROJECT_ROOT  / "knowledge" / "knowledge_base" / "dottrina" / "raw_sources"
+    OUTPUT_FOLDER = PROJECT_ROOT  / "knowledge" / "knowledge_base" /  "dottrina" / "raw_text"
     
     # Parametri di chunking
     MIN_CHUNK_SIZE = 3000       # Dimensione minima in caratteri per un chunk
     MAX_CHUNK_SIZE = 5000      # Dimensione massima in caratteri per un chunk
-    OVERLAP_SIZE = 1500         # Numero di caratteri di sovrapposizione tra i chunk
-    USE_SLIDING_WINDOW = True  # True: usa finestra scorrevole, False: divisione per paragrafi
+    OVERLAP_SIZE = 500         # Numero di caratteri di sovrapposizione tra i chunk
+    USE_SLIDING_WINDOW = False  # True: usa finestra scorrevole, False: divisione per paragrafi
     
     # Lingua per la tokenizzazione
     LANGUAGE = "italian"       # Lingua per la tokenizzazione delle frasi (es. "italian", "english")
     
     # Parametri di processo
-    MAX_PAGES_PER_BATCH = 100  # Numero massimo di pagine da elaborare per batch per risparmiare memoria
-    TIMEOUT_PER_PAGE = 1       # Timeout in secondi per l'estrazione di una singola pagina
+    MAX_PAGES_PER_BATCH = 50  # Numero massimo di pagine da elaborare per batch per risparmiare memoria
+    TIMEOUT_PER_PAGE = 3       # Timeout in secondi per l'estrazione di una singola pagina
     
     # Parametri di parallelizzazione
-    MAX_WORKERS = 0            # Numero di processi paralleli (0=automatico basato sul numero di CPU)
-    CPU_LIMIT = 90             # Limite di utilizzo CPU in percentuale
+    MAX_WORKERS = 5            # Numero di processi paralleli (0=automatico basato sul numero di CPU)
+    CPU_LIMIT = 80             # Limite di utilizzo CPU in percentuale
     CPU_CHECK_INTERVAL = 2     # Intervallo in secondi per controllare l'utilizzo della CPU
-    THROTTLE_SLEEP = 5         # Tempo di attesa in secondi quando la CPU è troppo utilizzata
+    THROTTLE_SLEEP = 15         # Tempo di attesa in secondi quando la CPU è troppo utilizzata
     
     # File per tracciare i progressi (relativo alla root)
-    PROGRESS_FILE = PROJECT_ROOT / "pdf_chunker_progress.json"
+    PROGRESS_FILE = PROJECT_ROOT / "knowledge" / "knowledge_base" / "dottrina"  / "pdf_chunker_progress.json"
     
     # Configurazione logging
     LOG_LEVEL = logging.DEBUG

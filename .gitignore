@@ -17,3 +17,4 @@ ngrok*
 *.ini
 *.yaml
 knowledge_base/*/*/*
+*_bkp

@@ -15,13 +15,13 @@ import logging
 from datetime import datetime
 
 # Importa i moduli del progetto
-from pdf_chunker.config import Config
-from pdf_chunker.processor import PDFProcessor
-from pdf_chunker.parallel import ParallelExecutor
-from pdf_chunker.cpu_monitor import CPUMonitor
-from pdf_chunker.progress_tracker import ProgressTracker
-from pdf_chunker.output_manager import OutputManager
-from pdf_chunker.utils import setup_logging, find_pdf_files
+from src.config import Config
+from src.processor import PDFProcessor
+from src.parallel import ParallelExecutor
+from src.cpu_monitor import CPUMonitor
+from src.progress_tracker import ProgressTracker
+from src.output_manager import OutputManager
+from src.utils import setup_logging, find_pdf_files
 
 def parse_arguments():
     """

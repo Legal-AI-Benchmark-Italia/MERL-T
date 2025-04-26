@@ -18,7 +18,7 @@ def setup_logging():
     Returns:
         Logger configurato
     """
-    from pdf_chunker.config import Config
+    from .config import Config
     
     # Nome del file di log
     log_filename = f"pdf_chunker_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"

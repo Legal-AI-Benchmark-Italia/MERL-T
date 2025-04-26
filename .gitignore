@@ -1,6 +1,5 @@
 *.pdf
 *.jar
-*.json
 *.zip
 .venv
 *.csv
@@ -16,5 +15,11 @@ ngrok*
 *pids.txt
 *.ini
 *.yaml
+<<<<<<< HEAD
 knowledge_base/*/*/*
 *_bkp
+=======
+*.jsonl_bkp
+*.jsonl
+*.json
+>>>>>>> develop

@@ -2,18 +2,19 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, Record, Query
 from neo4j.exceptions import Neo4jError
+import re
 from .base import BaseGraphStorage
-from .prompt import constraint_query  # Importo la query corretta per il constraint
+from .neo4j_constraints import GENERIC_CONSTRAINT_QUERY, LEGAL_ENTITY_CONSTRAINTS, LEGAL_INDEX_QUERIES
 
-# Configurazione di logging con livello DEBUG di default
+# Configurazione di logging con livello INFO di default
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 class Neo4jGraphStorage(BaseGraphStorage):
-    """Implementazione di BaseGraphStorage per Neo4j."""
+    """Implementazione di BaseGraphStorage per Neo4j specializzata per knowledge graph giuridico."""
 
     def __init__(self, uri: str, user: str, password: str, database: str = "neo4j"):
         """
@@ -30,11 +31,11 @@ class Neo4jGraphStorage(BaseGraphStorage):
         self._password = password
         self._database = database
         self._driver: Optional[AsyncDriver] = None
-        logger.info(f"Inizializzazione Neo4jGraphStorage per database: {database} su {uri}")
+        logger.info(f"Inizializzazione Neo4jGraphStorage per Knowledge Graph Giuridico: {database} su {uri}")
         logger.debug(f"Parametri di connessione configurati: uri={uri}, user={user}, database={database}")
 
     async def initialize(self) -> None:
-        """Inizializza il driver Neo4j e verifica la connettività."""
+        """Inizializza il driver Neo4j, verifica la connettività e crea constraint e indici."""
         if self._driver:
             logger.debug("Driver esistente trovato, chiusura in corso...")
             await self._driver.close()
@@ -45,28 +46,53 @@ class Neo4jGraphStorage(BaseGraphStorage):
             logger.debug("Verifica della connettività in corso...")
             await self._driver.verify_connectivity()
             logger.info("Connessione a Neo4j stabilita e verificata.")
-            # Opzionale: Creare indici/constraint per migliorare le prestazioni
-            logger.debug("Creazione constraint per migliorare le prestazioni...")
+            
+            # Creazione dei constraint e indici per il knowledge graph giuridico
+            logger.debug("Creazione constraint e indici per migliorare le prestazioni...")
             await self._create_constraints()
+            logger.info("Schema del Knowledge Graph giuridico inizializzato con successo.")
         except Neo4jError as e:
-            logger.error(f"Errore durante la connessione a Neo4j: {e}")
+            logger.error(f"Errore durante la connessione o l'inizializzazione dello schema Neo4j: {e}")
             self._driver = None
             raise
 
     async def _create_constraints(self) -> None:
-        """Crea constraint sull'ID dei nodi per garantire unicità e migliorare le query."""
+        """Crea constraint e indici per lo schema del knowledge graph giuridico."""
         async with self._driver.session(database=self._database) as session:
             try:
-                # Utilizzo la sintassi corretta per il constraint importata da prompt.py
-                logger.debug(f"Esecuzione query per constraint: {constraint_query}")
-                await session.run(constraint_query)
-                logger.info("Constraint 'node_id_unique' assicurato.")
+                # 1. Creiamo constraint generico (fallback)
+                logger.debug(f"Creazione constraint generico: {GENERIC_CONSTRAINT_QUERY}")
+                await session.run(GENERIC_CONSTRAINT_QUERY)
+                logger.info("Constraint generico 'node_id_unique' creato/verificato.")
+                
+                # 2. Creiamo constraint specifici per entità giuridiche
+                for constraint_query in LEGAL_ENTITY_CONSTRAINTS:
+                    try:
+                        logger.debug(f"Creazione constraint entità giuridica: {constraint_query}")
+                        await session.run(constraint_query)
+                    except Neo4jError as e:
+                        # Alcune versioni di Neo4j potrebbero dare errori per syntax o altre ragioni
+                        logger.warning(f"Errore durante la creazione del constraint '{constraint_query}': {e}")
+                
+                logger.info("Constraint per le entità giuridiche creati/verificati.")
+                
+                # 3. Creiamo indici per migliorare le prestazioni delle query più comuni
+                for index_query in LEGAL_INDEX_QUERIES:
+                    try:
+                        if "fulltext" in index_query.lower():
+                            # Gli indici fulltext richiedono Neo4j Enterprise e possono fallire silenziosamente
+                            logger.debug(f"Tentativo di creazione indice fulltext (richiede Neo4j Enterprise): {index_query}")
+                        else:
+                            logger.debug(f"Creazione indice: {index_query}")
+                        await session.run(index_query)
+                    except Neo4jError as e:
+                        logger.warning(f"Errore durante la creazione dell'indice '{index_query}': {e}")
+                
+                logger.info("Indici per il knowledge graph giuridico creati/verificati.")
+                
             except Neo4jError as e:
-                # Potrebbe fallire se label diverse hanno proprietà 'id' non uniche globalmente
-                # senza label specificate. In un'implementazione reale, potresti voler
-                # creare constraint per label specifiche.
-                logger.warning(f"Impossibile creare constraint generico 'node_id_unique': {e}. "
-                               "Considera constraint specifici per label.")
+                logger.warning(f"Errore durante la creazione degli schema per il knowledge graph: {e}")
+                logger.info("Il knowledge graph funzionerà comunque, ma potrebbe avere prestazioni non ottimali.")
 
     async def close(self) -> None:
         """Chiude la connessione al driver Neo4j."""
@@ -113,109 +139,230 @@ class Neo4jGraphStorage(BaseGraphStorage):
         logger.debug(f"Nodo {node_id} {'trovato' if exists else 'non trovato'}")
         return exists
 
-    async def has_edge(self, source_node_id: str, target_node_id: str) -> bool:
-        """Verifica se un arco specifico esiste (ignora tipo di relazione per ora)."""
-        # Nota: Questa query trova *qualsiasi* relazione tra i due nodi.
-        # Potrebbe essere necessario raffinare se i tipi di relazione sono importanti.
-        logger.debug(f"Verifica esistenza arco da {source_node_id} a {target_node_id}")
-        query = """
-        MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
-        RETURN r LIMIT 1
+    async def has_edge(self, source_node_id: str, target_node_id: str, relation_type: str = None) -> bool:
         """
+        Verifica se un arco specifico esiste.
+        Se relation_type è specificato, cerca solo relazioni di quel tipo.
+        """
+        logger.debug(f"Verifica esistenza arco da {source_node_id} a {target_node_id}")
+        
+        if relation_type:
+            query = f"""
+            MATCH (n1 {{id: $source_id}})-[r:{relation_type}]->(n2 {{id: $target_id}})
+            RETURN r LIMIT 1
+            """
+        else:
+            query = """
+            MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
+            RETURN r LIMIT 1
+            """
+            
         result = await self._execute_read(query, {"source_id": source_node_id, "target_id": target_node_id})
         exists = len(result) > 0
-        logger.debug(f"Arco da {source_node_id} a {target_node_id} {'trovato' if exists else 'non trovato'}")
+        relation_info = f" di tipo {relation_type}" if relation_type else ""
+        logger.debug(f"Arco{relation_info} da {source_node_id} a {target_node_id} {'trovato' if exists else 'non trovato'}")
         return exists
 
     async def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
-        """Recupera un nodo per ID."""
+        """Recupera un nodo per ID insieme alle sue label."""
         logger.debug(f"Recupero nodo con id: {node_id}")
-        query = "MATCH (n {id: $node_id}) RETURN properties(n) as props"
+        query = """
+        MATCH (n {id: $node_id}) 
+        RETURN properties(n) as props, labels(n) as labels
+        """
         result = await self._execute_read(query, {"node_id": node_id})
         if result:
             node_props = dict(result[0]["props"])
+            node_labels = result[0]["labels"]
+            # Aggiungiamo le label alle proprietà
+            node_props["_labels"] = node_labels
             logger.debug(f"Nodo {node_id} trovato con proprietà: {node_props}")
             return node_props
         logger.debug(f"Nodo {node_id} non trovato")
         return None
 
-    async def get_edge(self, source_node_id: str, target_node_id: str) -> Optional[Dict[str, Any]]:
-        """Recupera le proprietà di un arco specifico (il primo trovato)."""
-        # Nota: Restituisce le proprietà della *prima* relazione trovata.
-        logger.debug(f"Recupero proprietà arco da {source_node_id} a {target_node_id}")
-        query = """
-        MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
-        RETURN properties(r) as props LIMIT 1
+    async def get_edge(self, source_node_id: str, target_node_id: str, relation_type: str = None) -> Optional[Dict[str, Any]]:
         """
+        Recupera le proprietà di un arco specifico.
+        Se relation_type è specificato, cerca solo relazioni di quel tipo.
+        """
+        logger.debug(f"Recupero proprietà arco da {source_node_id} a {target_node_id}")
+        
+        if relation_type:
+            query = f"""
+            MATCH (n1 {{id: $source_id}})-[r:{relation_type}]->(n2 {{id: $target_id}})
+            RETURN properties(r) as props, type(r) as type LIMIT 1
+            """
+        else:
+            query = """
+            MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
+            RETURN properties(r) as props, type(r) as type LIMIT 1
+            """
+            
         result = await self._execute_read(query, {"source_id": source_node_id, "target_id": target_node_id})
         if result and result[0]["props"] is not None:
             edge_props = dict(result[0]["props"])
+            edge_type = result[0]["type"]
+            # Aggiungiamo il tipo di relazione alle proprietà
+            edge_props["_type"] = edge_type
             logger.debug(f"Arco trovato con proprietà: {edge_props}")
             return edge_props
-        logger.debug(f"Nessun arco trovato da {source_node_id} a {target_node_id}")
-        return None # Potrebbe non avere proprietà
+        relation_info = f" di tipo {relation_type}" if relation_type else ""
+        logger.debug(f"Nessun arco{relation_info} trovato da {source_node_id} a {target_node_id}")
+        return None
 
-    async def get_node_edges(self, source_node_id: str) -> Optional[List[Tuple[str, str]]]:
-        """Recupera tutti gli archi *uscenti* da un nodo."""
-        logger.debug(f"Recupero archi uscenti dal nodo {source_node_id}")
-        query = """
-        MATCH (n1 {id: $source_id})-[r]->(n2)
-        RETURN n1.id AS source_id, n2.id AS target_id
+    async def get_node_edges(self, source_node_id: str, relation_type: str = None) -> List[Tuple[str, str, str]]:
         """
+        Recupera tutti gli archi *uscenti* da un nodo.
+        Esteso per supportare il filtraggio per tipo di relazione.
+        Restituisce triple (source_id, relation_type, target_id)
+        """
+        logger.debug(f"Recupero archi uscenti dal nodo {source_node_id}")
+        
+        if relation_type:
+            query = f"""
+            MATCH (n1 {{id: $source_id}})-[r:{relation_type}]->(n2)
+            RETURN n1.id AS source_id, type(r) as relation_type, n2.id AS target_id
+            """
+        else:
+            query = """
+            MATCH (n1 {id: $source_id})-[r]->(n2)
+            RETURN n1.id AS source_id, type(r) as relation_type, n2.id AS target_id
+            """
+            
         result = await self._execute_read(query, {"source_id": source_node_id})
         if result:
-            edges = [(record["source_id"], record["target_id"]) for record in result]
-            logger.debug(f"Trovati {len(edges)} archi uscenti dal nodo {source_node_id}: {edges}")
+            edges = [(record["source_id"], record["relation_type"], record["target_id"]) for record in result]
+            relation_filter = f" di tipo {relation_type}" if relation_type else ""
+            logger.debug(f"Trovati {len(edges)} archi{relation_filter} uscenti dal nodo {source_node_id}")
             return edges
         logger.debug(f"Nessun arco uscente trovato per il nodo {source_node_id}")
-        return [] # Ritorna lista vuota se non ci sono archi uscenti
+        return []
 
     async def upsert_node(self, node_id: str, node_data: Dict[str, Any]) -> None:
-        """Inserisce o aggiorna un nodo."""
+        """
+        Inserisce o aggiorna un nodo.
+        Gestisce correttamente i tipi di entità giuridiche.
+        """
         logger.info(f"Upsert nodo con id: {node_id}")
         logger.debug(f"Dati nodo: {node_data}")
         
         # Assicurati che l'ID sia anche nei dati per MERGE
         node_properties = node_data.copy()
-        node_properties['id'] = node_id
+        # Non è necessario aggiungere l'ID qui se node_id è già usato correttamente nel MERGE
+        # node_properties['id'] = node_id 
 
-        # Determina la label (se presente)
-        label = node_properties.pop('label', 'Node') # Usa 'Node' come default se non specificato
-        logger.debug(f"Label del nodo: {label}")
+        # Usa la chiave corretta preparata da extractor.py
+        label = node_properties.pop('entity_label', 'Node') # Get label and remove from props
+        # Sanifica ulteriormente la label e assicurati che non sia vuota
+        if not isinstance(label, str) or not label.strip():
+            logger.warning(f"Label vuota o non valida per nodo ID {node_id}, usando 'Node' come fallback.")
+            label = "Node"
+        else:
+            label = label.replace(" ", "") # Normalize label
 
-        # Query MERGE per creare o aggiornare il nodo
-        # Usiamo SET p += $props per aggiornare le proprietà esistenti senza sovrascrivere l'intero nodo
-        query = f"""
-        MERGE (n:{label} {{id: $node_id}})
-        SET n += $props
-        """
-        await self._execute_write(query, {"node_id": node_id, "props": node_properties})
-        logger.info(f"Nodo {node_id} creato/aggiornato con successo")
+        # Aggiunta protezione contro label non valide per Cypher (anche se la normalizzazione dovrebbe aiutare)
+        label = re.sub(r'[^a-zA-Z0-9_]', '', label)
+        if not label:
+            logger.warning(f"Label diventata vuota dopo sanificazione per nodo ID {node_id}, usando 'Node' come fallback.")
+            label = "Node"
+
+        logger.debug(f"Label determinata per il nodo '{node_id}': {label}")
+        
+        # Rimuovi la label dal dizionario delle proprietà da impostare
+        props_to_set = node_properties # node_properties è già una copia senza entity_label
+
+        # Adatta la query in base alla label
+        if label == 'Node':
+            # Se la label è 'Node', cerca/crea :Node e aggiorna props.
+            # Non rimuovere altre label specifiche eventualmente già presenti.
+            query = f"""
+            MERGE (n:Node {{id: $node_id}})
+            SET n += $props
+            """
+            params = {"node_id": node_id, "props": props_to_set}
+            logger.debug(f"Esecuzione upsert per :Node con ID {node_id}")
+        else:
+            # Se la label è specifica, cerca/crea il nodo per ID,
+            # rimuovi la label :Node (se esiste) e imposta la nuova label specifica,
+            # poi aggiorna le proprietà.
+            # Assicurati che la label sia sicura (già fatto dalla sanificazione precedente)
+            query = f"""
+            MERGE (n {{id: $node_id}})
+            ON CREATE SET n = $props, n:{label} 
+            ON MATCH SET n += $props, n:{label}
+            WITH n
+            REMOVE n:Node
+            """ 
+            # Nota: SET n:{label} aggiunge la label se non c'è, non serve ON CREATE/ON MATCH separato per la label.
+            # L'ordine è: trova/crea, imposta/aggiorna props e label specifica, Rimuovi :Node.
+            params = {"node_id": node_id, "props": props_to_set}
+            logger.debug(f"Esecuzione upsert per label specifica :{label} con ID {node_id}, rimuovendo :Node se presente.")
+
+        await self._execute_write(query, params)
+        logger.info(f"Nodo {node_id} di tipo {label} creato/aggiornato con successo")
 
     async def upsert_edge(self, source_node_id: str, target_node_id: str, edge_data: Dict[str, Any]) -> None:
-        """Inserisce o aggiorna un arco."""
+        """
+        Inserisce o aggiorna un arco.
+        Gestisce correttamente i tipi di relazione giuridica.
+        """
         logger.info(f"Upsert arco da {source_node_id} a {target_node_id}")
         logger.debug(f"Dati arco: {edge_data}")
         
-        # Determina il tipo di relazione (se presente)
-        relation_type = edge_data.pop('relation_type', 'RELATED_TO') # Usa 'RELATED_TO' come default
-        logger.debug(f"Tipo di relazione: {relation_type}")
+        # Recupera il tipo di relazione GIÀ normalizzato da extractor.py
+        # Il campo si chiama "legal_relation_type" in extractor.py
+        relation_type = edge_data.get("legal_relation_type") 
+        # Rimuovilo dal dizionario così non viene impostato come proprietà standard
+        if "legal_relation_type" in edge_data:
+            del edge_data["legal_relation_type"]
 
-        edge_properties = edge_data.copy()
+        # Fallback se non trovato (non dovrebbe accadere con la nuova logica)
+        if not relation_type:
+            relation_type = edge_data.pop('relation_type', 'RELATED_TO') # Vecchio fallback
+            logger.warning(f"Tipo relazione 'legal_relation_type' non trovato in edge_data per {source_node_id}->{target_node_id}. Usato fallback: {relation_type}")
+
+        # La normalizzazione (maiuscole, underscore, caratteri validi) 
+        # è già stata fatta in get_normalized_relationship_type in extractor.py
+
+        logger.debug(f"Tipo di relazione giuridica: {relation_type}")
+
+        # Usiamo direttamente edge_data come props, dopo aver rimosso relation_type
+        edge_properties = edge_data 
 
         # Query MERGE per creare o aggiornare l'arco
-        # Trova i nodi sorgente e destinazione, poi crea/aggiorna la relazione
         query = f"""
         MATCH (n1 {{id: $source_id}}), (n2 {{id: $target_id}})
         MERGE (n1)-[r:{relation_type}]->(n2)
         SET r += $props
         """
-        await self._execute_write(query, {
-            "source_id": source_node_id,
-            "target_id": target_node_id,
-            "props": edge_properties
-        })
-        logger.info(f"Arco da {source_node_id} a {target_node_id} creato/aggiornato con successo")
+        
+        try:
+            await self._execute_write(query, {
+                "source_id": source_node_id,
+                "target_id": target_node_id,
+                "props": edge_properties
+            })
+            logger.info(f"Arco {relation_type} da {source_node_id} a {target_node_id} creato/aggiornato con successo")
+        except Neo4jError as e:
+            logger.error(f"Errore durante la creazione dell'arco: {e}")
+            # Fallback: prova a creare una relazione generica in caso di problemi
+            if "RELATED_TO" != relation_type:
+                logger.warning(f"Tentativo fallback con relazione generica RELATED_TO")
+                fallback_query = """
+                MATCH (n1 {id: $source_id}), (n2 {id: $target_id})
+                MERGE (n1)-[r:RELATED_TO]->(n2)
+                SET r += $props
+                """
+                edge_properties["original_relation_type"] = relation_type  # Salva il tipo originale
+                await self._execute_write(fallback_query, {
+                    "source_id": source_node_id,
+                    "target_id": target_node_id,
+                    "props": edge_properties
+                })
+                logger.info(f"Arco RELATED_TO (fallback) da {source_node_id} a {target_node_id} creato con successo")
+            else:
+                raise  # Rilancia l'errore se anche il tipo di default fallisce
 
     async def delete_node(self, node_id: str) -> None:
         """Elimina un nodo e tutti i suoi archi."""
@@ -227,32 +374,34 @@ class Neo4jGraphStorage(BaseGraphStorage):
     async def remove_nodes(self, nodes: List[str]) -> None:
         """Elimina una lista di nodi."""
         # Esegui l'eliminazione in batch per efficienza, se possibile
-        # Neo4j gestisce bene le liste in clausole WHERE id IN [...]
         logger.info(f"Eliminazione di {len(nodes)} nodi: {nodes}")
         query = "MATCH (n) WHERE n.id IN $node_ids DETACH DELETE n"
         await self._execute_write(query, {"node_ids": nodes})
         logger.info(f"{len(nodes)} nodi eliminati con successo")
 
-    async def remove_edges(self, edges: List[Tuple[str, str]]) -> None:
-        """Elimina una lista di archi."""
-        # È più complesso eliminare archi specifici in batch senza conoscere il tipo.
-        # Iteriamo e cancelliamo uno per uno per semplicità.
-        # Una soluzione più performante potrebbe richiedere UNWIND in Cypher.
-        # Nota: Questa implementazione elimina la *prima* relazione trovata tra source e target.
-        logger.info(f"Eliminazione di {len(edges)} archi")
-        query = """
-        MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
-        DELETE r
-        LIMIT 1
+    async def remove_edges(self, edges: List[Tuple[str, str, str]]) -> None:
         """
-        # Per eliminare TUTTE le relazioni tra due nodi, rimuovere LIMIT 1
-        # query = """
-        # MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
-        # DELETE r
-        # """
-        for source_id, target_id in edges:
-            logger.debug(f"Eliminazione arco da {source_id} a {target_id}")
+        Elimina una lista di archi.
+        Formato di ogni elemento in edges: (source_id, relation_type, target_id)
+        Se relation_type è None, elimina tutte le relazioni tra source e target.
+        """
+        logger.info(f"Eliminazione di {len(edges)} archi")
+        
+        for source_id, relation_type, target_id in edges:
+            if relation_type:
+                query = f"""
+                MATCH (n1 {{id: $source_id}})-[r:{relation_type}]->(n2 {{id: $target_id}})
+                DELETE r
+                """
+            else:
+                query = """
+                MATCH (n1 {id: $source_id})-[r]->(n2 {id: $target_id})
+                DELETE r
+                """
+                
+            logger.debug(f"Eliminazione arco {'di tipo ' + relation_type if relation_type else ''} da {source_id} a {target_id}")
             await self._execute_write(query, {"source_id": source_id, "target_id": target_id})
+            
         logger.info(f"{len(edges)} archi eliminati con successo")
 
     async def get_all_labels(self) -> List[str]:
@@ -264,17 +413,50 @@ class Neo4jGraphStorage(BaseGraphStorage):
         logger.debug(f"Label trovate: {labels}")
         return labels
 
-    async def get_knowledge_graph(self, node_label: Optional[str] = None, depth: int = 3, limit: int = 1000) -> Any:
+    async def get_all_relationship_types(self) -> List[str]:
+        """Recupera tutti i tipi di relazione presenti nel database."""
+        logger.debug("Recupero di tutti i tipi di relazione presenti nel database")
+        query = "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType"
+        result = await self._execute_read(query)
+        types = [record["relationshipType"] for record in result]
+        logger.debug(f"Tipi di relazione trovati: {types}")
+        return types
+
+    async def get_knowledge_graph(
+        self, 
+        node_label: Optional[str] = None, 
+        depth: int = 3, 
+        limit: int = 1000,
+        relation_types: List[str] = None
+    ) -> Any:
         """
-        Recupera un sottografo del knowledge graph.
-        Restituisce una lista di percorsi (nodi e relazioni).
-        """
-        logger.info(f"Recupero knowledge graph con label: {node_label}, profondità: {depth}, limite: {limit}")
+        Recupera un sottografo del knowledge graph giuridico.
         
+        Args:
+            node_label: Label dei nodi da cui partire (opzionale)
+            depth: Profondità massima del grafo
+            limit: Limite massimo di percorsi da restituire
+            relation_types: Lista di tipi di relazione da considerare (opzionale)
+            
+        Returns:
+            Lista di percorsi (nodi e relazioni)
+        """
+        logger.info(f"Recupero knowledge graph giuridico con label: {node_label}, profondità: {depth}, limite: {limit}")
+        
+        # Costruisci la query in base ai parametri
         if node_label:
-             match_clause = f"MATCH p=(n:{node_label})-[*1..{depth}]-(m)"
+            match_clause = f"MATCH p=(n:{node_label})"
         else:
-             match_clause = f"MATCH p=(n)-[*1..{depth}]-(m)" # Cerca da qualsiasi nodo se label non specificata
+            match_clause = f"MATCH p=(n)"
+            
+        # Aggiungi filtro su tipi di relazione se specificato
+        if relation_types:
+            rel_filter = "|".join([f":{rel_type}" for rel_type in relation_types])
+            path_pattern = f"-[{rel_filter}*1..{depth}]-"
+        else:
+            path_pattern = f"-[*1..{depth}]-"
+            
+        match_clause += f"{path_pattern}(m)"
         
         logger.debug(f"Clausola MATCH per la query: {match_clause}")
 
@@ -282,13 +464,12 @@ class Neo4jGraphStorage(BaseGraphStorage):
         {match_clause}
         RETURN p LIMIT {limit}
         """
-        # L'esecuzione di questa query potrebbe essere pesante.
-        # Restituisce oggetti Path di Neo4j. Potrebbe essere necessario
-        # processarli ulteriormente per convertirli in un formato standard (es. nodi e archi separati).
-        logger.info(f"Recupero knowledge graph con label '{node_label}', profondità {depth}, limite {limit}")
+        
+        logger.info(f"Recupero knowledge graph con query: {query}")
         async with self._driver.session(database=self._database) as session:
             logger.debug(f"Esecuzione query: {query}")
-            result = await session.run(Query(query)) # Usiamo Query per evitare problemi con f-string non parametrizzate
+            result = await session.run(Query(query))
+            
             # Estrarre e formattare i dati dai percorsi Neo4j
             paths_data = []
             async for record in result:
@@ -305,18 +486,140 @@ class Neo4jGraphStorage(BaseGraphStorage):
                  }
                  paths_data.append(path_info)
             
-            logger.info(f"Trovati {len(paths_data)} percorsi nel knowledge graph")
-            logger.debug(f"Primi {min(3, len(paths_data))} percorsi: {paths_data[:3] if paths_data else []}")
-            # Potresti voler restituire i dati in un formato diverso,
-            # ad esempio una lista di nodi e una lista di archi uniche.
-            return paths_data # Restituisce la lista di percorsi processati
+            logger.info(f"Trovati {len(paths_data)} percorsi nel knowledge graph giuridico")
+            return paths_data
+
+    async def get_legal_entity_by_name(self, name: str, entity_type: str = None) -> List[Dict[str, Any]]:
+        """
+        Cerca entità giuridiche per nome (ricerca parziale).
+        
+        Args:
+            name: Nome o parte del nome da cercare
+            entity_type: Tipo di entità giuridica (opzionale)
+            
+        Returns:
+            Lista di entità trovate
+        """
+        logger.debug(f"Ricerca entità giuridiche con nome contenente '{name}'")
+        
+        if entity_type:
+            query = f"""
+            MATCH (n:{entity_type})
+            WHERE n.name CONTAINS $name
+            RETURN n
+            LIMIT 10
+            """
+        else:
+            query = """
+            MATCH (n)
+            WHERE n.name CONTAINS $name
+            RETURN n
+            LIMIT 10
+            """
+            
+        result = await self._execute_read(query, {"name": name})
+        entities = [dict(record["n"].items()) for record in result]
+        
+        logger.debug(f"Trovate {len(entities)} entità contenenti '{name}'")
+        return entities
+
+    async def get_related_entities(
+        self, 
+        entity_id: str, 
+        relation_type: str = None, 
+        target_type: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Trova entità correlate ad un'entità specifica.
+        
+        Args:
+            entity_id: ID dell'entità di partenza
+            relation_type: Tipo di relazione da cercare (opzionale)
+            target_type: Tipo di entità target da cercare (opzionale)
+            
+        Returns:
+            Lista di tuple (entità_target, tipo_relazione)
+        """
+        logger.debug(f"Ricerca entità correlate a '{entity_id}'")
+        
+        # Costruisci la query in base ai parametri
+        if relation_type and target_type:
+            query = f"""
+            MATCH (n {{id: $entity_id}})-[r:{relation_type}]->(m:{target_type})
+            RETURN m, type(r) as relation_type
+            """
+        elif relation_type:
+            query = f"""
+            MATCH (n {{id: $entity_id}})-[r:{relation_type}]->(m)
+            RETURN m, type(r) as relation_type
+            """
+        elif target_type:
+            query = f"""
+            MATCH (n {{id: $entity_id}})-[r]->(m:{target_type})
+            RETURN m, type(r) as relation_type
+            """
+        else:
+            query = """
+            MATCH (n {id: $entity_id})-[r]->(m)
+            RETURN m, type(r) as relation_type
+            """
+            
+        result = await self._execute_read(query, {"entity_id": entity_id})
+        related = [(dict(record["m"].items()), record["relation_type"]) for record in result]
+        
+        logger.debug(f"Trovate {len(related)} entità correlate a '{entity_id}'")
+        return related
 
     async def index_done_callback(self) -> bool:
-        """Callback dopo che l'indicizzazione è completata (semplice implementazione)."""
+        """Callback dopo che l'indicizzazione è completata."""
         logger.info("Callback index_done chiamato.")
-        logger.debug("Esecuzione azioni post-indicizzazione, se presenti")
-        # Qui potresti aggiungere logica specifica post-indicizzazione, se necessario.
-        return True
+        
+        try:
+            # Esegui statistiche sul grafo per verifica
+            async with self._driver.session(database=self._database) as session:
+                # Conteggio nodi per tipo
+                node_count_query = """
+                MATCH (n)
+                RETURN labels(n) as type, count(*) as count
+                ORDER BY count DESC
+                """
+                result = await session.run(node_count_query)
+                logger.info("Statistiche del Knowledge Graph giuridico:")
+                
+                node_counts = []
+                async for record in result:
+                    node_type = record["type"][0] if record["type"] else "Unknown"
+                    count = record["count"]
+                    node_counts.append(f"{node_type}: {count}")
+                
+                if node_counts:
+                    logger.info(f"Distribuzione nodi per tipo: {', '.join(node_counts)}")
+                else:
+                    logger.info("Nessun nodo trovato nel grafo")
+                
+                # Conteggio relazioni per tipo
+                rel_count_query = """
+                MATCH ()-[r]->()
+                RETURN type(r) as type, count(*) as count
+                ORDER BY count DESC
+                """
+                result = await session.run(rel_count_query)
+                
+                rel_counts = []
+                async for record in result:
+                    rel_type = record["type"]
+                    count = record["count"]
+                    rel_counts.append(f"{rel_type}: {count}")
+                
+                if rel_counts:
+                    logger.info(f"Distribuzione relazioni per tipo: {', '.join(rel_counts)}")
+                else:
+                    logger.info("Nessuna relazione trovata nel grafo")
+                
+                return True
+        except Exception as e:
+            logger.error(f"Errore durante l'analisi statistica del grafo: {e}")
+            return False
 
     async def drop(self) -> Dict[str, str]:
         """Elimina tutti i dati dal database (NODI E RELAZIONI). ATTENZIONE!"""
@@ -326,7 +629,7 @@ class Neo4jGraphStorage(BaseGraphStorage):
             logger.debug(f"Esecuzione query per eliminare tutti i dati: {query}")
             await self._execute_write(query)
             logger.info(f"Tutti i dati eliminati con successo dal database: {self._database}")
-            return {"status": "success", "message": f"Database {self._database} svuotato."}
+            return {"status": "success", "message": f"Knowledge Graph giuridico svuotato."}
         except Neo4jError as e:
             logger.error(f"Errore durante l'eliminazione dei dati: {e}")
             return {"status": "error", "message": str(e)}
@@ -341,59 +644,3 @@ class Neo4jGraphStorage(BaseGraphStorage):
         """Supporto per context manager async: chiude la connessione."""
         logger.debug("Chiamata __aexit__ del context manager")
         await self.close()
-
-# Esempio di utilizzo (richiede un'istanza Neo4j in esecuzione)
-async def main():
-    # Sostituisci con i tuoi dettagli di connessione
-    NEO4J_URI = "neo4j://localhost:7687"
-    NEO4J_USER = "neo4j"
-    NEO4J_PASSWORD = "your_password" # Cambia la password!
-    NEO4J_DATABASE = "neo4j"
-
-    storage = Neo4jGraphStorage(NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, NEO4J_DATABASE)
-
-    try:
-        async with storage: # Usa il context manager per inizializzare e chiudere
-            # Testare le operazioni
-            await storage.upsert_node("node1", {"label": "Person", "name": "Alice", "age": 30})
-            await storage.upsert_node("node2", {"label": "Person", "name": "Bob", "age": 25})
-            await storage.upsert_edge("node1", "node2", {"relation_type": "FRIENDS_WITH", "since": 2020})
-
-            print("Nodo 'node1' esiste:", await storage.has_node("node1"))
-            print("Nodo 'node3' esiste:", await storage.has_node("node3"))
-            print("Arco 'node1' -> 'node2' esiste:", await storage.has_edge("node1", "node2"))
-
-            node1_data = await storage.get_node("node1")
-            print("Dati nodo 'node1':", node1_data)
-
-            edge_data = await storage.get_edge("node1", "node2")
-            print("Dati arco 'node1' -> 'node2':", edge_data)
-
-            node1_edges = await storage.get_node_edges("node1")
-            print("Archi uscenti da 'node1':", node1_edges)
-
-            all_labels = await storage.get_all_labels()
-            print("Tutte le label:", all_labels)
-
-            # Esempio di recupero grafo (potrebbe essere vuoto se i nodi non hanno label Person)
-            kg_subset = await storage.get_knowledge_graph(node_label="Person", depth=2)
-            print("Sottografo Knowledge Graph (Persone):", kg_subset)
-
-            # Pulizia (opzionale)
-            # await storage.remove_nodes(["node1", "node2"])
-            # print("Nodi eliminati.")
-            # Oppure svuota tutto il DB (attenzione!)
-            # await storage.drop()
-            # print("Database svuotato.")
-
-    except ConnectionError as e:
-        print(f"Errore di connessione: {e}")
-    except Exception as e:
-        print(f"Errore durante l'esecuzione: {e}")
-
-if __name__ == "__main__":
-    import asyncio
-    # Esegui l'esempio solo se lo script è chiamato direttamente
-    # Commenta o rimuovi la password prima del commit!
-    # asyncio.run(main())
-    print("Esempio di utilizzo commentato. Rimuovere il commento da 'asyncio.run(main())' e impostare la password per eseguirlo.") 

@@ -60,6 +60,7 @@ Questa è l'implementazione concreta di `BaseGraphStorage` per Neo4j:
 * `_execute_read(query, params)`, `_execute_write(query, params)`: Metodi helper interni (privati) per eseguire query Cypher di lettura e scrittura in modo asincrono.
 * Le implementazioni dei metodi `has_node`, `get_node`, `upsert_node`, `upsert_edge`, ecc., traducono le operazioni richieste in query Cypher specifiche (es., `MATCH`, `MERGE`, `DELETE`) e le eseguono usando i metodi `_execute_read` o `_execute_write`.
 * `upsert_node` e `upsert_edge` usano `MERGE` per creare il nodo/arco se non esiste, o aggiornarne le proprietà (`SET n += $props`) se esiste già. Gestiscono anche l'estrazione della `label` (per i nodi) o del `relation_type` (per gli archi) dai dati forniti, usando dei valori predefiniti ('Node', 'RELATED_TO') se non specificati.
+* **Importante:** Grazie alla logica di aggregazione in `extractor.py`, questi metodi ora ricevono proprietà che possono essere liste (es., `source_doc_paths`, `chunk_ids`). La strategia `SET += $props` sovrascrive le proprietà nel database con quelle aggiornate e aggregate fornite da `extractor.py`.
 * `get_knowledge_graph(...)`: Recupera un sottografo eseguendo una query Cypher che cerca percorsi (`MATCH p=(n)-[...]-(m)`) fino a una certa profondità e restituisce i dati dei percorsi trovati.
 * `drop()`: Esegue `MATCH (n) DETACH DELETE n` per cancellare tutti i nodi e le relazioni nel database specificato (operazione pericolosa!).
 * Implementa `__aenter__` e `__aexit__` per permettere l'uso con `async with`, garantendo che la connessione venga inizializzata e chiusa correttamente.
@@ -74,6 +75,9 @@ Questo file definisce i template dei prompt inviati all'LLM:
   * `entity_extraction`: Il prompt principale. Spiega all'LLM l'obiettivo (estrarre entità e relazioni), i tipi di entità da cercare (`{entity_types}`), i passi da seguire, il formato di output richiesto (usando i delimitatori), e la lingua (`{language}`). Include placeholders per il testo di input (`{input_text}`) e potenziali esempi (`{examples}`, anche se non forniti nel codice).
   * `entity_continue_extraction`: Un prompt più breve per chiedere all'LLM di continuare l'estrazione dallo stesso testo, cercando elementi mancanti, usando lo stesso formato.
   * `entity_if_loop_extraction`: Un prompt per chiedere all'LLM se ci sono altri elementi da estrarre (sembra meno centrale nel flusso attuale).
+* `PROMPTS_TEMPLATES`: Un dizionario che contiene le *template strings* per i prompt. Queste stringhe includono placeholder come `{language}`, `{entity_types_str}`, `{relationship_keywords_str}`, `{tuple_delimiter}`, `{record_delimiter}`, `{completion_delimiter}`, `{input_text}`, ecc.
+* `get_formatted_prompt(prompt_key, config, **kwargs)`: Una funzione che prende la chiave di un template (es. "entity_extraction"), un dizionario di configurazione (`config`), e argomenti opzionali. Recupera il template corrispondente, estrae i valori necessari (lingua, tipi di entità, parole chiave delle relazioni, delimitatori) dalla configurazione, formatta il template sostituendo i placeholder, e restituisce la stringa del prompt completa e pronta per essere inviata all'LLM.
+* I tipi di entità, le parole chiave delle relazioni e i delimitatori non sono più hardcoded qui, ma vengono forniti dinamicamente tramite l'oggetto `config`.
 
 **6. `graph_extractor/extractor.py`**
 
@@ -87,20 +91,27 @@ Questo è il cuore logico dell'estrazione:
   * `_handle_single_relationship_extraction(record_attributes, ...)`: Simile alla precedente, ma per le relazioni. Estrae sorgente, destinazione, descrizione, parole chiave e forza (peso), li normalizza e restituisce un dizionario.
 * **`extract_entities(text, knowledge_graph_inst, global_config, llm_func, ...)`** : La funzione principale (asincrona) che orchestra l'estrazione.
 
-1. Recupera la configurazione (numero massimo di passaggi di "gleaning", lingua, tipi di entità) dal dizionario `global_config`.
-2. Prepara il contesto per i prompt sostituendo i placeholder (delimitatori, lingua, tipi di entità) nei template di `prompt.py`.
-3. Formatta il prompt iniziale `entity_extraction` con il testo di input.
-4. Chiama la funzione `llm_func` (passata come argomento, rappresenta la chiamata all'API OpenAI o OpenRouter configurata in `graph_main.py`) con il prompt iniziale.
-5. Salva la coppia prompt/risposta nella `history`.
-6. Elabora la risposta dell'LLM: divide la risposta in record usando `DEFAULT_RECORD_DELIMITER`, ogni record in attributi usando `DEFAULT_TUPLE_DELIMITER`, e usa `_handle_single_entity_extraction` e `_handle_single_relationship_extraction` per parsare i dati, memorizzandoli in dizionari `nodes` e `edges`.
-7. Esegue un ciclo per i passaggi aggiuntivi ("gleaning"):
-   * Chiama `llm_func` con il prompt `entity_continue_extraction` e la `history` precedente.
-   * Aggiunge la nuova coppia prompt/risposta alla `history`.
-   * Elabora la risposta del "gleaning" nello stesso modo, aggiungendo nuovi nodi/archi ai dizionari.
-8. Itera sui nodi e archi raccolti:
-   * Per ogni entità (nodo), prepara un dizionario `node_properties` (includendo etichetta, descrizione, ecc.) e chiama `knowledge_graph_inst.upsert_node()`. Usa il nome dell'entità normalizzato come `node_id`. L'etichetta principale per Neo4j viene presa dal primo tipo estratto per quell'entità.
-   * Per ogni relazione (arco), prepara un dizionario `edge_properties`. Il tipo di relazione Neo4j (`relation_type`) viene derivato dalle `keywords` estratte (convertite in maiuscolo, con spazi sostituiti da `_`, e caratteri non validi rimossi) o impostato a 'RELATED_TO' di default. Chiama `knowledge_graph_inst.upsert_edge()`.
-9. Registra il numero di nodi e archi aggiornati.
+*   **Firma Modificata:** Accetta ora un argomento `source_metadata` (un dizionario) contenente informazioni sulla fonte del `text` (es., `source_doc_path`, `chunk_id`). Restituisce un dizionario con statistiche sull'estrazione.
+1.  Recupera la configurazione (numero massimo di passaggi di "gleaning", lingua, tipi di entità, parole chiave relazioni, delimitatori) dal dizionario `global_config`.
+2.  Usa la funzione `get_formatted_prompt` (importata da `prompt.py`) per generare dinamicamente i prompt necessari ("entity_extraction", "entity_continue_extraction"), passando `global_config` per popolare i placeholder.
+3.  Chiama la funzione `llm_func` (passata come argomento, rappresenta la chiamata all'API OpenAI o OpenRouter configurata in `graph_main.py`) con i prompt generati dinamicamente.
+4.  Salva la coppia prompt/risposta nella `history`.
+5.  **Elaborazione e Aggregazione:** Elabora le risposte dell'LLM (sia iniziale che dai cicli di gleaning):
+    *   Divide la risposta in record e attributi usando i delimitatori dalla configurazione.
+    *   Chiama `_handle_single_entity_extraction` e `_handle_single_relationship_extraction`, passando anche i `source_metadata` del chunk corrente.
+    *   **Aggrega** i dati estratti in dizionari interni (`aggregated_nodes`, `aggregated_edges`). Se un'entità o relazione viene trovata più volte (anche da cicli di gleaning diversi *nello stesso chunk*), le sue informazioni vengono arricchite:
+        *   Le proprietà di tracciabilità (`source_doc_paths`, `chunk_ids`) vengono memorizzate come **liste** contenenti tutti i riferimenti univoci ai chunk da cui l'informazione proviene.
+        *   Altre proprietà (es. `description`, `weight`) vengono aggiornate secondo una strategia definita (es. mantieni la prima descrizione, prendi il peso massimo).
+6.  Esegue un ciclo per i passaggi aggiuntivi ("gleaning"):
+    * Genera il prompt `entity_continue_extraction` usando `get_formatted_prompt`.
+    * Chiama `llm_func` con il prompt generato e la `history` precedente.
+    * Aggiunge la nuova coppia prompt/risposta alla `history`.
+    * Elabora la risposta del "gleaning", aggregando le informazioni nei dizionari `aggregated_nodes` e `aggregated_edges` come descritto al punto 5.
+7.  **Aggiornamento Grafo:** Al termine dell'elaborazione del chunk (inclusi i cicli di gleaning), itera sui dizionari `aggregated_nodes` e `aggregated_edges`:
+    * Per ogni entità (nodo), prepara un dizionario `node_properties` (usando la label Neo4j già mappata) e chiama `knowledge_graph_inst.upsert_node()`. Usa il nome dell'entità normalizzato come `node_id`.
+    * Per ogni relazione (arco), prepara un dizionario `edge_properties`. Il tipo di relazione Neo4j (`relation_type`) viene preso dal tipo normalizzato precedentemente (`legal_relation_type`). Chiama `knowledge_graph_inst.upsert_edge()`.
+    * **Importante:** Ai metodi `upsert_node` e `upsert_edge` viene passato l'intero dizionario *aggregato*, contenente le liste complete per la tracciabilità (`source_doc_paths`, `chunk_ids`).
+8.  Restituisce statistiche sull'estrazione per il chunk processato.
 
 **7. `graph_main.py`**
 
@@ -109,6 +120,7 @@ Lo script principale che esegue l'intero processo:
 * Importa le librerie necessarie e le classi definite negli altri moduli (`extract_entities`, `Neo4jGraphStorage`, `PROMPTS`).
 * Configura il logging di base.
 * `DEFAULT_CONFIG`: Un dizionario che definisce la configurazione predefinita (lingua, tipi di entità, parametri LLM, credenziali Neo4j, directory input/output).
+  * **Importante:** Questo dizionario ora contiene anche la definizione dello schema (`entity_types`, `relationship_keywords`) e i `delimiters` usati dai prompt e dal parsing, centralizzando la configurazione.
 * **`setup_llm_client(config)`** : Funzione asincrona cruciale.
 * Legge la configurazione LLM (`provider`, `model`, `temperature`, `max_tokens`).
 * In base al `provider` ("openai" o "openrouter"):
@@ -122,29 +134,42 @@ Lo script principale che esegue l'intero processo:
     * Estrae e restituisce il contenuto della risposta dell'LLM.
     * Gestisce eventuali eccezioni durante la chiamata API.
 * Esce se il provider non è supportato.
-* **`process_text(text, config, graph_storage, llm_func)`** : Funzione asincrona semplice che chiama `extract_entities` passando tutti i parametri necessari.
+* **`process_chunk(chunk_data, config, graph_storage, llm_func)`** : Nuova funzione asincrona che:
+    * Riceve i dati di un singolo chunk (un dizionario parsato dal JSONL).
+    * Estrae il testo (`text`), l'ID del chunk (`chunk_id`), e il percorso del documento sorgente (`source_doc_path`).
+    * Crea un dizionario `source_metadata`.
+    * Chiama `extract_entities` passando il testo e i `source_metadata`.
+    * Gestisce eccezioni specifiche per l'elaborazione del chunk.
 * **`main()`** : La funzione asincrona principale.
-* Usa `argparse` per gestire argomenti da linea di comando (`--config`, `--text`, `--file`) per permettere all'utente di specificare un file di configurazione alternativo, passare il testo direttamente, o specificare un file da cui leggere il testo.
+* Usa `argparse` per gestire argomenti da linea di comando.
+    * **Modificato:** Accetta `--input-jsonl` (obbligatorio) invece di `--text` o `--file`.
 * Carica la configurazione: parte da `DEFAULT_CONFIG` e la aggiorna con il contenuto del file JSON specificato da `--config`, se presente.
-* Determina il testo di input leggendolo dall'argomento `--text` o dal file specificato da `--file`. Esce se non viene fornito testo.
+* **Modificato:** Non legge più un singolo testo, ma apre il file specificato da `--input-jsonl`.
 * Chiama `setup_llm_client` per ottenere la funzione `llm_func` configurata.
 * Inizializza l'istanza di `Neo4jGraphStorage` con le credenziali dalla configurazione.
+* Passa l'intero oggetto `config` (che contiene lo schema e i parametri) alla funzione `process_chunk` e quindi a `extract_entities`.
 * Usa un blocco `try...finally`:
   * Chiama `storage.initialize()` per connettersi a Neo4j.
-  * Chiama `process_text` per eseguire l'estrazione e l'aggiornamento del grafo.
-  * Stampa alcune statistiche (es., le etichette presenti nel grafo) chiamando `storage.get_all_labels()`.
+  * **Modificato:** Entra in un ciclo che legge il file JSONL riga per riga.
+      * Per ogni riga, la decodifica come JSON.
+      * Chiama `await process_chunk()` per elaborare i dati del chunk.
+      * Gestisce errori di decodifica JSON o errori durante l'elaborazione del chunk.
+  * Stampa alcune statistiche (es., le etichette presenti nel grafo) chiamando `storage.get_all_labels()`. Nota: le statistiche dettagliate per chunk vengono loggate da `process_chunk`.
   * Nella clausola `finally`, chiama `storage.close()` per assicurarsi che la connessione a Neo4j venga chiusa, anche in caso di errori.
 * Il blocco `if __name__ == "__main__":` esegue la funzione `main()` usando `asyncio.run()`.
 
 **Flusso di Esecuzione Principale**
 
-1. L'utente esegue `python graph_main.py` fornendo testo tramite `--text "..."` o `--file percorso/al/file.txt`, e opzionalmente una configurazione con `--config config.json`.
+1. L'utente esegue `python -m src.knowledge.graph_extractor.graph_main --input-jsonl percorso/al/all_chunks.jsonl`, e opzionalmente una configurazione con `--config config.json`.
 2. Lo script `graph_main.py` carica la configurazione (default + utente).
 3. Inizializza il client LLM (OpenAI/OpenRouter) e l'istanza di `Neo4jGraphStorage`.
 4. Stabilisce la connessione a Neo4j.
-5. Chiama `extract_entities` nel modulo `extractor`.
-6. `extract_entities` formatta i prompt usando i template da `prompt.py` e il testo di input.
-7. `extract_entities` chiama ripetutamente la funzione `llm_func` (ottenuta da `setup_llm_client`) per ottenere le estrazioni dall'LLM.
-8. `extract_entities` analizza le risposte dell'LLM, normalizza i dati e identifica nodi e archi.
-9. `extract_entities` chiama i metodi `upsert_node` e `upsert_edge` dell'istanza `Neo4jGraphStorage` per salvare i dati nel database Neo4j.
-10. Al termine, `graph_main.py` stampa eventuali statistiche e chiude la connessione a Neo4j.
+5. Entra in un ciclo, leggendo ogni riga (chunk) dal file `--input-jsonl`.
+6. Per ogni chunk, chiama `process_chunk`.
+7. `process_chunk` chiama `extract_entities` nel modulo `extractor`, passando il testo del chunk, i metadati della fonte (`source_doc_path`, `chunk_id`), e l'oggetto `config`.
+8. `extract_entities` usa `get_formatted_prompt` (da `prompt.py`) e `config` per generare dinamicamente i prompt.
+9. `extract_entities` chiama ripetutamente la funzione `llm_func` per ottenere le estrazioni dall'LLM per il chunk corrente.
+10. `extract_entities` analizza le risposte, normalizza i dati, mappa i tipi, e **aggrega** le informazioni per nodi e relazioni, includendo le liste di tracciabilità (`source_doc_paths`, `chunk_ids`).
+11. `extract_entities` chiama i metodi `upsert_node` e `upsert_edge` dell'istanza `Neo4jGraphStorage`, passando i dati aggregati per aggiornare/creare nodi e relazioni nel grafo.
+12. Il ciclo in `graph_main.py` continua con il chunk successivo.
+13. Al termine del ciclo, `graph_main.py` stampa statistiche finali e chiude la connessione a Neo4j.

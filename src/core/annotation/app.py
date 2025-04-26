@@ -25,6 +25,8 @@ from .db_manager import AnnotationDBManager
 from ..ner_giuridico.entities.entity_manager import get_entity_manager, EntityType
 import uuid
 
+
+
 # -----------------------------------------------------------------------------
 # Configurazione del logger
 # -----------------------------------------------------------------------------
@@ -34,6 +36,15 @@ handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 annotation_logger.addHandler(handler)
 
+# Determine PROJECT_ROOT based on the script's location
+# Assuming this script is in src/core/annotation/, the root is 3 levels up
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    # Fallback or error handling if structure is unexpected
+    annotation_logger.error("Could not determine project root from app.py location. Exiting.")
+    sys.exit(1)
+    
 # -----------------------------------------------------------------------------
 # Setup dell'ambiente
 # -----------------------------------------------------------------------------
@@ -78,8 +89,8 @@ try:
         annotation_logger.warning(f"Impossibile importare direttamente: {e}")
         # Prova con importazione relativa
         try:
-            from ..entities.entity_manager import get_entity_manager
-            from ..ner import DynamicNERGiuridico
+            from ..ner_giuridico.entities.entity_manager import get_entity_manager
+            from ..ner_giuridico.ner import DynamicNERGiuridico
             annotation_logger.info("Moduli importati relativamente")
         except (ImportError, ValueError) as e:
             annotation_logger.warning(f"Impossibile importare relativamente: {e}")
@@ -176,13 +187,13 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'chiave_segreta_predefinita')  # In produzione usa una chiave sicura
 app.permanent_session_lifetime = datetime.timedelta(days=1)  # Sessione valida per 1 giorno
 
-# Percorsi fissi per database e backup
-DB_PATH = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
-BACKUP_DIR = "/home/ec2-user/MERL-T/src/core/annotation/data/backup"
+# Percorsi dinamici per database e backup relativi alla root del progetto
+DB_PATH = PROJECT_ROOT / "src" / "core" / "annotation" / "data" / "annotations.db"
+BACKUP_DIR = PROJECT_ROOT / "src" / "core" / "annotation" / "data" / "backup"
 
-# Crea le directory se non esistono
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-os.makedirs(BACKUP_DIR, exist_ok=True)
+# Crea le directory se non esistono usando pathlib
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Funzioni di supporto per l'autenticazione ---
 
@@ -1190,7 +1201,7 @@ def utility_processor():
     
     return dict(format_date=format_date)
 
-# Inizializza il database manager con percorsi fissi
+# Inizializza il database manager con percorsi dinamici
 db_path = DB_PATH
 backup_dir = BACKUP_DIR
 max_backups = 10 # Puoi rendere questo configurabile in altro modo se necessario

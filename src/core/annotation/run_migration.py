@@ -12,6 +12,17 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("migration_script")
 
+# Determine PROJECT_ROOT based on the script's location
+# Assuming this script is in src/core/annotation/, the root is 3 levels up
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    logger.error("Could not determine project root. Make sure the script is in the expected location.")
+    sys.exit(1)
+
+# Define paths relative to the project root
+DB_PATH = PROJECT_ROOT / "src" / "core" / "annotation" / "data" / "annotations.db"
+
 def setup_environment():
     """Add necessary paths to sys.path."""
     current_dir = Path(__file__).resolve().parent
@@ -42,16 +53,17 @@ def main():
     logger.info(f"Project root: {project_root}")
     
     try:
-        from ner_giuridico.annotation.db_migrations import run_migrations
+        from .db_migrations import run_migrations
         
-        # Percorso fisso del database
-        db_path = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
+        # Percorso fisso del database (ora definito sopra)
+        # db_path = "/Users/guglielmo/Desktop/CODE/MERL-T/src/core/annotation/data/annotations.db"
+        db_path = DB_PATH # Usa il path dinamico
 
         # Assicurati che la directory esista
-        db_dir = os.path.dirname(db_path)
-        if not os.path.exists(db_dir):
+        db_dir = db_path.parent # Usa pathlib per ottenere la directory
+        if not db_dir.exists():
             try:
-                os.makedirs(db_dir)
+                db_dir.mkdir(parents=True, exist_ok=True) # Usa pathlib per creare directory
                 logger.info(f"Creata directory per il database: {db_dir}")
             except OSError as e:
                 logger.error(f"Impossibile creare la directory per il database {db_dir}: {e}")

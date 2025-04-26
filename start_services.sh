@@ -19,7 +19,7 @@ fi
 
 # Verifica che il file main.py esista
 # (Controllo opzionale, -m gestisce l'errore se non trovato)
-# if [ ! -f "/home/ec2-user/MERL-T/src/core/ner_giuridico/main.py" ]; then
+# if [ ! -f "/Users/guglielmo/Desktop/CODE/MERL-T/src/core/ner_giuridico/main.py" ]; then
 #   echo "Errore: File main.py non trovato nel percorso specificato."
 #   exit 1
 # fi

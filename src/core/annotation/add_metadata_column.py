@@ -14,8 +14,16 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('db_update')
 
-# Definisce il percorso fisso per il database
-DB_PATH = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
+# Determine PROJECT_ROOT based on the script's location
+# Assuming this script is in src/core/annotation/, the root is 3 levels up
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    logger.error("Could not determine project root from add_metadata_column.py location.")
+    sys.exit(1)
+
+# Definisce il percorso del database relativo alla root
+DB_PATH = PROJECT_ROOT / "src" / "core" / "annotation" / "data" / "annotations.db"
 
 def add_status_column(db_path):
     """Aggiunge la colonna status alla tabella documents."""
@@ -59,17 +67,19 @@ def add_status_column(db_path):
         return False
 
 if __name__ == "__main__":
-    # Usa direttamente il percorso fisso
+    # Usa direttamente il percorso dinamico definito sopra
     db_path = DB_PATH
-    
-    if not os.path.exists(os.path.dirname(db_path)):
-        logger.error(f"La directory del database {os.path.dirname(db_path)} non esiste. Creala prima di eseguire lo script.")
+
+    # Check if the directory exists using pathlib
+    if not db_path.parent.exists():
+        logger.error(f"La directory del database {db_path.parent} non esiste. Creala prima di eseguire lo script.")
         sys.exit(1)
-        
-    if not os.path.exists(db_path):
+
+    # Check if the database file exists using pathlib
+    if not db_path.exists():
         logger.error(f"Database annotations.db non trovato in {db_path}")
         sys.exit(1)
-    
+
     logger.info(f"Database trovato in: {db_path}")
     
     if add_status_column(db_path):

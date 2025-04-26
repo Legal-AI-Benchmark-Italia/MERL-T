@@ -10,6 +10,7 @@ import os
 import sys
 import sqlite3
 import logging
+from pathlib import Path
 
 # Setup logging
 logging.basicConfig(
@@ -18,8 +19,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger('db_migration')
 
-# Definisce il percorso fisso per il database
-DB_PATH = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
+# Determine PROJECT_ROOT based on the script's location
+# Assuming this script is in src/core/annotation/, the root is 3 levels up
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    logger.error("Could not determine project root from migrate_db.py location.")
+    sys.exit(1)
+
+# Definisce il percorso del database relativo alla root
+DB_PATH = PROJECT_ROOT / "src" / "core" / "annotation" / "data" / "annotations.db"
 
 def check_column_exists(conn, table, column):
     """
@@ -148,22 +157,24 @@ def create_index_if_not_exists(conn):
 
 def run_migration():
     """
-    Esegue la migrazione del database utilizzando il percorso fisso.
-    
+    Esegue la migrazione del database utilizzando il percorso dinamico.
+
     Returns:
         bool: True se la migrazione è riuscita, False altrimenti
     """
-    db_path = DB_PATH
-    
-    if not os.path.exists(os.path.dirname(db_path)):
+    db_path = DB_PATH # Usa il path dinamico
+
+    # Check parent directory existence using pathlib
+    if not db_path.parent.exists():
         try:
-            os.makedirs(os.path.dirname(db_path))
-            logger.info(f"Creata directory per il database: {os.path.dirname(db_path)}")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Creata directory per il database: {db_path.parent}")
         except OSError as e:
-            logger.error(f"Impossibile creare la directory per il database {os.path.dirname(db_path)}: {e}")
+            logger.error(f"Impossibile creare la directory per il database {db_path.parent}: {e}")
             return False
 
-    if not os.path.exists(db_path):
+    # Check database file existence using pathlib
+    if not db_path.exists():
         logger.warning(f"Database non trovato in {db_path}. Verrà creato.")
         # La connessione lo creerà se non esiste
 

@@ -6,6 +6,17 @@ Configurazione per il PDF Chunker.
 
 import logging
 import os
+from pathlib import Path
+
+# Determine PROJECT_ROOT based on the script's location
+# Assuming this script is in src/knowledge/pdf_chunker/, the root is 3 levels up
+try:
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+except IndexError:
+    # Fallback if the structure is different (e.g., running from root)
+    PROJECT_ROOT = Path.cwd()
+    # Add a warning or specific handling if needed
+    print(f"Warning: Could not determine project root reliably from config.py location. Using current working directory: {PROJECT_ROOT}")
 
 class Config:
     """
@@ -19,9 +30,9 @@ class Config:
         """
         pass
     
-    # Cartelle di input e output
-    INPUT_FOLDER = "/Users/guglielmo/Desktop/CODE/MERL-T/src/data/dottrina/raw_sources/diritto_civile"  # Cartella contenente i PDF da processare
-    OUTPUT_FOLDER = "/Users/guglielmo/Desktop/CODE/MERL-T/src/data/dottrina/raw_txt/diritto_civile"  # Cartella dove salvare i risultati
+    # Cartelle di input e output (ora dinamiche)
+    INPUT_FOLDER = PROJECT_ROOT / "src" / "data" / "dottrina" / "raw_sources" / "diritto_civile"
+    OUTPUT_FOLDER = PROJECT_ROOT / "src" / "data" / "dottrina" / "raw_txt" / "diritto_civile"
     
     # Parametri di chunking
     MIN_CHUNK_SIZE = 3000       # Dimensione minima in caratteri per un chunk
@@ -42,8 +53,8 @@ class Config:
     CPU_CHECK_INTERVAL = 2     # Intervallo in secondi per controllare l'utilizzo della CPU
     THROTTLE_SLEEP = 5         # Tempo di attesa in secondi quando la CPU è troppo utilizzata
     
-    # File per tracciare i progressi
-    PROGRESS_FILE = "pdf_chunker_progress.json"
+    # File per tracciare i progressi (relativo alla root)
+    PROGRESS_FILE = PROJECT_ROOT / "pdf_chunker_progress.json"
     
     # Configurazione logging
     LOG_LEVEL = logging.DEBUG
@@ -60,4 +71,14 @@ class Config:
     }
     
     # Applica pulizia avanzata
-    APPLY_CLEANING = True  # Abilita/disabilita la pulizia avanzata dei chunk#!/usr/bin/env python3
+    APPLY_CLEANING = True  # Abilita/disabilita la pulizia avanzata dei chunk
+
+# Assicurati che le directory di output esistano
+try:
+    Config.OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    print(f"Warning: Could not create output directory {Config.OUTPUT_FOLDER}: {e}")
+
+# Esempio di utilizzo:
+# config_instance = Config()
+# print(config_instance.INPUT_FOLDER)

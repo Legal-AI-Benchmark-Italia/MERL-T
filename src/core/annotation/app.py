@@ -22,7 +22,7 @@ from werkzeug.utils import secure_filename
 import configparser
 from pathlib import Path
 from .db_manager import AnnotationDBManager
-from ..entities.entity_manager import get_entity_manager, EntityType
+from ..ner_giuridico.entities.entity_manager import get_entity_manager, EntityType
 import uuid
 
 # -----------------------------------------------------------------------------
@@ -176,10 +176,12 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'chiave_segreta_predefinita')  # In produzione usa una chiave sicura
 app.permanent_session_lifetime = datetime.timedelta(days=1)  # Sessione valida per 1 giorno
 
-# Directory per i dati e i backup
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-os.makedirs(DATA_DIR, exist_ok=True)
-BACKUP_DIR = os.path.join(DATA_DIR, 'backup')
+# Percorsi fissi per database e backup
+DB_PATH = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
+BACKUP_DIR = "/home/ec2-user/MERL-T/src/core/annotation/data/backup"
+
+# Crea le directory se non esistono
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # --- Funzioni di supporto per l'autenticazione ---
@@ -1188,13 +1190,10 @@ def utility_processor():
     
     return dict(format_date=format_date)
 
-# Carica la configurazione
-config = load_config()
-
-# Inizializza il database manager
-db_path = config.get('Database', 'path', fallback=os.path.join(DATA_DIR, 'annotations.db'))
-backup_dir = config.get('Database', 'backups', fallback=BACKUP_DIR)
-max_backups = config.getint('Database', 'max_backups', fallback=10)
+# Inizializza il database manager con percorsi fissi
+db_path = DB_PATH
+backup_dir = BACKUP_DIR
+max_backups = 10 # Puoi rendere questo configurabile in altro modo se necessario
 
 try:
     from .db_migrations import run_migrations
@@ -1207,6 +1206,7 @@ annotation_logger.info(f"Utilizzo database in: {db_path}")
 annotation_logger.info(f"Directory backup: {backup_dir}")
 
 # Initialize database manager
+# (db_path e backup_dir sono già definiti sopra)
 db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
 ensure_admin_exists(db_manager)
 
@@ -2389,14 +2389,16 @@ register_entity_api_endpoints(app)
 # Inizializzazione finale ed esecuzione dell'app
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':
-    os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(BACKUP_DIR, exist_ok=True)
-    if not os.path.exists(os.path.join(DATA_DIR, 'documents.json')):
-        with open(os.path.join(DATA_DIR, 'documents.json'), 'w', encoding='utf-8') as f:
-            json.dump([], f)
-    if not os.path.exists(os.path.join(DATA_DIR, 'annotations.json')):
-        with open(os.path.join(DATA_DIR, 'annotations.json'), 'w', encoding='utf-8') as f:
-            json.dump({}, f)
+    # Rimosso controllo esistenza file json, gestito da db_manager
+    # os.makedirs(DATA_DIR, exist_ok=True)
+    # os.makedirs(BACKUP_DIR, exist_ok=True)
+    # if not os.path.exists(os.path.join(DATA_DIR, 'documents.json')):
+    #     with open(os.path.join(DATA_DIR, 'documents.json'), 'w', encoding='utf-8') as f:
+    #         json.dump([], f)
+    # if not os.path.exists(os.path.join(DATA_DIR, 'annotations.json')):
+    #     with open(os.path.join(DATA_DIR, 'annotations.json'), 'w', encoding='utf-8') as f:
+    #         json.dump({}, f)
     annotation_logger.info("Interfaccia di annotazione inizializzata e pronta all'avvio")
-    annotation_logger.info(f"Tipi di entità disponibili: {', '.join(entity['id'] for entity in ENTITY_TYPES)}")
+    # Non più necessario ottenere ENTITY_TYPES qui se entity_manager li gestisce
+    # annotation_logger.info(f"Tipi di entità disponibili: {', '.join(entity['id'] for entity in ENTITY_TYPES)}")
     app.run(host='0.0.0.0', port=8080, debug=True)

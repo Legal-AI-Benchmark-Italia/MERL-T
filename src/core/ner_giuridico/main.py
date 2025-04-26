@@ -75,46 +75,48 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Try multiple import paths to handle different project structures
 try:
-    # First try direct import
-    try:
-        from ner_giuridico.config import config
-        from ner_giuridico.ner import NERGiuridico, DynamicNERGiuridico
-        from ner_giuridico.api import start_server
-        from ner_giuridico.entities.entity_manager import get_entity_manager
-        from ner_giuridico.annotation.app import app as annotation_app
-        IMPORT_PATH = "direct"
-    except ImportError:
-        # Try importing from src
-        from ner_giuridico.config import config
-        from ner_giuridico.ner import NERGiuridico, DynamicNERGiuridico
-        from ner_giuridico.api import start_server
-        from ner_giuridico.entities.entity_manager import get_entity_manager
-        from ner_giuridico.annotation.app import app as annotation_app
-        IMPORT_PATH = "src"
+    # Assume the script is run relative to the project root or the new structure is in PYTHONPATH
+    from src.core.ner_giuridico.config import config
+    from src.core.ner_giuridico.ner import NERGiuridico, DynamicNERGiuridico
+    from src.core.ner_giuridico.api import start_server
+    from src.core.ner_giuridico.entities.entity_manager import get_entity_manager
+    from src.core.annotation.app import app as annotation_app
+    IMPORT_PATH = "new_structure"
+
+# except ImportError: # Removed fallback logic as it's likely incorrect now
+#     # Try importing from src
+#     from ner_giuridico.config import config
+#     from ner_giuridico.ner import NERGiuridico, DynamicNERGiuridico
+#     from ner_giuridico.api import start_server
+#     from ner_giuridico.entities.entity_manager import get_entity_manager
+#     from ner_giuridico.annotation.app import app as annotation_app
+#     IMPORT_PATH = "src" # This path likely doesn't exist anymore
+
 except ImportError as e:
     logger.error(f"Error importing modules: {e}")
-    logger.error("Make sure you're running this script from the project root directory.")
+    logger.error("Make sure you're running this script from the project root directory (MERL-T).")
     logger.info("Continuing with limited functionality. Some commands may not work.")
     IMPORT_PATH = None
 
 # Attempt to import optional modules
 try:
-    if IMPORT_PATH == "direct":
-        from ner_giuridico.utils.converter import (
+    if IMPORT_PATH == "new_structure":
+        from src.core.ner_giuridico.utils.converter import (
             convert_annotations_to_spacy_format,
             convert_annotations_to_ner_format,
             convert_spacy_to_conll,
             save_annotations_for_training
         )
-        from ner_giuridico.training.ner_trainer import train_from_annotations
-    elif IMPORT_PATH == "src":
-        from ner_giuridico.utils.converter import (
-            convert_annotations_to_spacy_format,
-            convert_annotations_to_ner_format,
-            convert_spacy_to_conll,
-            save_annotations_for_training
-        )
-        from ner_giuridico.training.ner_trainer import train_from_annotations
+        from src.core.ner_giuridico.training.ner_trainer import train_from_annotations
+    # Removed fallback logic
+    # elif IMPORT_PATH == "src":
+    #     from ner_giuridico.utils.converter import (
+    #         convert_annotations_to_spacy_format,
+    #         convert_annotations_to_ner_format,
+    #         convert_spacy_to_conll,
+    #         save_annotations_for_training
+    #     )
+    #     from ner_giuridico.training.ner_trainer import train_from_annotations
     OPTIONAL_MODULES_LOADED = True
 except ImportError:
     logger.warning("Some optional modules could not be imported. Related commands may not be available.")
@@ -207,9 +209,11 @@ def cmd_server(args):
     try:
         # Start in a separate process if requested
         if args.daemon:
-            cmd = [sys.executable, "-m", "ner_giuridico.api"]
-            if IMPORT_PATH == "src":
-                cmd = [sys.executable, "-m", "src.ner_giuridico.api"]
+            # Updated module path
+            cmd = [sys.executable, "-m", "src.core.ner_giuridico.api"]
+            # Removed fallback logic
+            # if IMPORT_PATH == "src":
+            #     cmd = [sys.executable, "-m", "src.ner_giuridico.api"]
                 
             subprocess.Popen(cmd, start_new_session=True)
             logger.info("API server started in background")
@@ -243,9 +247,11 @@ def cmd_annotate(args):
         
         if args.daemon:
             # Start in a separate process
-            cmd = [sys.executable, "-m", "ner_giuridico.annotation.app"]
-            if IMPORT_PATH == "src":
-                cmd = [sys.executable, "-m", "src.ner_giuridico.annotation.app"]
+            # Updated module path
+            cmd = [sys.executable, "-m", "src.core.ner_giuridico.annotation.app"]
+            # Removed fallback logic
+            # if IMPORT_PATH == "src":
+            #     cmd = [sys.executable, "-m", "src.ner_giuridico.annotation.app"]
                 
             subprocess.Popen(cmd, start_new_session=True)
             logger.info("Annotation interface started in background")
@@ -889,7 +895,8 @@ def cmd_version(args):
     try:
         # Try to import the version
         try:
-            from ner_giuridico import __version__
+            # Updated import path
+            from src.core.ner_giuridico import __version__
             version = __version__
         except (ImportError, AttributeError):
             version = "Unknown"

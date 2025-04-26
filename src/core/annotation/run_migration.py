@@ -44,22 +44,19 @@ def main():
     try:
         from ner_giuridico.annotation.db_migrations import run_migrations
         
-        # Get database path from config or use default
-        import configparser
-        
-        config = configparser.ConfigParser()
-        config_path = os.environ.get('NER_CONFIG', 'config.ini')
-        
-        # Default path
-        data_dir = os.path.join(current_dir, 'data')
-        db_path = os.path.join(data_dir, 'annotations.db')
-        
-        # Try to get path from config
-        if os.path.exists(config_path):
-            config.read(config_path)
-            if 'Database' in config and 'path' in config['Database']:
-                db_path = config['Database']['path']
-        
+        # Percorso fisso del database
+        db_path = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
+
+        # Assicurati che la directory esista
+        db_dir = os.path.dirname(db_path)
+        if not os.path.exists(db_dir):
+            try:
+                os.makedirs(db_dir)
+                logger.info(f"Creata directory per il database: {db_dir}")
+            except OSError as e:
+                logger.error(f"Impossibile creare la directory per il database {db_dir}: {e}")
+                sys.exit(1)
+
         logger.info(f"Using database at: {db_path}")
         
         # Run migrations

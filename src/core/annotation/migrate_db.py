@@ -10,8 +10,6 @@ import os
 import sys
 import sqlite3
 import logging
-import argparse
-from pathlib import Path
 
 # Setup logging
 logging.basicConfig(
@@ -20,38 +18,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger('db_migration')
 
-def find_db_path():
-    """
-    Cerca il percorso del database nel progetto.
-    
-    Returns:
-        str: Percorso del database o None se non trovato
-    """
-    # Try to find in common locations
-    potential_paths = [
-        'data/annotations.db',
-        'ner_giuridico/annotation/data/annotations.db',
-        'src/data_lab/ner-giuridico/ner_giuridico/annotation/data/annotations.db'
-    ]
-    
-    for path in potential_paths:
-        if os.path.exists(path):
-            return path
-    
-    # Search in current directory and up to 3 levels up
-    current_dir = Path.cwd()
-    for _ in range(4):  # Current + 3 levels up
-        for root, dirs, files in os.walk(current_dir):
-            for file in files:
-                if file == 'annotations.db':
-                    return os.path.join(root, file)
-        
-        parent = current_dir.parent
-        if parent == current_dir:  # Reached root directory
-            break
-        current_dir = parent
-    
-    return None
+# Definisce il percorso fisso per il database
+DB_PATH = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
 
 def check_column_exists(conn, table, column):
     """
@@ -178,23 +146,27 @@ def create_index_if_not_exists(conn):
         logger.error(f"Errore nella creazione degli indici: {e}")
         conn.rollback()
 
-def run_migration(db_path=None):
+def run_migration():
     """
-    Esegue la migrazione del database.
+    Esegue la migrazione del database utilizzando il percorso fisso.
     
-    Args:
-        db_path: Percorso del database (opzionale)
-        
     Returns:
         bool: True se la migrazione è riuscita, False altrimenti
     """
-    if not db_path:
-        db_path = find_db_path()
-        
-    if not db_path or not os.path.exists(db_path):
-        logger.error(f"Database non trovato: {db_path}")
-        return False
+    db_path = DB_PATH
     
+    if not os.path.exists(os.path.dirname(db_path)):
+        try:
+            os.makedirs(os.path.dirname(db_path))
+            logger.info(f"Creata directory per il database: {os.path.dirname(db_path)}")
+        except OSError as e:
+            logger.error(f"Impossibile creare la directory per il database {os.path.dirname(db_path)}: {e}")
+            return False
+
+    if not os.path.exists(db_path):
+        logger.warning(f"Database non trovato in {db_path}. Verrà creato.")
+        # La connessione lo creerà se non esiste
+
     logger.info(f"Utilizzo database: {db_path}")
     
     try:
@@ -224,16 +196,12 @@ def run_migration(db_path=None):
         return False
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Migra il database delle annotazioni aggiungendo la colonna 'created_by'")
-    parser.add_argument('--db', type=str, help='Percorso del file database SQLite')
+    # Non sono più necessari argomenti da riga di comando per il percorso
+    # parser = argparse.ArgumentParser(description="Migra il database delle annotazioni aggiungendo la colonna 'created_by'")
+    # parser.add_argument('--db', type=str, help='Percorso del file database SQLite')
+    # args = parser.parse_args()
     
-    args = parser.parse_args()
-    
-    success = run_migration(args.db)
+    success = run_migration() # Chiama run_migration senza argomenti
     
     if success:
         print("✅ Migrazione completata con successo!")
-        sys.exit(0)
-    else:
-        print("❌ Migrazione fallita. Controlla i log per i dettagli.")
-        sys.exit(1)

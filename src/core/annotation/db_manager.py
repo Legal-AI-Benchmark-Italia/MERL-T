@@ -42,36 +42,30 @@ class AnnotationDBManager:
     Gestore della persistenza delle annotazioni tramite database SQLite.
     """
     
-    def __init__(self, db_path: str = None, backup_dir: str = None):
+    def __init__(self, db_path: str, backup_dir: str):
         """
         Inizializza il gestore del database.
         
         Args:
-            db_path: Percorso del file database SQLite. Se None, viene utilizzato il percorso predefinito.
-            backup_dir: Directory per i backup. Se None, viene utilizzata la directory predefinita.
+            db_path: Percorso del file database SQLite.
+            backup_dir: Directory per i backup.
         """
-        # Logger setup
         self.logger = logging.getLogger("db_manager")
         
-        # Setup logger
-        self.logger = logging.getLogger("db_manager")
-        
-        # Percorso predefinito se non specificato
-        if db_path is None:
-            app_dir = os.path.dirname(os.path.abspath(__file__))
-            db_path = os.path.join(app_dir, 'data', 'annotations.db')
-        
-        # Crea le directory necessarie
-        db_dir = os.path.dirname(db_path)
-        os.makedirs(db_dir, exist_ok=True)
-        
-        # Imposta la directory di backup
-        if backup_dir is None:
-            backup_dir = os.path.join(db_dir, 'backup')
-        os.makedirs(backup_dir, exist_ok=True)
-        
+        # Verifica che i percorsi siano forniti
+        if not db_path:
+            raise ValueError("Il percorso del database (db_path) è obbligatorio.")
+        if not backup_dir:
+            raise ValueError("La directory di backup (backup_dir) è obbligatoria.")
+
         self.db_path = db_path
         self.backup_dir = backup_dir
+        
+        # Crea le directory necessarie se non esistono
+        db_dir = os.path.dirname(self.db_path)
+        os.makedirs(db_dir, exist_ok=True)
+        os.makedirs(self.backup_dir, exist_ok=True)
+        
         self.logger.info(f"Database inizializzato: {self.db_path}")
         self.logger.info(f"Directory backup: {self.backup_dir}")
         

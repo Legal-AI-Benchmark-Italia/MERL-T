@@ -14,27 +14,8 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('db_update')
 
-def find_db_path():
-    """Cerca il database in vari percorsi possibili."""
-    potential_paths = [
-        'data/annotations.db',
-        'ner_giuridico/annotation/data/annotations.db',
-        'src/data_lab/ner-giuridico/ner_giuridico/annotation/data/annotations.db'
-    ]
-    
-    # Prima controlla i percorsi comuni
-    for path in potential_paths:
-        if os.path.exists(path):
-            return path
-    
-    # Cerca ricorsivamente se non trovato nei percorsi comuni
-    current_dir = Path.cwd()
-    for root, dirs, files in os.walk(current_dir):
-        for file in files:
-            if file == 'annotations.db':
-                return os.path.join(root, file)
-    
-    return None
+# Definisce il percorso fisso per il database
+DB_PATH = "/home/ec2-user/MERL-T/src/core/annotation/data/annotations.db"
 
 def add_status_column(db_path):
     """Aggiunge la colonna status alla tabella documents."""
@@ -78,10 +59,15 @@ def add_status_column(db_path):
         return False
 
 if __name__ == "__main__":
-    db_path = find_db_path()
+    # Usa direttamente il percorso fisso
+    db_path = DB_PATH
     
-    if not db_path:
-        logger.error("Database annotations.db non trovato")
+    if not os.path.exists(os.path.dirname(db_path)):
+        logger.error(f"La directory del database {os.path.dirname(db_path)} non esiste. Creala prima di eseguire lo script.")
+        sys.exit(1)
+        
+    if not os.path.exists(db_path):
+        logger.error(f"Database annotations.db non trovato in {db_path}")
         sys.exit(1)
     
     logger.info(f"Database trovato in: {db_path}")

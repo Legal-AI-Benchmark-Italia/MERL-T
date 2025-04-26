@@ -1,6 +1,5 @@
 *.pdf
 *.jar
-*.json
 *.zip
 .venv
 *.csv
@@ -16,3 +15,6 @@ ngrok*
 *pids.txt
 *.ini
 *.yaml
+*.jsonl_bkp
+*.jsonl
+*.json

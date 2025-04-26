@@ -1,131 +1,213 @@
-# 📚 MERL-T: Sistema di Q&A Giuridico
+# MERL-T: Multi-Expert Retrieval Legal Transformer
 
-**MERL-T** è un progetto open-source finalizzato alla creazione di un sistema intelligente di domande e risposte (Q&A) nel settore giuridico. Destinato ad accademici, studenti e cittadini, il progetto combina intelligenza artificiale, knowledge graphs e database vettoriali per offrire risposte affidabili e basate su fonti verificate.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Status](https://img.shields.io/badge/status-development-orange)
+![Version](https://img.shields.io/badge/version-0.1.0-brightgreen)
 
----
+## 📖 Overview
 
-## 📌 Struttura del Repository
+**MERL-T** (Multi-Expert Retrieval Legal Transformer) is an advanced artificial intelligence system designed to democratize access to Italian legal knowledge. By combining cutting-edge AI architectures with a deep understanding of the legal domain, MERL-T aims to provide accurate, contextualized, and verifiable answers to legal questions.
+
+### 🌟 Vision
+
+The system aims to address the inherent complexity of the Italian legal system through an innovative approach that combines:
+- **Mixture of Experts (MoE) Architecture** - Multiple specialized modules coordinated by an intelligent router
+- **Legal Knowledge Graph** - A structured representation of legal knowledge and relationships between concepts
+- **Reinforcement Learning from Community Feedback (RLCF)** - A continuous learning mechanism based on feedback from the legal community
+
+## 🏗️ Architecture
+
+MERL-T implements an advanced architecture organized into several key components:
 
 ```
-|-- CONTRIBUTING.md
-|-- LICENSE
-|-- README.md
-|-- .gitignore
-|-- src
-    |-- main.py
-    |-- orchestrator/
-    |-- prompts/
-    |-- utils/
-    |-- evaluations/
-    |-- data/
-        |-- extractor.py
-        |-- dottrina/
-        |-- giurisprudenza/
-        |-- legge/
-|-- .venv/
+┌─────────────────────────────────────────────────────────────┐
+│                     User Interface                          │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────┐
+│                MoE Router/Orchestrator                      │
+└───────┬─────────────────┬────────────────┬─────────┬────────┘
+        │                 │                │         │
+┌───────▼─────┐   ┌───────▼─────┐   ┌──────▼────┐    ▼
+│ Principles  │   │   Rules     │   │Knowledge  │   MoE
+│  Module     │   │   Module    │   │Graph      │ Synthesizer
+└─────────────┘   └─────────────┘   └───────────┘
 ```
 
+1. **MoE Router/Orchestrator**: Analyzes queries and directs them to the most appropriate expert modules
+2. **Principles Module**: Specialized in doctrinal knowledge and fundamental legal principles
+3. **Rules Module**: Handles normative knowledge and current legislation
+4. **Knowledge Graph**: Represents relationships between legal concepts, norms, court decisions, and doctrine
+5. **MoE Synthesizer**: Integrates responses from different modules into a coherent and comprehensive output
+
+## 🛠️ Implemented Components
+
+Currently, the project has implemented the following components:
+
+### 1. VisuaLex API
+
+VisuaLex is an API that allows the retrieval and processing of legal documents from various sources, including:
+- **Normattiva**: For Italian legislation
+- **Brocardi**: For legal commentary and interpretations
+- **EUR-Lex**: For European Union legislation
+
+#### Basic Usage
+
+```python
+from src.utils.visualex_api.app import NormaController
+
+# Initialize the controller
+controller = NormaController()
+
+# Example request for a civil code article
+response = await controller.fetch_article_text({
+    "act_type": "codice civile",
+    "article": "1414"
+})
+```
+
+### 2. NER-Giuridico
+
+A Named Entity Recognition system specialized for the Italian legal domain, capable of identifying and classifying entities such as normative references, jurisprudential references, and legal concepts.
+
+#### Key Features
+
+- Recognition of normative entities (articles, laws, decrees)
+- Recognition of jurisprudential entities (court decisions, ordinances)
+- Identification of legal concepts
+- Support for user-defined dynamic entities
+- Integrated annotation interface for creating training datasets
+
+#### Basic Usage
+
+```python
+from src.data_lab.ner-giuridico.ner_giuridico.ner import DynamicNERGiuridico
+
+# Initialize the NER system
+ner = DynamicNERGiuridico()
+
+# Process a text
+result = ner.process("L'articolo 1414 c.c. disciplina la simulazione del contratto.")
+print(result)
+```
+
+### 3. PDF Chunker
+
+A module for extracting, cleaning, and chunking text from legal PDF documents, optimized for preparing datasets for language model training.
+
+#### Basic Usage
+
+```python
+from src.data_lab.pdf_chunker.extractor import main as extract_pdfs
+
+# Extract text from PDFs
+extract_pdfs(input_dir="./legal_pdfs", output_dir="./processed")
+```
+
+## 🚀 Installation
+
+### Prerequisites
+
+- Python 3.10+
+- pip (Package Installer for Python)
+- Git
+
+### Basic Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/MERL-T.git
+cd MERL-T
+
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# or
+.venv\Scripts\activate  # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Component Configuration
+
+#### VisuaLex API
+
+```bash
+# Start the VisuaLex API
+cd src/utils/visualex_api
+python app.py
+```
+
+#### NER-Giuridico
+
+```bash
+# Start the NER API
+cd src/data_lab/ner-giuridico
+python ner_giuridico/main.py server
+
+# Start the annotation interface
+python ner_giuridico/main.py annotate
+```
+
+## 📋 Roadmap
+
+MERL-T development is organized into the following phases:
+
+### Phase 1: Base Infrastructure and Core Components (Current)
+
+- ✅ Development of VisuaLex API for legal document retrieval
+- ✅ Implementation of the NER-Giuridico system
+- ✅ Creation of document processing tools (PDF Chunker)
+- 🔄 Definition of the Knowledge Graph schema
+
+### Phase 2: Router and Expert Modules (Next)
+
+- 🔄 Development of the legal Knowledge Graph
+- 🔄 Implementation of the Rules Module (Retrieval-Augmented Generation)
+- 🔜 Implementation of the Principles Module
+- 🔜 Development of the MoE Router/Orchestrator
+
+### Phase 3: Integration and RLCF (Future)
+
+- 🔜 Implementation of the MoE Synthesizer
+- 🔜 Development of the RLCF system
+- 🔜 Complete integration of components
+- 🔜 System evaluation and optimization
+
+## 📚 Context and LAIBIT Project
+
+MERL-T is part of the **LAIBIT** (Legal AI Benchmark Italia) initiative, a scientific community and development project aimed at promoting the application of artificial intelligence to Italian law according to principles of rigor, ethics, and transparency.
+
+The project adopts a community validation and transparency approach through the RLCF (Reinforcement Learning from Community Feedback) system, in which the intelligence of the system is constantly refined and validated by structured feedback from qualified legal experts.
+
+## 👥 Contributing to the Project
+
+We are open to various types of contributions, particularly:
+
+- Development of core components
+- Expansion of the Knowledge Graph
+- Annotation of training datasets
+- Legal validation of responses
+- Documentation and tutorials
+
+To contribute, please:
+1. Fork the repository
+2. Create a new branch for your changes (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+For more details, see the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+
+## 📄 License
+
+The code is released under the MIT license. Datasets and the Knowledge Graph are available under the CC BY-SA license.
+
+## 📬 Contact
+
+For more information, contact the development team at [guglielmo.puzio@studenti.luiss.it].
+
 ---
 
-## 🎯 Obiettivi
-
-* Creare un sistema Q&A giuridico accessibile e rigoroso.
-* Sviluppare un Knowledge Graph aperto con dati annotati e verificati.
-* Automatizzare l'analisi e il recupero di informazioni normative e giurisprudenziali.
-
----
-
-## 🛠 Tecnologie Utilizzate
-
-* **Linguaggio** : Python (Flask)
-* **ML** : Logistic Regression, Random Forest (scikit-learn)
-* **LLM** : OpenAI GPT
-* **Database Vettoriale** : ChromaDB (sviluppo) → Weaviate (produzione)
-* **Knowledge Graph** : Neo4j
-* **Dataset** : JSON annotati
-
----
-
-## 🚀 Fasi di Sviluppo
-
-### 🟢 **Fase 1: Setup Iniziale (Mesi 1-2)**
-
-* Normalizzazione query utente
-* Integrazione API VLEX per il recupero normativo
-* Creazione Knowledge Graph iniziale
-
-### 🟢 **Fase 2: Costruzione Dataset e Moduli Core (Mesi 3-5)**
-
-* Annotazione e revisione dati
-* Sviluppo di un Intent Classifier ML
-* Fine-tuning GPT con dati giuridici
-
-### 🟢 **Fase 3: Lancio e Consolidamento (Mesi 6-12)**
-
-* Beta testing pubblico
-* Aggiornamenti trimestrali del Knowledge Graph
-* Monitoraggio continuo delle prestazioni
-
----
-
-## 🔄 Pipeline MERL-T
-
-1. **Input query utente**
-2. **Pre-processing** : pulizia, estrazione riferimenti
-3. **Classificazione intento** : Principi, Normativa, Mista
-4. **Recupero informazioni** da:
-   * GPT fine-tuned
-   * API VLEX
-   * Database vettoriale
-   * Knowledge Graph
-5. **Post-processing** : strutturazione risposta
-6. **Output formattato** per l'utente
-7. **Monitoraggio qualità e feedback**
-
----
-
-## 📈 Metriche di Valutazione
-
-**Qualitative:**
-
-* Accuratezza giuridica
-* Comprensibilità delle risposte
-* Feedback utenti
-
-**Quantitative:**
-
-* Dimensione del Knowledge Graph
-* Precisione del classificatore di intenti
-* Numero di query elaborate
-
----
-
-## 🌐 Open Source & Community
-
-* **Licenze:** MIT (codice) e CC BY-SA (dati)
-* **Repository GitHub pubblico** per contributi e feedback
-* **Collaborazione aperta** con accademici e sviluppatori
-* **Seminari e pubblicazioni** per validazione scientifica
-
----
-
-## 👥 Ruoli e Responsabilità
-
-* **Coordinatore Generale:** supervisione, gestione community
-* **Studenti:** annotazione dati e test
-* **Professori:** revisione e validazione scientifica
-* **Team Tecnico:** sviluppo AI, gestione database e knowledge graph
-
----
-
-## 📅 Roadmap Sintetica
-
-| **Fase** | **Durata** | **Obiettivo**                          |
-| -------------- | ---------------- | -------------------------------------------- |
-| Setup iniziale | 2 mesi           | API, KG, pipeline di base                    |
-| Sviluppo ML    | 3-5 mesi         | Classificatore, embeddings, fine-tuning      |
-| Beta Testing   | 6-12 mesi        | Test pubblico, miglioramenti, consolidamento |
-
----
-
-MERL-T è un progetto ambizioso che punta a rivoluzionare l’accesso alle informazioni giuridiche. 🚀 Contribuisci su [GitHub](https://chatgpt.com/g/g-iKdbNE3wQ-readme/c/67d89b51-6b24-800b-bac9-6770078f6522#) o unisciti alla community per supportare lo sviluppo!
+MERL-T - Making Italian law accessible, understandable, and applicable through artificial intelligence.

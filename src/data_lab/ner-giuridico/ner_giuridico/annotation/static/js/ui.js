@@ -58,9 +58,9 @@ export function hideLoading() {
 // Add other UI helpers as needed (e.g., creating elements, toggling classes)
 export function getCategoryDisplayName(category) {
     switch (category) {
-        case 'normative': return 'Normativa';
-        case 'jurisprudence': return 'Giurisprudenziale';
-        case 'concepts': return 'Concetto';
+        case 'law': return 'Normativa';
+        case 'jurisprudence': return 'Giurisprudenza';
+        case 'doctrine': return 'Concetto';
         case 'custom': return 'Personalizzata';
         default: return category;
     }
@@ -68,9 +68,9 @@ export function getCategoryDisplayName(category) {
 
 export function getCategoryBadgeClass(category) {
      switch (category) {
-        case 'normative': return 'bg-primary';
+        case 'law': return 'bg-primary';
         case 'jurisprudence': return 'bg-success';
-        case 'concepts': return 'bg-info text-dark';
+        case 'doctrine': return 'bg-info text-dark';
         case 'custom': return 'bg-secondary';
         default: return 'bg-dark';
     }

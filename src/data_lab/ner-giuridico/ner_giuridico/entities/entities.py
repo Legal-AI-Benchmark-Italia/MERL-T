@@ -72,7 +72,7 @@ class Entity:
         )
 
 @dataclass
-class NormativeReference:
+class LawReference:
     """Classe che rappresenta un riferimento normativo normalizzato."""
     
     # Tipo di riferimento normativo

@@ -658,9 +658,9 @@ function searchEntities(query) {
  */
 function getCategoryDisplayName(category) {
     const categoryNames = {
-        'normative': 'Normativa',
-        'jurisprudence': 'Giurisprudenziale',
-        'concepts': 'Concetto',
+        'law': 'Normativa',
+        'jurisprudence': 'Giurisprudenza',
+        'doctrine': 'Dottrina',
         'custom': 'Personalizzata'
     };
     
@@ -672,9 +672,9 @@ function getCategoryDisplayName(category) {
  */
 function getCategoryBadgeClass(category) {
     const categoryClasses = {
-        'normative': 'bg-primary',
+        'law': 'bg-primary',
         'jurisprudence': 'bg-success',
-        'concepts': 'bg-info',
+        'doctrine': 'bg-info',
         'custom': 'bg-secondary'
     };
     

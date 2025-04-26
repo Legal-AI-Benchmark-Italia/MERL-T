@@ -39,13 +39,13 @@ class RuleBasedRecognizer:
             return
         
         # Carica i pattern per i riferimenti normativi
-        self.normative_patterns = self._load_patterns("riferimenti_normativi")
+        self.law_patterns = self._load_patterns("riferimenti_normativi")
         
         # Carica i pattern per i riferimenti giurisprudenziali
         self.jurisprudence_patterns = self._load_patterns("riferimenti_giurisprudenziali")
         
         # Carica il gazetteer per i concetti giuridici
-        self.concepts_gazetteer = self._load_gazetteer("concetti_giuridici")
+        self.doctrine_gazetteer = self._load_gazetteer("concetti_giuridici")
         
         # Pattern compilati per entità dinamiche
         self.dynamic_patterns = {}
@@ -107,7 +107,7 @@ class RuleBasedRecognizer:
             
             # Crea pattern predefiniti in base al tipo di entità
             if entity_type == "riferimenti_normativi":
-                patterns = self._create_default_normative_patterns()
+                patterns = self._create_default_law_patterns()
             elif entity_type == "riferimenti_giurisprudenziali":
                 patterns = self._create_default_jurisprudence_patterns()
             
@@ -127,7 +127,7 @@ class RuleBasedRecognizer:
         
         return patterns
     
-    def _create_default_normative_patterns(self) -> Dict[str, List[Pattern]]:
+    def _create_default_law_patterns(self) -> Dict[str, List[Pattern]]:
         """
         Crea pattern predefiniti per i riferimenti normativi.
         
@@ -217,7 +217,7 @@ class RuleBasedRecognizer:
             
             # Crea un gazetteer predefinito
             if entity_type == "concetti_giuridici":
-                gazetteer = self._create_default_concepts_gazetteer()
+                gazetteer = self._create_default_doctrine_gazetteer()
             
             # Assicurati che la directory esista
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -230,7 +230,7 @@ class RuleBasedRecognizer:
         
         return gazetteer
     
-    def _create_default_concepts_gazetteer(self) -> Set[str]:
+    def _create_default_doctrine_gazetteer(self) -> Set[str]:
         """
         Crea un gazetteer predefinito per i concetti giuridici.
         
@@ -238,7 +238,7 @@ class RuleBasedRecognizer:
             Insieme di concetti giuridici predefiniti.
         """
         # Lista di concetti giuridici comuni nel diritto italiano
-        concepts = {
+        doctrine = {
             "simulazione", "buona fede", "mala fede", "dolo", "colpa", "colpa grave",
             "responsabilità", "danno", "risarcimento", "indennizzo", "inadempimento",
             "contratto", "obbligazione", "diritto reale", "proprietà", "possesso",
@@ -259,7 +259,7 @@ class RuleBasedRecognizer:
             "principio di tassatività", "principio di irretroattività", "principio del giusto processo"
         }
         
-        return concepts
+        return doctrine
     
     def update_patterns(self, entity_type: str, patterns: List[str]) -> bool:
         """
@@ -306,13 +306,13 @@ class RuleBasedRecognizer:
         entities = []
         
         # Riconosci riferimenti normativi
-        entities.extend(self._recognize_normative_references(text))
+        entities.extend(self._recognize_law_references(text))
         
         # Riconosci riferimenti giurisprudenziali
         entities.extend(self._recognize_jurisprudence_references(text))
         
         # Riconosci concetti giuridici
-        entities.extend(self._recognize_legal_concepts(text))
+        entities.extend(self._recognize_legal_doctrine(text))
         
         # Riconosci entità dinamiche
         entities.extend(self._recognize_dynamic_entities(text))
@@ -322,7 +322,7 @@ class RuleBasedRecognizer:
         
         return entities
     
-    def _recognize_normative_references(self, text: str) -> List[Entity]:
+    def _recognize_law_references(self, text: str) -> List[Entity]:
         """
         Riconosce i riferimenti normativi nel testo.
         
@@ -335,13 +335,13 @@ class RuleBasedRecognizer:
         entities = []
         
         # Per ogni sottotipo di riferimento normativo
-        for subtype, patterns in self.normative_patterns.items():
+        for subtype, patterns in self.law_patterns.items():
             # Per ogni pattern del sottotipo
             for pattern in patterns:
                 # Cerca tutte le occorrenze del pattern nel testo
                 for match in pattern.finditer(text):
                     # Determina il tipo di entità in base al sottotipo
-                    entity_type = self._get_entity_type_from_normative_subtype(subtype)
+                    entity_type = self._get_entity_type_from_law_subtype(subtype)
                     
                     # Crea l'entità
                     entity = Entity(
@@ -360,7 +360,7 @@ class RuleBasedRecognizer:
         
         return entities
     
-    def _get_entity_type_from_normative_subtype(self, subtype: str) -> Union[EntityType, str]:
+    def _get_entity_type_from_law_subtype(self, subtype: str) -> Union[EntityType, str]:
         """
         Converte un sottotipo di riferimento normativo in un tipo di entità.
         
@@ -460,7 +460,7 @@ class RuleBasedRecognizer:
         # In caso di fallimento, restituisci il nome come stringa
         return entity_type_name
     
-    def _recognize_legal_concepts(self, text: str) -> List[Entity]:
+    def _recognize_legal_doctrine(self, text: str) -> List[Entity]:
         """
         Riconosce i concetti giuridici nel testo utilizzando il gazetteer.
         
@@ -476,7 +476,7 @@ class RuleBasedRecognizer:
         entity_type = self._get_entity_type("CONCETTO_GIURIDICO")
         
         # Per ogni concetto nel gazetteer
-        for concept in self.concepts_gazetteer:
+        for concept in self.doctrine_gazetteer:
             # Cerca tutte le occorrenze del concetto nel testo (case insensitive)
             for match in re.finditer(r'\b' + re.escape(concept) + r'\b', text, re.IGNORECASE):
                 # Crea l'entità

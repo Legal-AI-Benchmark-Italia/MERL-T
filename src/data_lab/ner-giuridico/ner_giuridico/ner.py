@@ -252,9 +252,9 @@ class BaseNERGiuridico:
         
         # Implementazione di fallback
         references = {
-            "normative": [],
+            "law": [],
             "jurisprudence": [],
-            "concepts": []
+            "doctrine": []
         }
         
         for entity in entities:
@@ -262,20 +262,20 @@ class BaseNERGiuridico:
             entity_type = getattr(entity.type, "name", str(entity.type))
             
             # Classifica in base al tipo
-            if hasattr(EntityType, "get_normative_types") and entity.type in EntityType.get_normative_types():
-                references["normative"].append(entity_dict)
+            if hasattr(EntityType, "get_law_types") and entity.type in EntityType.get_law_types():
+                references["law"].append(entity_dict)
             elif hasattr(EntityType, "get_jurisprudence_types") and entity.type in EntityType.get_jurisprudence_types():
                 references["jurisprudence"].append(entity_dict)
             elif hasattr(EntityType, "get_concept_types") and entity.type in EntityType.get_concept_types():
-                references["concepts"].append(entity_dict)
+                references["doctrine"].append(entity_dict)
             else:
                 # Aggiungi alla categoria appropriata in base al nome del tipo
                 if "ARTICOLO" in entity_type or "LEGGE" in entity_type or "DECRETO" in entity_type or "REGOLAMENTO" in entity_type:
-                    references["normative"].append(entity_dict)
+                    references["law"].append(entity_dict)
                 elif "SENTENZA" in entity_type or "ORDINANZA" in entity_type:
                     references["jurisprudence"].append(entity_dict)
                 elif "CONCETTO" in entity_type:
-                    references["concepts"].append(entity_dict)
+                    references["doctrine"].append(entity_dict)
                 else:
                     # Se non è possibile determinare la categoria, aggiungi a "custom"
                     if "custom" not in references:

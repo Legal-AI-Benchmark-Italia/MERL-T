@@ -24,17 +24,20 @@ from pathlib import Path
 from .db_manager import AnnotationDBManager
 from ..ner_giuridico.entities.entity_manager import get_entity_manager, EntityType
 import uuid
+import faulthandler
 
-
+faulthandler.enable()
 
 # -----------------------------------------------------------------------------
 # Configurazione del logger
 # -----------------------------------------------------------------------------
 annotation_logger = logging.getLogger("annotator")
-annotation_logger.setLevel(logging.INFO)
+annotation_logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 annotation_logger.addHandler(handler)
+
+annotation_logger.info("--- Avvio modulo app.py --- Loglevel: INFO")
 
 # Determine PROJECT_ROOT based on the script's location
 # Assuming this script is in src/core/annotation/, the root is 3 levels up
@@ -80,44 +83,50 @@ current_dir, project_root = setup_environment()
 # Importazione dei moduli necessari
 # -----------------------------------------------------------------------------
 try:
+    annotation_logger.info("Tentativo di importare moduli necessari...")
     # Prima prova: import diretto
     try:
         from ner_giuridico.entities.entity_manager import get_entity_manager
-        from ner_giuridico.ner import DynamicNERGiuridico
-        annotation_logger.info("Moduli importati direttamente")
+        from ner_giuridico.ner import DynamicNERGiuridico # Ripristinato
+        annotation_logger.info("Moduli importati direttamente (ner_giuridico.*)")
     except ImportError as e:
-        annotation_logger.warning(f"Impossibile importare direttamente: {e}")
+        annotation_logger.warning(f"Impossibile importare direttamente (ner_giuridico.*): {e}")
         # Prova con importazione relativa
         try:
             from ..ner_giuridico.entities.entity_manager import get_entity_manager
-            from ..ner_giuridico.ner import DynamicNERGiuridico
-            annotation_logger.info("Moduli importati relativamente")
+            from ..ner_giuridico.ner import DynamicNERGiuridico # Ripristinato
+            annotation_logger.info("Moduli importati relativamente (..ner_giuridico.*)")
         except (ImportError, ValueError) as e:
             annotation_logger.warning(f"Impossibile importare relativamente: {e}")
             # Ultima risorsa: caricamento diretto dai file
             entity_manager_path = None
             ner_path = None
+            annotation_logger.info(f"Ricerca moduli in {project_root}...")
             for root, dirs, files in os.walk(project_root):
                 if "entity_manager.py" in files:
                     entity_manager_path = os.path.join(root, "entity_manager.py")
                 if "ner.py" in files:
                     ner_path = os.path.join(root, "ner.py")
+            
             if entity_manager_path and ner_path:
                 annotation_logger.info(f"Trovato entity_manager.py in {entity_manager_path}")
                 annotation_logger.info(f"Trovato ner.py in {ner_path}")
                 spec = importlib.util.spec_from_file_location("entity_manager", entity_manager_path)
                 entity_manager_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(entity_manager_module)
-                spec = importlib.util.spec_from_file_location("ner", ner_path)
-                ner_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(ner_module)
+                spec = importlib.util.spec_from_file_location("ner", ner_path) # Ripristinato
+                ner_module = importlib.util.module_from_spec(spec) # Ripristinato
+                spec.loader.exec_module(ner_module) # Ripristinato
                 get_entity_manager = entity_manager_module.get_entity_manager
-                DynamicNERGiuridico = ner_module.DynamicNERGiuridico
+                DynamicNERGiuridico = ner_module.DynamicNERGiuridico # Ripristinato
                 annotation_logger.info("Moduli importati direttamente dai file")
             else:
+                annotation_logger.error("Impossibile trovare i moduli entity_manager.py o ner.py")
                 raise ImportError("Non è stato possibile trovare i moduli necessari")
+    
     # Inizializza l'entity manager e carica i tipi di entità
     try:
+        annotation_logger.info("Inizializzazione Entity Manager...")
         entity_manager = get_entity_manager()
         annotation_logger.info("Entity manager inizializzato con successo")
         if hasattr(entity_manager, 'db_path') and entity_manager.db_path:
@@ -164,6 +173,7 @@ except Exception as e:
             return any(entity["id"] == name for entity in ENTITY_TYPES)
     class DummyNER:
         def process(self, text):
+            annotation_logger.warning("Chiamata a DummyNER.process() - Modulo NER reale non caricato.")
             return {"entities": []}
     ENTITY_TYPES = [
         {"id": "ARTICOLO_CODICE", "name": "Articolo di Codice", "color": "#FFA39E"},
@@ -174,13 +184,14 @@ except Exception as e:
         {"id": "ORDINANZA", "name": "Ordinanza", "color": "#389E0D"},
         {"id": "CONCETTO_GIURIDICO", "name": "Concetto Giuridico", "color": "#5CDBD3"}
     ]
-    DynamicNERGiuridico = DummyNER
+    DynamicNERGiuridico = DummyNER # Ripristinato (in caso di fallimento import)
     get_entity_manager = lambda: DummyEntityManager()
     annotation_logger.info("Utilizzando implementazioni fittizie a causa di errori di importazione")
 
 # -----------------------------------------------------------------------------
 # Inizializzazione dell'app Flask e configurazione
 # -----------------------------------------------------------------------------
+annotation_logger.info("Inizializzazione App Flask...")
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
 # Configurazione dell'app Flask
@@ -1301,18 +1312,18 @@ def save_annotations(annotations: Dict[str, List[Dict[str, Any]]]) -> bool:
         annotation_logger.error(f"Errore nel salvataggio delle annotazioni: {e}")
         return False
 
-def cleanup_backups(max_backups: int = None):
+def cleanup_backups():
     """
     Effettua la pulizia dei backup più vecchi.
-    
-    Args:
-        max_backups: Numero massimo di backup da mantenere
+    Utilizza la variabile globale `max_backups`.
     """
-    if max_backups is None:
-        max_backups = config.getint('Database', 'max_backups', fallback=10)
+    # Rimosso il tentativo di leggere da config, usa la variabile globale
+    # if max_backups is None:
+    #     max_backups = config.getint('Database', 'max_backups', fallback=10)
     
     try:
-        db_manager.cleanup_backups(max_backups)
+        # Passa la variabile globale max_backups al metodo del db_manager
+        db_manager.cleanup_backups(max_backups) 
     except Exception as e:
         annotation_logger.error(f"Errore nella pulizia dei backup: {e}")
 
@@ -1754,19 +1765,39 @@ def recognize_entities():
         text = data.get('text')
         if not text:
             return jsonify({"status": "error", "message": "Testo mancante"}), 400
-        ner = DynamicNERGiuridico()
-        result = ner.process(text)
-        entities = []
-        for entity in result.get("entities", []):
-            entities.append({
-                "start": entity["start_char"],
-                "end": entity["end_char"],
-                "text": entity["text"],
-                "type": entity["type"]
-            })
+        
+        # Ripristinato - Ora utilizziamo il NER importato
+        annotation_logger.info("Avvio riconoscimento entità...")
+        try:
+            # Verifica se DynamicNERGiuridico è la versione dummy o quella reale
+            if DynamicNERGiuridico.__name__ == 'DummyNER':
+                 annotation_logger.warning("Riconoscimento entità sta usando DummyNER.")
+                 ner = DynamicNERGiuridico()
+            else:
+                annotation_logger.info("Riconoscimento entità sta usando DynamicNERGiuridico reale.")
+                # Qui potremmo implementare il lazy loading se necessario, 
+                # ma per ora istanziamo direttamente per vedere se l'errore 
+                # avviene qui o durante l'import iniziale.
+                ner = DynamicNERGiuridico()
+            
+            result = ner.process(text)
+            entities = []
+            for entity in result.get("entities", []):
+                entities.append({
+                    "start": entity["start_char"],
+                    "end": entity["end_char"],
+                    "text": entity["text"],
+                    "type": entity["type"]
+                })
+            annotation_logger.info(f"Riconoscimento completato. Trovate {len(entities)} entità.")
+        except Exception as inner_e:
+             annotation_logger.error(f"Errore specifico durante ner.process(): {inner_e}", exc_info=True)
+             return jsonify({"status": "error", "message": f"Errore interno durante il riconoscimento: {str(inner_e)}"}), 500
+             
         return jsonify({"status": "success", "entities": entities})
     except Exception as e:
-        annotation_logger.error(f"Errore nel riconoscimento delle entità: {e}")
+        # Questo blocco cattura errori esterni al try/except interno (es. istanziazione di DynamicNERGiuridico se fallisce)
+        annotation_logger.error(f"Errore grave nel riconoscimento delle entità: {e}", exc_info=True)
         return jsonify({"status": "error", "message": f"Errore nel riconoscimento delle entità: {str(e)}"}), 500
 
 @app.route('/api/train_model', methods=['POST'])
@@ -2396,20 +2427,15 @@ def register_entity_api_endpoints(app):
 
 register_entity_api_endpoints(app)
 
+annotation_logger.info("Registrazione endpoint API completata.")
+
 # -----------------------------------------------------------------------------
 # Inizializzazione finale ed esecuzione dell'app
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':
+    annotation_logger.info("Avvio applicazione Flask (se __name__ == '__main__')...")
     # Rimosso controllo esistenza file json, gestito da db_manager
-    # os.makedirs(DATA_DIR, exist_ok=True)
-    # os.makedirs(BACKUP_DIR, exist_ok=True)
-    # if not os.path.exists(os.path.join(DATA_DIR, 'documents.json')):
-    #     with open(os.path.join(DATA_DIR, 'documents.json'), 'w', encoding='utf-8') as f:
-    #         json.dump([], f)
-    # if not os.path.exists(os.path.join(DATA_DIR, 'annotations.json')):
-    #     with open(os.path.join(DATA_DIR, 'annotations.json'), 'w', encoding='utf-8') as f:
-    #         json.dump({}, f)
+    # ... (codice commentato rimosso per brevità) ...
     annotation_logger.info("Interfaccia di annotazione inizializzata e pronta all'avvio")
     # Non più necessario ottenere ENTITY_TYPES qui se entity_manager li gestisce
-    # annotation_logger.info(f"Tipi di entità disponibili: {', '.join(entity['id'] for entity in ENTITY_TYPES)}")
     app.run(host='0.0.0.0', port=8080, debug=True)

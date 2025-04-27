@@ -28,10 +28,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+import faulthandler
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
@@ -1102,7 +1103,16 @@ Command Groups:
         return 1
     
     # Execute the command
-    return args.func(args)
+    logger.info(f"Esecuzione del comando: {args.command}")
+    try:
+        result = args.func(args)
+        logger.info(f"Comando {args.command} completato con codice di uscita: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Errore durante l'esecuzione del comando {args.command}: {e}")
+        logger.exception("Traceback completo:")
+        return 1
 
 if __name__ == "__main__":
+    faulthandler.enable()
     sys.exit(main())

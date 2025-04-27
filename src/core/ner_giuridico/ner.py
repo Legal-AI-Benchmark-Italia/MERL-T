@@ -7,11 +7,15 @@ per entità dinamiche.
 import logging
 from typing import List, Dict, Any, Optional, Union, Tuple, Type, Protocol
 
+# Importare TransformerRecognizer qui può ancora causare problemi se l'import stesso fallisce.
+# Lo spostiamo dentro _get_transformer_recognizer per un vero lazy import/loading.
+# from .transformer import TransformerRecognizer 
+
 from .config import config
 from .entities.entities import Entity
 from .preprocessing import TextPreprocessor
 from .rule_based import RuleBasedRecognizer
-from .transformer import TransformerRecognizer
+# from .transformer import TransformerRecognizer # Spostato
 from .normalizer import EntityNormalizer
 from .entities.entity_manager import get_entity_manager, EntityType
 
@@ -34,26 +38,28 @@ class BaseNERGiuridico:
     """
     
     def __init__(self, preprocessor=None, rule_recognizer=None, 
-                transformer_recognizer=None, normalizer=None, entity_manager=None):
+                 transformer_recognizer=None, normalizer=None, entity_manager=None):
         """
         Inizializza il sistema NER-Giuridico con componenti configurabili.
         
         Args:
             preprocessor: Preprocessore di testo (opzionale)
             rule_recognizer: Riconoscitore basato su regole (opzionale)
-            transformer_recognizer: Riconoscitore basato su transformer (opzionale)
+            transformer_recognizer: Riconoscitore basato su transformer (opzionale, **ignorato se fornito qui**)
             normalizer: Normalizzatore di entità (opzionale)
             entity_manager: Gestore delle entità (opzionale)
         """
-        logger.info("Inizializzazione del sistema NER-Giuridico base")
+        logger.info("Inizializzazione del sistema NER-Giuridico base (con Lazy Loading per Transformer)")
         
         # Inizializza i componenti
         self.preprocessor = preprocessor or TextPreprocessor()
         self.rule_based_recognizer = rule_recognizer or self._create_rule_recognizer()
-        self.transformer_recognizer = transformer_recognizer or self._create_transformer_recognizer()
+        # Non inizializziamo transformer_recognizer qui, ma lo impostiamo a None.
+        # Verrà caricato al primo utilizzo tramite _get_transformer_recognizer()
+        self._transformer_recognizer_instance = None 
         self.normalizer = normalizer or self._create_normalizer()
         
-        logger.info("Sistema NER-Giuridico base inizializzato con successo")
+        logger.info("Sistema NER-Giuridico base inizializzato con successo (Transformer posticipato)")
     
     def _create_rule_recognizer(self) -> RuleBasedRecognizer:
         """
@@ -62,16 +68,48 @@ class BaseNERGiuridico:
         Returns:
             Istanza di RuleBasedRecognizer
         """
+        logger.debug("Creazione istanza RuleBasedRecognizer")
         return RuleBasedRecognizer()
         
-    def _create_transformer_recognizer(self) -> TransformerRecognizer:
+    def _create_transformer_recognizer(self):
         """
         Factory method per il riconoscitore basato su transformer.
+        Importa e inizializza TransformerRecognizer qui.
         
         Returns:
             Istanza di TransformerRecognizer
         """
-        return TransformerRecognizer()
+        logger.debug("Tentativo di creare istanza TransformerRecognizer (Lazy Loading)...")
+        try:
+            # Importazione differita
+            from .transformer import TransformerRecognizer 
+            recognizer = TransformerRecognizer()
+            logger.info("Istanza TransformerRecognizer creata con successo.")
+            return recognizer
+        except ImportError as e:
+            logger.error(f"Errore durante l'importazione differita di TransformerRecognizer: {e}")
+            logger.error("Il riconoscimento basato su Transformer sarà disabilitato.")
+            return None
+        except Exception as e:
+            logger.error(f"Errore durante l'inizializzazione differita di TransformerRecognizer: {e}")
+            logger.exception("Traceback inizializzazione TransformerRecognizer:")
+            logger.error("Il riconoscimento basato su Transformer sarà disabilitato.")
+            return None
+
+    def _get_transformer_recognizer(self):
+        """
+        Restituisce l'istanza del riconoscitore transformer, creandola se necessario (Lazy Loading).
+        """
+        if self._transformer_recognizer_instance is None:
+            logger.info("Prima chiamata a _get_transformer_recognizer: creazione istanza...")
+            self._transformer_recognizer_instance = self._create_transformer_recognizer()
+            # Se la creazione fallisce, _transformer_recognizer_instance resterà None
+        
+        # Aggiungiamo un check per sicurezza nel caso la creazione fallisca ma venga richiamato
+        if self._transformer_recognizer_instance is None:
+             logger.warning("Transformer Recognizer non è disponibile (fallimento creazione/importazione).")
+             
+        return self._transformer_recognizer_instance
         
     def _create_normalizer(self) -> EntityNormalizer:
         """
@@ -80,6 +118,7 @@ class BaseNERGiuridico:
         Returns:
             Istanza di EntityNormalizer
         """
+        logger.debug("Creazione istanza EntityNormalizer")
         return EntityNormalizer()
     
     def process(self, text: str) -> Dict[str, Any]:
@@ -92,38 +131,54 @@ class BaseNERGiuridico:
         Returns:
             Dizionario con i risultati del riconoscimento.
         """
-        logger.info(f"Elaborazione di un testo di {len(text)} caratteri")
+        logger.info(f"Processamento testo: {len(text)} caratteri.")
         
         # Preprocessing del testo
         preprocessed_text, doc = self.preprocessor.preprocess(text)
+        logger.debug("Testo preprocessato.")
         
         # Segmentazione del testo (per testi lunghi)
         segments = self.preprocessor.segment_text(preprocessed_text)
+        logger.debug(f"Testo diviso in {len(segments)} segmenti.")
         
         # Riconoscimento delle entità
         all_entities = []
         
-        for segment in segments:
+        # Ottieni il riconoscitore transformer (Lazy Loading)
+        transformer_recognizer = self._get_transformer_recognizer() 
+
+        for i, segment in enumerate(segments):
+            logger.debug(f"Processamento segmento {i+1}/{len(segments)}")
             # Riconoscimento basato su regole
             rule_entities = self.rule_based_recognizer.recognize(segment)
+            logger.debug(f"Segmento {i+1}: {len(rule_entities)} entità da regole.")
             
-            # Riconoscimento basato su transformer
-            transformer_entities = self.transformer_recognizer.recognize(segment)
-            
+            # Riconoscimento basato su transformer (solo se disponibile)
+            transformer_entities = []
+            if transformer_recognizer:
+                transformer_entities = transformer_recognizer.recognize(segment)
+                logger.debug(f"Segmento {i+1}: {len(transformer_entities)} entità da transformer.")
+            else:
+                 logger.debug(f"Segmento {i+1}: Riconoscitore Transformer non disponibile.")
+
             # Unisci le entità riconosciute
             segment_entities = self._merge_entities(rule_entities, transformer_entities)
+            logger.debug(f"Segmento {i+1}: {len(segment_entities)} entità dopo merge.")
             
             # Aggiungi le entità del segmento alla lista completa
             all_entities.extend(segment_entities)
         
         # Rimuovi le entità duplicate o sovrapposte
         unique_entities = self._remove_overlapping_entities(all_entities)
+        logger.info(f"Riconosciute {len(unique_entities)} entità uniche prima della normalizzazione.")
         
         # Normalizzazione delle entità
         normalized_entities = self.normalizer.normalize(unique_entities)
+        logger.debug(f"Normalizzate {len(normalized_entities)} entità.")
         
         # Crea riferimenti strutturati
         structured_references = self._create_structured_references(normalized_entities)
+        logger.debug("Riferimenti strutturati creati.")
         
         # Prepara il risultato
         result = {
@@ -132,7 +187,7 @@ class BaseNERGiuridico:
             "references": structured_references
         }
         
-        logger.info(f"Riconosciute {len(normalized_entities)} entità")
+        logger.info(f"Processamento completato. Entità finali: {len(normalized_entities)}")
         
         return result
     
@@ -332,12 +387,13 @@ class DynamicNERGiuridico(BaseNERGiuridico):
             entities_file: Percorso al file JSON contenente le definizioni delle entità
             **kwargs: Argomenti addizionali per la classe base
         """
-        logger.info("Inizializzazione del sistema NER-Giuridico con gestione dinamica delle entità")
+        logger.info("Inizializzazione DynamicNERGiuridico (con Lazy Loading per Transformer ereditato)")
         
         # Inizializza il gestore delle entità
         self.entity_manager = kwargs.pop('entity_manager', None) or get_entity_manager(entities_file)
         
         # Passa il gestore delle entità ai componenti se supportato
+        # Nota: TransformerRecognizer non viene passato qui perché è lazy loaded
         rule_recognizer = kwargs.get('rule_recognizer')
         if not rule_recognizer and hasattr(RuleBasedRecognizer, '__init__') and 'entity_manager' in RuleBasedRecognizer.__init__.__code__.co_varnames:
             kwargs['rule_recognizer'] = RuleBasedRecognizer(entity_manager=self.entity_manager)
@@ -346,14 +402,16 @@ class DynamicNERGiuridico(BaseNERGiuridico):
         if not normalizer and hasattr(EntityNormalizer, '__init__') and 'entity_manager' in EntityNormalizer.__init__.__code__.co_varnames:
             kwargs['normalizer'] = EntityNormalizer(entity_manager=self.entity_manager)
         
-        # Inizializza la classe base
+        # Inizializza la classe base (che ora gestisce il lazy loading del transformer)
         super().__init__(**kwargs)
         
         # Cache per le entità dinamiche
         self._entity_cache = {}
         
-        logger.info("Sistema NER-Giuridico con gestione dinamica delle entità inizializzato con successo")
+        logger.info("DynamicNERGiuridico inizializzato con successo.")
     
+    # _create_rule_recognizer e _create_normalizer sono ancora necessari qui
+    # per passare l'entity_manager specifico di questa istanza dinamica.
     def _create_rule_recognizer(self) -> RuleBasedRecognizer:
         """
         Factory method per il riconoscitore basato su regole.
@@ -361,6 +419,7 @@ class DynamicNERGiuridico(BaseNERGiuridico):
         Returns:
             Istanza di RuleBasedRecognizer configurata con il gestore delle entità
         """
+        logger.debug("Creazione istanza RuleBasedRecognizer (DynamicNERGiuridico)")
         if hasattr(RuleBasedRecognizer, '__init__') and 'entity_manager' in RuleBasedRecognizer.__init__.__code__.co_varnames:
             return RuleBasedRecognizer(entity_manager=self.entity_manager)
         return RuleBasedRecognizer()
@@ -372,10 +431,14 @@ class DynamicNERGiuridico(BaseNERGiuridico):
         Returns:
             Istanza di EntityNormalizer configurata con il gestore delle entità
         """
+        logger.debug("Creazione istanza EntityNormalizer (DynamicNERGiuridico)")
         if hasattr(EntityNormalizer, '__init__') and 'entity_manager' in EntityNormalizer.__init__.__code__.co_varnames:
             return EntityNormalizer(entity_manager=self.entity_manager)
         return EntityNormalizer()
-    
+        
+    # _create_transformer_recognizer non è necessario sovrascriverlo qui,
+    # userà quello della classe base che fa il lazy loading.
+
     def add_entity_type(self, name: str, display_name: str, category: str, 
                        color: str, metadata_schema: Dict[str, str], patterns: List[str] = None) -> bool:
         """

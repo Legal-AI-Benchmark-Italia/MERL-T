@@ -202,26 +202,38 @@ class MigrationManager:
             else:
                 logger.info("Column metadata already exists in documents table")
 
-    def _migration_003_add_status_to_documents(self, conn, cursor):
+    def _migration_003_add_status_to_documents(self): # Remove conn and cursor parameters
         """Add status column to documents table for tracking completion state."""
-        self.logger.info("Running migration 003: Add status to documents")
-        
-        if not self._check_table_exists(cursor, 'documents'):
-            self.logger.error("Table 'documents' does not exist. Cannot apply migration 003.")
-            raise RuntimeError("Prerequisite table 'documents' missing for migration 003")
+        logger.info("Running migration 003: Add status to documents") # Use logger instead of self.logger if logger is defined globally
 
-        if not self._check_column_exists(cursor, 'documents', 'status'):
-            self.logger.info("Adding 'status' column to 'documents' table with default 'pending'")
-            cursor.execute("ALTER TABLE documents ADD COLUMN status TEXT DEFAULT 'pending'")
-            # Update existing rows to have the default status
-            cursor.execute("UPDATE documents SET status = 'pending' WHERE status IS NULL")
-            self.logger.info("Column 'status' added with default value 'pending'.")
-            
-            # Create index for better query performance when filtering by status
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")
-            self.logger.info("Index 'idx_documents_status' created.")
-        else:
-            self.logger.info("Column 'status' already exists in 'documents'.")
+        with sqlite3.connect(self.db_path) as conn: # Manage connection locally
+            cursor = conn.cursor()
+
+            # Check if table exists (Inline check)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='documents'")
+            if not cursor.fetchone():
+                logger.error("Table 'documents' does not exist. Cannot apply migration 003.")
+                raise RuntimeError("Prerequisite table 'documents' missing for migration 003")
+
+            # Check if column exists (Inline check)
+            cursor.execute("PRAGMA table_info(documents)")
+            columns = [col[1] for col in cursor.fetchall()]
+            column_exists = 'status' in columns
+
+            if not column_exists:
+                logger.info("Adding 'status' column to 'documents' table with default 'pending'")
+                cursor.execute("ALTER TABLE documents ADD COLUMN status TEXT DEFAULT 'pending'")
+                # Update existing rows to have the default status
+                cursor.execute("UPDATE documents SET status = 'pending' WHERE status IS NULL")
+                logger.info("Column 'status' added with default value 'pending'.")
+
+                # Create index for better query performance when filtering by status
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)")
+                logger.info("Index 'idx_documents_status' created.")
+            else:
+                logger.info("Column 'status' already exists in 'documents'.")
+
+            conn.commit() # Commit changes
 
 def run_migrations(db_path: str):
     """

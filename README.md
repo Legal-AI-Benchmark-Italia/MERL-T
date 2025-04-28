@@ -81,7 +81,7 @@ A Named Entity Recognition system specialized for the Italian legal domain, capa
 #### Basic Usage
 
 ```python
-from src.data_lab.ner-giuridico.ner_giuridico.ner import DynamicNERGiuridico
+from src.data_lab.ner-giuridico.ner.ner import DynamicNERGiuridico
 
 # Initialize the NER system
 ner = DynamicNERGiuridico()
@@ -144,10 +144,10 @@ python app.py
 ```bash
 # Start the NER API
 cd src/data_lab/ner-giuridico
-python ner_giuridico/main.py server
+python ner/main.py server
 
 # Start the annotation interface
-python ner_giuridico/main.py annotate
+python ner/main.py annotate
 ```
 
 ## 📋 Roadmap
@@ -211,3 +211,95 @@ For more information, contact the development team at [guglielmo.puzio@studenti.
 ---
 
 MERL-T - Making Italian law accessible, understandable, and applicable through artificial intelligence.
+
+# Sistema di Named Entity Recognition per testi giuridici italiani
+
+## Descrizione
+
+Questo sistema è progettato per riconoscere entità giuridiche in testi legali italiani. Il sistema NER (Named Entity Recognition) è in grado di identificare vari tipi di riferimenti normativi e giurisprudenziali, così come concetti giuridici.
+
+## Funzionalità
+
+- **Sistema di NER unificato**: integra riconoscimento basato su regole e modelli transformer
+- **Supporto per l'addestramento**: usa dati annotati nel formato Spacy per addestrare modelli personalizzati
+- **Configurabile**: sistema flessibile con configurazione tramite file JSON
+- **Normalizzazione**: normalizza le entità riconosciute in formati standard
+- **Classificazione**: supporta diverse categorie di entità giuridiche
+
+## Tipi di entità supportate
+
+- **Riferimenti normativi**:
+  - Articoli del codice
+  - Leggi
+  - Decreti
+  - Regolamenti UE
+
+- **Riferimenti giurisprudenziali**:
+  - Sentenze
+  - Ordinanze
+
+- **Concetti giuridici**
+
+## Utilizzo
+
+### Inizializzazione
+
+```python
+from src.processing.ner import NERSystem
+
+# Inizializza il sistema NER
+ner = NERSystem()
+
+# Elabora un testo
+result = ner.process("L'articolo 1414 c.c. disciplina la simulazione.")
+
+# Visualizza le entità riconosciute
+print(result["entities"])
+```
+
+### Addestramento
+
+```python
+# Carica i dati di addestramento (formato Spacy)
+training_data = ner.load_training_data("path/to/training_data.json")
+
+# Addestra il modello
+ner.train(training_data, output_dir="models/my_ner_model")
+
+# Carica un modello addestrato
+ner.load_model("models/my_ner_model")
+```
+
+## Configurazione
+
+È possibile configurare il sistema tramite un file JSON:
+
+```python
+from src.processing.ner import load_config
+
+# Carica la configurazione
+load_config("path/to/config.json")
+```
+
+Esempio di file di configurazione:
+
+```json
+{
+  "models": {
+    "transformer": {
+      "model_name": "dbmdz/bert-base-italian-xxl-cased",
+      "device": -1
+    }
+  },
+  "training": {
+    "epochs": 10,
+    "batch_size": 32
+  }
+}
+```
+
+## Installazione
+
+```bash
+pip install -r requirements.txt
+```

@@ -1,0 +1,239 @@
+{% extends "layout.html" %}
+
+{% block title %}Test NER{% endblock %}
+
+{% block head %}
+    {{ super() }}
+    <style>
+        .entity {
+            padding: 0.2em 0.3em;
+            margin: 0 0.25em;
+            line-height: 1.5;
+            border-radius: 0.25em;
+        }
+        .entity-PERSON {
+            background-color: #8dd3c7;
+        }
+        .entity-NORP {
+            background-color: #ffffb3;
+        }
+        .entity-FAC {
+            background-color: #bebada;
+        }
+        .entity-ORG {
+            background-color: #fb8072;
+        }
+        .entity-GPE {
+            background-color: #80b1d3;
+        }
+        .entity-LOC {
+            background-color: #fdb462;
+        }
+        .entity-PRODUCT {
+            background-color: #b3de69;
+        }
+        .entity-EVENT {
+            background-color: #fccde5;
+        }
+        .entity-WORK_OF_ART {
+            background-color: #d9d9d9;
+        }
+        .entity-LAW {
+            background-color: #bc80bd;
+        }
+        .entity-DATE {
+            background-color: #ccebc5;
+        }
+        .entity-TIME {
+            background-color: #ffed6f;
+        }
+        .entity-PERCENT {
+            background-color: #e6f5c9;
+        }
+        .entity-MONEY {
+            background-color: #e5d8bd;
+        }
+        .entity-QUANTITY {
+            background-color: #fddaec;
+        }
+        .entity-ORDINAL {
+            background-color: #f2f2f2;
+        }
+        .entity-CARDINAL {
+            background-color: #cbcbcb;
+        }
+        #results-container {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .legend-item {
+            display: inline-block;
+            margin-right: 10px;
+            margin-bottom: 5px;
+        }
+        .legend-box {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+            vertical-align: middle;
+            border-radius: 3px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Test Riconoscimento Entità</h1>
+    <p class="lead">Inserisci un testo per testare il sistema di riconoscimento delle entità</p>
+
+    <div class="form-group">
+        <label for="input-text">Testo da analizzare:</label>
+        <textarea class="form-control" id="input-text" rows="5" placeholder="Inserisci qui il testo..."></textarea>
+    </div>
+
+    <button id="analyze-btn" class="btn btn-primary mt-2">Analizza</button>
+
+    <div id="results-container" class="d-none">
+        <h3>Risultati:</h3>
+        <div id="entity-legend" class="mb-3"></div>
+        <div id="results-text"></div>
+    </div>
+
+    <div id="loading" class="text-center mt-3 d-none">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Caricamento...</span>
+        </div>
+        <p>Analisi in corso...</p>
+    </div>
+
+    <div id="error-message" class="alert alert-danger mt-3 d-none"></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script>
+        $(document).ready(function() {
+            // Mappa dei tipi di entità per la legenda
+            const entityTypes = {
+                'PERSON': 'Persona',
+                'NORP': 'Nazionalità/Gruppo religioso/Politico',
+                'FAC': 'Struttura',
+                'ORG': 'Organizzazione',
+                'GPE': 'Paese/Città/Stato',
+                'LOC': 'Luogo',
+                'PRODUCT': 'Prodotto',
+                'EVENT': 'Evento',
+                'WORK_OF_ART': 'Opera d\'arte',
+                'LAW': 'Legge',
+                'DATE': 'Data',
+                'TIME': 'Orario',
+                'PERCENT': 'Percentuale',
+                'MONEY': 'Denaro',
+                'QUANTITY': 'Quantità',
+                'ORDINAL': 'Ordinale',
+                'CARDINAL': 'Cardinale'
+            };
+
+            // Genera la legenda delle entità
+            function generateLegend(usedEntities) {
+                const $legend = $('#entity-legend');
+                $legend.empty();
+                
+                usedEntities.forEach(type => {
+                    if (entityTypes[type]) {
+                        const $item = $('<div class="legend-item">');
+                        const $box = $('<span class="legend-box">').addClass('entity-' + type);
+                        const $label = $('<span>').text(entityTypes[type] + ' (' + type + ')');
+                        $item.append($box, $label);
+                        $legend.append($item);
+                    }
+                });
+            }
+
+            // Formatta il testo con le entità evidenziate
+            function formatResults(text, entities) {
+                let result = text;
+                let offset = 0;
+                const usedEntityTypes = new Set();
+                
+                // Ordina le entità in ordine decrescente di posizione di fine
+                // per evitare problemi con gli offset durante l'inserimento degli span
+                entities.sort((a, b) => b.end - a.end);
+                
+                // Inserisci gli span per ciascuna entità
+                entities.forEach(entity => {
+                    const spanStart = '<span class="entity entity-' + entity.type + '" title="' + entityTypes[entity.type] + '">';
+                    const spanEnd = '</span>';
+                    
+                    result = result.substring(0, entity.end + offset) + spanEnd + 
+                             result.substring(entity.end + offset);
+                    
+                    result = result.substring(0, entity.start + offset) + spanStart + 
+                             result.substring(entity.start + offset);
+                    
+                    // Aggiorna l'offset per le successive inserzioni
+                    offset += spanStart.length + spanEnd.length;
+                    
+                    // Aggiungi il tipo di entità alla lista di quelle usate
+                    usedEntityTypes.add(entity.type);
+                });
+                
+                return {
+                    formattedText: result,
+                    usedEntityTypes: Array.from(usedEntityTypes)
+                };
+            }
+
+            // Gestisce il click sul pulsante Analizza
+            $('#analyze-btn').click(function() {
+                const text = $('#input-text').val().trim();
+                
+                if (!text) {
+                    alert('Inserisci un testo da analizzare');
+                    return;
+                }
+                
+                // Mostra il loader e nasconde eventuali errori precedenti
+                $('#loading').removeClass('d-none');
+                $('#error-message').addClass('d-none');
+                $('#results-container').addClass('d-none');
+                
+                // Invia la richiesta al server
+                $.ajax({
+                    url: '/api/recognize',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ text: text }),
+                    success: function(response) {
+                        $('#loading').addClass('d-none');
+                        
+                        if (response.entities && response.entities.length > 0) {
+                            const { formattedText, usedEntityTypes } = formatResults(text, response.entities);
+                            
+                            // Genera la legenda e mostra i risultati
+                            generateLegend(usedEntityTypes);
+                            $('#results-text').html(formattedText.replace(/\n/g, '<br>'));
+                            $('#results-container').removeClass('d-none');
+                        } else {
+                            $('#results-text').html('<p>Nessuna entità riconosciuta nel testo.</p>');
+                            $('#entity-legend').empty();
+                            $('#results-container').removeClass('d-none');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $('#loading').addClass('d-none');
+                        $('#error-message')
+                            .text('Errore durante l\'analisi: ' + (xhr.responseJSON?.error || error))
+                            .removeClass('d-none');
+                    }
+                });
+            });
+        });
+    </script>
+{% endblock %} 

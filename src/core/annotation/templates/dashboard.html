@@ -137,6 +137,71 @@
     </div>
 </div>
 
+<!-- Aggiungi questa sezione per l'addestramento con feedback dopo la sezione delle statistiche -->
+{% if session.user_role == 'admin' %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-primary text-white">
+    <h5 class="mb-0">
+      <i class="fas fa-brain mr-1"></i> Addestramento Modello
+    </h5>
+  </div>
+  <div class="card-body">
+    <div class="row">
+      <div class="col-md-6 mb-4">
+        <div class="card border-light h-100">
+          <div class="card-header bg-light">
+            <h6 class="mb-0">Addestramento Standard</h6>
+          </div>
+          <div class="card-body">
+            <p>Addestra il modello utilizzando tutte le annotazioni manuali disponibili nel sistema.</p>
+            <button id="trainModelBtn" class="btn btn-primary" onclick="handleTrainModel()">
+              <i class="fas fa-cogs"></i> Addestra Modello
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6 mb-4">
+        <div class="card border-primary h-100">
+          <div class="card-header bg-primary text-white">
+            <h6 class="mb-0">Addestramento con Feedback (Reinforcement Learning)</h6>
+          </div>
+          <div class="card-body">
+            <p>Migliora il modello utilizzando il feedback raccolto dalle annotazioni automatiche validate.</p>
+            <div id="feedbackStats" class="alert alert-info">
+              <div class="spinner-border spinner-border-sm" role="status">
+                <span class="sr-only">Caricamento...</span>
+              </div>
+              Caricamento statistiche di feedback...
+            </div>
+            <button id="trainWithFeedbackBtn" class="btn btn-success" onclick="handleTrainWithFeedback()">
+              <i class="fas fa-sync-alt"></i> Addestra con Feedback
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Modal per i risultati dell'addestramento -->
+    <div class="modal fade" id="trainingResultModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Risultati Addestramento</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" id="trainingResultBody">
+            <!-- I risultati verranno inseriti qui -->
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Chiudi</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-4">
     <!-- Chart: Attività Giornaliera -->
     <div class="col-lg-8">
@@ -565,4 +630,173 @@ function generateRandomColors(count) {
     return colors.slice(0, count);
 }
 </script>
+
+<!-- Script per la gestione dell'addestramento con feedback -->
+{% if session.user_role == 'admin' %}
+<script>
+document.addEventListener('DOMContentLoaded', async function() {
+  loadFeedbackStats();
+});
+
+async function loadFeedbackStats() {
+  try {
+    const feedbackStatsEl = document.getElementById('feedbackStats');
+    
+    // Simula il caricamento delle statistiche di feedback
+    // In un'implementazione reale, si dovrebbe chiamare un endpoint API
+    const response = await fetch('/api/feedback_stats');
+    const data = await response.json();
+    
+    if (data.status === 'success') {
+      feedbackStatsEl.innerHTML = `
+        <i class="fas fa-info-circle"></i>
+        Disponibili <strong>${data.total_feedback}</strong> feedback da 
+        <strong>${data.unique_documents}</strong> documenti.
+        <small class="d-block mt-1">Ultimo feedback: ${data.last_feedback_date || 'N/A'}</small>
+      `;
+    } else {
+      // Mostra informazioni di esempio se l'API non è ancora implementata
+      feedbackStatsEl.innerHTML = `
+        <i class="fas fa-info-circle"></i>
+        Per addestrare il modello con feedback, valida le annotazioni automatiche durante l'annotazione.
+      `;
+    }
+  } catch (error) {
+    console.error('Errore nel caricamento delle statistiche di feedback:', error);
+    document.getElementById('feedbackStats').innerHTML = `
+      <i class="fas fa-exclamation-triangle"></i>
+      Errore nel caricamento delle statistiche di feedback.
+    `;
+  }
+}
+
+async function handleTrainModel() {
+  try {
+    const trainBtn = document.getElementById('trainModelBtn');
+    trainBtn.disabled = true;
+    trainBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Addestramento in corso...';
+    
+    const response = await fetch('/api/train_model', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        train: true,
+        epochs: 5,
+        batch_size: 16
+      })
+    });
+    
+    const data = await response.json();
+    
+    showTrainingResults('standard', data);
+  } catch (error) {
+    console.error('Errore durante l\'addestramento:', error);
+    showTrainingResults('standard', { 
+      status: 'error', 
+      message: `Errore durante l'addestramento: ${error.message}` 
+    });
+  } finally {
+    const trainBtn = document.getElementById('trainModelBtn');
+    trainBtn.disabled = false;
+    trainBtn.innerHTML = '<i class="fas fa-cogs"></i> Addestra Modello';
+  }
+}
+
+async function handleTrainWithFeedback() {
+  try {
+    const trainBtn = document.getElementById('trainWithFeedbackBtn');
+    trainBtn.disabled = true;
+    trainBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Addestramento in corso...';
+    
+    const response = await fetch('/api/train_with_feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        epochs: 3,
+        batch_size: 4,
+        learning_rate: 0.0001
+      })
+    });
+    
+    const data = await response.json();
+    
+    showTrainingResults('feedback', data);
+  } catch (error) {
+    console.error('Errore durante l\'addestramento con feedback:', error);
+    showTrainingResults('feedback', { 
+      status: 'error', 
+      message: `Errore durante l'addestramento con feedback: ${error.message}` 
+    });
+  } finally {
+    const trainBtn = document.getElementById('trainWithFeedbackBtn');
+    trainBtn.disabled = false;
+    trainBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Addestra con Feedback';
+  }
+}
+
+function showTrainingResults(type, data) {
+  const modal = new bootstrap.Modal(document.getElementById('trainingResultModal'));
+  const resultBody = document.getElementById('trainingResultBody');
+  
+  let headerClass = data.status === 'success' ? 'text-success' : 'text-danger';
+  let icon = data.status === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+  let title = type === 'standard' ? 'Addestramento Standard' : 'Addestramento con Feedback';
+  
+  let html = `
+    <div class="text-center mb-4">
+      <i class="fas ${icon} ${headerClass} fa-3x mb-3"></i>
+      <h4 class="${headerClass}">${title}</h4>
+      <p>${data.message}</p>
+    </div>
+  `;
+  
+  if (data.status === 'success') {
+    html += `
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header">Dettagli Addestramento</div>
+            <div class="card-body">
+              <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between">
+                  <span>Documenti utilizzati:</span>
+                  <strong>${data.data_count}</strong>
+                </li>
+                ${data.used_feedback ? `
+                <li class="list-group-item d-flex justify-content-between">
+                  <span>Feedback utilizzati:</span>
+                  <strong>${data.used_feedback}</strong>
+                </li>` : ''}
+                <li class="list-group-item d-flex justify-content-between">
+                  <span>Percorso file dati:</span>
+                  <small>${data.data_file}</small>
+                </li>
+                <li class="list-group-item d-flex justify-content-between">
+                  <span>Cartella modello:</span>
+                  <small>${data.model_dir}</small>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="alert alert-success">
+            <h6>Suggerimenti</h6>
+            <p>Prova ad annotare nuovi documenti utilizzando l'annotazione automatica per verificare le prestazioni del modello.</p>
+            <p>Più feedback raccogli, migliore diventerà il modello!</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
+  resultBody.innerHTML = html;
+  modal.show();
+}
+</script>
+{% endif %}
 {% endblock %}

@@ -203,11 +203,33 @@ def get_db_path_from_config(config_path=None):
     Ottiene il percorso del database dalla configurazione.
     
     Args:
-        config_path: Percorso del file di configurazione (default: config.ini)
+        config_path: Percorso del file di configurazione (ignora questo parametro quando usa config centralizzato)
         
     Returns:
         Percorso del database
     """
+    try:
+        from src.core.config import get_config_manager
+        
+        # Ottieni l'istanza del gestore di configurazione
+        config_manager = get_config_manager()
+        
+        # Ottieni il percorso del database dalla configurazione
+        db_path = config_manager.get('database.annotations_db')
+        
+        if db_path:
+            # Se il percorso è relativo, fallo assoluto rispetto alla directory root del progetto
+            if not os.path.isabs(db_path):
+                from pathlib import Path
+                project_root = Path(__file__).resolve().parent.parent.parent.parent
+                db_path = os.path.join(project_root, db_path)
+                
+            logger.info(f"Percorso database dalla configurazione centralizzata: {db_path}")
+            return db_path
+    except Exception as e:
+        logger.warning(f"Errore nell'accesso alla configurazione centralizzata: {e}")
+    
+    # Fallback alla vecchia configurazione in caso di errore
     if not config_path:
         config_path = os.environ.get('NER_CONFIG', 'config.ini')
     

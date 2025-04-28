@@ -16,7 +16,7 @@ L'interfaccia di annotazione di NER-Giuridico è uno strumento web che consente 
 
 ```bash
 # Dalla directory principale del progetto
-python -m ner_giuridico.scripts.run_annotation
+python -m ner.scripts.run_annotation
 
 # Oppure
 python main.py annotate

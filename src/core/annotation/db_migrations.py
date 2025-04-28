@@ -14,9 +14,12 @@ from typing import List, Dict, Callable, Any
 # Setup logger
 logger = logging.getLogger("db_migrations")
 logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(handler)
+
+# Verifica se il logger ha già degli handler configurati
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(handler)
 
 class MigrationManager:
     """

@@ -34,7 +34,7 @@ def setup_environment():
     # Try to find the root of the project
     project_root = parent_dir
     for _ in range(5):
-        if (project_root / "ner_giuridico").exists():
+        if (project_root / "ner").exists():
             break
         project_root = project_root.parent
         if project_root == project_root.parent:  # Reached filesystem root

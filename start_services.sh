@@ -19,7 +19,7 @@ fi
 
 # Verifica che il file main.py esista
 # (Controllo opzionale, -m gestisce l'errore se non trovato)
-# if [ ! -f "/Users/guglielmo/Desktop/CODE/MERL-T/src/core/ner_giuridico/main.py" ]; then
+# if [ ! -f "/Users/guglielmo/Desktop/CODE/MERL-T/src/core/ner/main.py" ]; then
 #   echo "Errore: File main.py non trovato nel percorso specificato."
 #   exit 1
 # fi
@@ -28,7 +28,7 @@ echo "Avvio di main.py come modulo..."
 # Assicurati che la tua app Python ascolti su 0.0.0.0 (tutte le interfacce) e sulla porta desiderata (es. 8080)
 # Potrebbe essere necessario modificare main.py per questo.
 # Esempio (dipende dal framework, es. Flask): app.run(host='0.0.0.0', port=8080)
-nohup python -m src.core.ner_giuridico.main annotate > /home/ec2-user/MERL-T/output.log 2>&1 &
+nohup python -m src.core.ner.main annotate > /home/ec2-user/MERL-T/output.log 2>&1 &
 APP_PID=$!
 
 # Verifica se il processo è stato avviato correttamente (controllo base)

@@ -22,9 +22,10 @@ from werkzeug.utils import secure_filename
 import configparser
 from pathlib import Path
 from .db_manager import AnnotationDBManager
-from ..ner_giuridico.entities.entity_manager import get_entity_manager, EntityType
+from src.core.entities.entity_manager import get_entity_manager, EntityType
 import uuid
 import faulthandler
+from src.processing.ner.ner_system import NERSystem
 
 faulthandler.enable()
 
@@ -33,9 +34,12 @@ faulthandler.enable()
 # -----------------------------------------------------------------------------
 annotation_logger = logging.getLogger("annotator")
 annotation_logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-annotation_logger.addHandler(handler)
+
+# Verifica se il logger ha già degli handler configurati
+if not annotation_logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    annotation_logger.addHandler(handler)
 
 annotation_logger.info("--- Avvio modulo app.py --- Loglevel: INFO")
 
@@ -43,6 +47,8 @@ annotation_logger.info("--- Avvio modulo app.py --- Loglevel: INFO")
 # Assuming this script is in src/core/annotation/, the root is 3 levels up
 try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
+    # Definire ROOT_DIR direttamente qui invece di importarlo
+    ROOT_DIR = PROJECT_ROOT
 except IndexError:
     # Fallback or error handling if structure is unexpected
     annotation_logger.error("Could not determine project root from app.py location. Exiting.")
@@ -67,7 +73,7 @@ def setup_environment():
         sys.path.insert(0, str(parent_dir))
     project_root = parent_dir
     for _ in range(5):
-        if (project_root / "ner_giuridico").exists() or (project_root / "config").exists():
+        if (project_root / "ner").exists() or (project_root / "config").exists():
             break
         project_root = project_root.parent
         if project_root == project_root.parent:
@@ -86,16 +92,16 @@ try:
     annotation_logger.info("Tentativo di importare moduli necessari...")
     # Prima prova: import diretto
     try:
-        from ner_giuridico.entities.entity_manager import get_entity_manager
-        from ner_giuridico.ner import DynamicNERGiuridico # Ripristinato
-        annotation_logger.info("Moduli importati direttamente (ner_giuridico.*)")
+        from src.core.entities.entity_manager import get_entity_manager
+        from src.processing.ner import NERSystem
+        annotation_logger.info("Moduli importati direttamente (src.*)")
     except ImportError as e:
-        annotation_logger.warning(f"Impossibile importare direttamente (ner_giuridico.*): {e}")
+        annotation_logger.warning(f"Impossibile importare direttamente (src.*): {e}")
         # Prova con importazione relativa
         try:
-            from ..ner_giuridico.entities.entity_manager import get_entity_manager
-            from ..ner_giuridico.ner import DynamicNERGiuridico # Ripristinato
-            annotation_logger.info("Moduli importati relativamente (..ner_giuridico.*)")
+            from ..entities.entity_manager import get_entity_manager
+            from ...processing.ner import NERSystem
+            annotation_logger.info("Moduli importati relativamente (..entities.* e ...processing.*)")
         except (ImportError, ValueError) as e:
             annotation_logger.warning(f"Impossibile importare relativamente: {e}")
             # Ultima risorsa: caricamento diretto dai file
@@ -105,23 +111,23 @@ try:
             for root, dirs, files in os.walk(project_root):
                 if "entity_manager.py" in files:
                     entity_manager_path = os.path.join(root, "entity_manager.py")
-                if "ner.py" in files:
-                    ner_path = os.path.join(root, "ner.py")
+                if "ner_system.py" in files:
+                    ner_path = os.path.join(root, "ner_system.py")
             
             if entity_manager_path and ner_path:
                 annotation_logger.info(f"Trovato entity_manager.py in {entity_manager_path}")
-                annotation_logger.info(f"Trovato ner.py in {ner_path}")
+                annotation_logger.info(f"Trovato ner_system.py in {ner_path}")
                 spec = importlib.util.spec_from_file_location("entity_manager", entity_manager_path)
                 entity_manager_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(entity_manager_module)
-                spec = importlib.util.spec_from_file_location("ner", ner_path) # Ripristinato
-                ner_module = importlib.util.module_from_spec(spec) # Ripristinato
-                spec.loader.exec_module(ner_module) # Ripristinato
+                spec = importlib.util.spec_from_file_location("ner_system", ner_path)
+                ner_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(ner_module)
                 get_entity_manager = entity_manager_module.get_entity_manager
-                DynamicNERGiuridico = ner_module.DynamicNERGiuridico # Ripristinato
+                NERSystem = ner_module.NERSystem
                 annotation_logger.info("Moduli importati direttamente dai file")
             else:
-                annotation_logger.error("Impossibile trovare i moduli entity_manager.py o ner.py")
+                annotation_logger.error("Impossibile trovare i moduli entity_manager.py o ner_system.py")
                 raise ImportError("Non è stato possibile trovare i moduli necessari")
     
     # Inizializza l'entity manager e carica i tipi di entità
@@ -184,7 +190,7 @@ except Exception as e:
         {"id": "ORDINANZA", "name": "Ordinanza", "color": "#389E0D"},
         {"id": "CONCETTO_GIURIDICO", "name": "Concetto Giuridico", "color": "#5CDBD3"}
     ]
-    DynamicNERGiuridico = DummyNER # Ripristinato (in caso di fallimento import)
+    NERSystem = DummyNER # Ripristinato (in caso di fallimento import)
     get_entity_manager = lambda: DummyEntityManager()
     annotation_logger.info("Utilizzando implementazioni fittizie a causa di errori di importazione")
 
@@ -1168,29 +1174,26 @@ def dashboard():
 # Carica la configurazione
 def load_config():
     """
-    Carica la configurazione dell'applicazione dal file config.ini o crea una
-    configurazione predefinita se non esiste.
+    Carica la configurazione dell'applicazione utilizzando il gestore di configurazione centralizzato.
     
     Returns:
-        ConfigParser: Oggetto configurazione
+        dict: Configurazione dell'applicazione
     """
-    config = configparser.ConfigParser()
-    config_path = os.environ.get('NER_CONFIG', 'config.ini')
+    from src.core.config import get_config_manager
     
-    # Crea la configurazione predefinita se non esiste
-    if not os.path.exists(config_path):
-        config['Database'] = {
-            'path': os.path.join(DATA_DIR, 'annotations.db'),
-            'backups': os.path.join(BACKUP_DIR),
-            'max_backups': '10'
+    # Ottieni l'istanza del gestore di configurazione
+    config_manager = get_config_manager()
+    
+    # Crea un dizionario con le configurazioni necessarie
+    config = {
+        'Database': {
+            'path': config_manager.get('database.annotations_db', os.path.join(DATA_DIR, 'annotations.db')),
+            'backups': config_manager.get('database.backup_dir', os.path.join(BACKUP_DIR)),
+            'max_backups': config_manager.get('database.max_backups', 10)
         }
-        
-        with open(config_path, 'w') as f:
-            config.write(f)
-        
-        annotation_logger.info(f"Creato file di configurazione predefinito: {config_path}")
+    }
     
-    config.read(config_path)
+    annotation_logger.info(f"Configurazione caricata dal gestore centralizzato")
     return config
 
 # --- Funzioni di supporto per le template ---
@@ -1766,69 +1769,203 @@ def recognize_entities():
         if not text:
             return jsonify({"status": "error", "message": "Testo mancante"}), 400
         
-        # Ripristinato - Ora utilizziamo il NER importato
-        annotation_logger.info("Avvio riconoscimento entità...")
-        try:
-            # Verifica se DynamicNERGiuridico è la versione dummy o quella reale
-            if DynamicNERGiuridico.__name__ == 'DummyNER':
-                 annotation_logger.warning("Riconoscimento entità sta usando DummyNER.")
-                 ner = DynamicNERGiuridico()
-            else:
-                annotation_logger.info("Riconoscimento entità sta usando DynamicNERGiuridico reale.")
-                # Qui potremmo implementare il lazy loading se necessario, 
-                # ma per ora istanziamo direttamente per vedere se l'errore 
-                # avviene qui o durante l'import iniziale.
-                ner = DynamicNERGiuridico()
-            
-            result = ner.process(text)
-            entities = []
-            for entity in result.get("entities", []):
-                entities.append({
-                    "start": entity["start_char"],
-                    "end": entity["end_char"],
-                    "text": entity["text"],
-                    "type": entity["type"]
+        # Verifica se _ner_system è disponibile
+        global _ner_system
+        if _ner_system:
+            # Utilizza il sistema NER reale
+            try:
+                annotation_logger.info(f"Riconoscimento automatico con NER system attivo")
+                result = _ner_system.process(text)
+                entities = []
+                
+                # Verifica il formato dei risultati restituiti dal NER
+                if isinstance(result, dict) and "entities" in result:
+                    # Formato di risposta standard (dizionario con entità)
+                    for entity in result.get("entities", []):
+                        entity_data = {
+                            "id": entity.get("id", str(uuid.uuid4())),
+                            "start": entity.get("start_char", entity.get("start", 0)),
+                            "end": entity.get("end_char", entity.get("end", 0)),
+                            "text": entity.get("text", ""),
+                            "type": entity.get("type_id", entity.get("type", "")),
+                            "confidence": entity.get("confidence", 1.0)
+                        }
+                        entities.append(entity_data)
+                        
+                elif hasattr(result, 'entities') and isinstance(result.entities, list):
+                    # Formato con oggetti Entity
+                    for entity in result.entities:
+                        entity_data = {
+                            "id": str(entity.id) if hasattr(entity, 'id') else str(uuid.uuid4()),
+                            "start": entity.start_char if hasattr(entity, 'start_char') else entity.start,
+                            "end": entity.end_char if hasattr(entity, 'end_char') else entity.end,
+                            "text": entity.text,
+                            "type": entity.type_id if hasattr(entity, 'type_id') else (
+                                entity.type.id if hasattr(entity.type, 'id') else entity.type
+                            ),
+                            "confidence": entity.confidence if hasattr(entity, 'confidence') else (
+                                entity.metadata.get('confidence', 1.0) if hasattr(entity, 'metadata') and entity.metadata else 1.0
+                            )
+                        }
+                        entities.append(entity_data)
+                
+                annotation_logger.info(f"Riconosciute {len(entities)} entità")
+                return jsonify({"status": "success", "entities": entities})
+            except Exception as e:
+                annotation_logger.error(f"Errore nell'utilizzo del NER reale: {e}", exc_info=True)
+                # Fallback al dummy in caso di errore
+                dummy_ner = DummyNER()
+                result = dummy_ner.process(text)
+                annotation_logger.warning("Utilizzo fallback con DummyNER a causa di un errore")
+                return jsonify({
+                    "status": "success",
+                    "entities": result.get("entities", []),
+                    "warning": "Utilizzato riconoscitore di backup a causa di un errore nel sistema principale"
                 })
-            annotation_logger.info(f"Riconoscimento completato. Trovate {len(entities)} entità.")
-        except Exception as inner_e:
-             annotation_logger.error(f"Errore specifico durante ner.process(): {inner_e}", exc_info=True)
-             return jsonify({"status": "error", "message": f"Errore interno durante il riconoscimento: {str(inner_e)}"}), 500
-             
-        return jsonify({"status": "success", "entities": entities})
+        else:
+            # Utilizza il DummyNER come fallback
+            annotation_logger.warning("Sistema NER non disponibile, utilizzo DummyNER")
+            dummy_ner = DummyNER()
+            result = dummy_ner.process(text)
+            return jsonify({
+                "status": "success", 
+                "entities": result.get("entities", []),
+                "warning": "Sistema NER principale non disponibile"
+            })
     except Exception as e:
-        # Questo blocco cattura errori esterni al try/except interno (es. istanziazione di DynamicNERGiuridico se fallisce)
-        annotation_logger.error(f"Errore grave nel riconoscimento delle entità: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Errore nel riconoscimento delle entità: {str(e)}"}), 500
+        annotation_logger.error(f"Errore nel riconoscimento delle entità: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/train_model', methods=['POST'])
 @login_required
 def train_model():
     """
-    API per esportare dati di addestramento per il modello.
+    API per esportare dati di addestramento per il modello e addestrare il modello NER.
     """
     try:
+        from src.core.config import get_config_manager
+        config_manager = get_config_manager()
+        
+        data = request.json
+        
+        # Ottieni i percorsi dalla configurazione
+        output_dir = data.get('output_dir', config_manager.get('training.standard.output_dir', 'src/core/data/models/transformer'))
+        
+        # Se il percorso è relativo, fallo assoluto rispetto alla directory root
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(ROOT_DIR, output_dir)
+            
+        # Directory per i dati di addestramento
+        training_data_dir = config_manager.get('training.standard.train_data_dir', 'src/core/data/training_data')
+        if not os.path.isabs(training_data_dir):
+            training_data_dir = os.path.join(ROOT_DIR, training_data_dir)
+            
+        # File per i dati di addestramento
+        output_file = config_manager.get('training.standard.output_file', 'src/core/data/training_data.json')
+        if not os.path.isabs(output_file):
+            output_file = os.path.join(ROOT_DIR, output_file)
+        
+        # Assicurati che le directory esistano
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        annotation_logger.info(f"Preparazione dati di addestramento e export nel formato Spacy...")
         annotations = load_annotations()
         documents = load_documents()
-        ner_data = []
+        
+        # Formato compatibile con Spacy: [{"text": "...", "entities": [[start, end, "LABEL"]]}]
+        training_data = []
+        
         for doc_id, doc_annotations in annotations.items():
             document = next((doc for doc in documents if doc['id'] == doc_id), None)
             if document:
                 text = document['text']
                 entities = []
                 for ann in doc_annotations:
-                    entities.append({
-                        "text": ann['text'],
-                        "type": ann['type'],
-                        "start_char": ann['start'],
-                        "end_char": ann['end']
-                    })
-                ner_data.append({"text": text, "entities": entities})
-        output_file = os.path.join(DATA_DIR, 'ner_training_data.json')
+                    # Formato per Spacy: [start, end, label]
+                    entities.append([
+                        ann['start'],
+                        ann['end'],
+                        ann['type']
+                    ])
+                training_data.append({
+                    "text": text,
+                    "entities": entities
+                })
+        
+        # Salva i dati di addestramento
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(ner_data, f, indent=2, ensure_ascii=False)
-        return jsonify({"status": "success", "message": "Dati di addestramento esportati con successo", "file": output_file, "count": len(ner_data)})
+            json.dump(training_data, f, indent=2, ensure_ascii=False)
+        
+        annotation_logger.info(f"Dati di addestramento salvati in {output_file} (formato Spacy)")
+        
+        # Se richiesto, avvia l'addestramento del modello
+        if data.get('train', False):
+            try:
+                annotation_logger.info(f"Avvio addestramento modello NER...")
+                
+                # Verifica se NERSystem è la versione dummy o quella reale
+                if hasattr(NERSystem, '__name__') and NERSystem.__name__ == 'DummyNER':
+                    annotation_logger.warning("Impossibile addestrare il modello: NERSystem è un dummy")
+                    return jsonify({
+                        "status": "error", 
+                        "message": "Impossibile addestrare il modello: NERSystem non è disponibile",
+                        "data_file": output_file,
+                        "data_count": len(training_data)
+                    }), 500
+                
+                # Crea l'istanza di NERSystem
+                ner = NERSystem()
+                
+                # Ottieni i parametri di addestramento
+                epochs = data.get('epochs', config_manager.get('training.standard.epochs', 5))
+                batch_size = data.get('batch_size', config_manager.get('training.standard.batch_size', 16))
+                
+                # Avvia l'addestramento
+                success = ner.train(
+                    training_data=training_data,
+                    output_dir=output_dir,
+                    epochs=epochs,
+                    batch_size=batch_size
+                )
+                
+                if success:
+                    annotation_logger.info(f"Addestramento completato con successo. Modello salvato in {output_dir}")
+                    return jsonify({
+                        "status": "success", 
+                        "message": f"Modello addestrato con successo e salvato in {output_dir}",
+                        "data_file": output_file,
+                        "data_count": len(training_data),
+                        "model_dir": output_dir
+                    })
+                else:
+                    annotation_logger.error("Addestramento fallito")
+                    return jsonify({
+                        "status": "error", 
+                        "message": "Addestramento fallito",
+                        "data_file": output_file,
+                        "data_count": len(training_data)
+                    }), 500
+            
+            except Exception as train_err:
+                annotation_logger.error(f"Errore durante l'addestramento: {train_err}", exc_info=True)
+                return jsonify({
+                    "status": "error", 
+                    "message": f"Errore durante l'addestramento: {str(train_err)}",
+                    "data_file": output_file,
+                    "data_count": len(training_data)
+                }), 500
+        
+        # Se non è richiesto l'addestramento, restituisci il percorso del file di dati
+        return jsonify({
+            "status": "success", 
+            "message": "Dati di addestramento esportati con successo",
+            "file": output_file, 
+            "count": len(training_data)
+        })
+    
     except Exception as e:
-        annotation_logger.error(f"Errore nell'esportazione dei dati di addestramento: {e}")
+        annotation_logger.error(f"Errore nell'esportazione dei dati di addestramento: {e}", exc_info=True)
         return jsonify({"status": "error", "message": f"Errore: {str(e)}"}), 500
 
 @app.route('/api/clear_annotations', methods=['POST'])
@@ -1926,7 +2063,7 @@ def annotation_stats():
 # -----------------------------------------------------------------------------
 # Endpoint API migliorati per la gestione dei tipi di entità
 # -----------------------------------------------------------------------------
-logger = logging.getLogger("ner_giuridico.entity_api")
+logger = logging.getLogger("ner.entity_api")
 
 def api_endpoint(func):
     """
@@ -2439,3 +2576,492 @@ if __name__ == '__main__':
     annotation_logger.info("Interfaccia di annotazione inizializzata e pronta all'avvio")
     # Non più necessario ottenere ENTITY_TYPES qui se entity_manager li gestisce
     app.run(host='0.0.0.0', port=8080, debug=True)
+
+@app.route('/api/annotation_feedback', methods=['POST'])
+@login_required
+def save_annotation_feedback():
+    """
+    API per salvare il feedback sulle annotazioni automatiche.
+    Questo feedback viene utilizzato per l'apprendimento per rinforzo.
+    """
+    try:
+        data = request.json
+        doc_id = data.get('document_id')
+        original_predictions = data.get('original_predictions', [])
+        validated_entities = data.get('validated_entities', [])
+        timestamp = data.get('timestamp', datetime.datetime.now().isoformat())
+        
+        if not doc_id:
+            return jsonify({"status": "error", "message": "ID documento mancante"}), 400
+        
+        # Verifica che abbiamo dati sul feedback
+        if not original_predictions and not validated_entities:
+            return jsonify({"status": "error", "message": "Nessun dato di feedback fornito"}), 400
+        
+        # Crea la directory per i feedback se non esiste
+        feedback_dir = os.path.join(DATA_DIR, 'feedback')
+        os.makedirs(feedback_dir, exist_ok=True)
+        
+        # Crea un ID univoco per il feedback
+        feedback_id = f"feedback_{doc_id}_{int(time.time())}"
+        
+        # Prepara il payload del feedback
+        feedback_data = {
+            "feedback_id": feedback_id,
+            "document_id": doc_id,
+            "user_id": session.get('user_id'),
+            "username": session.get('username'),
+            "timestamp": timestamp,
+            "original_predictions": original_predictions,
+            "validated_entities": validated_entities
+        }
+        
+        # Salva il feedback in un file JSON
+        feedback_file = os.path.join(feedback_dir, f"{feedback_id}.json")
+        with open(feedback_file, 'w', encoding='utf-8') as f:
+            json.dump(feedback_data, f, indent=2, ensure_ascii=False)
+        
+        # Aggiorna il database di feedback (un JSON che tiene traccia di tutti i feedback)
+        feedback_index_file = os.path.join(feedback_dir, 'feedback_index.json')
+        feedback_index = []
+        
+        if os.path.exists(feedback_index_file):
+            try:
+                with open(feedback_index_file, 'r', encoding='utf-8') as f:
+                    feedback_index = json.load(f)
+            except:
+                feedback_index = []
+        
+        # Aggiungi questo feedback all'indice
+        feedback_index.append({
+            "feedback_id": feedback_id,
+            "document_id": doc_id,
+            "timestamp": timestamp,
+            "num_original": len(original_predictions),
+            "num_validated": len(validated_entities),
+            "file": feedback_file
+        })
+        
+        # Salva l'indice aggiornato
+        with open(feedback_index_file, 'w', encoding='utf-8') as f:
+            json.dump(feedback_index, f, indent=2, ensure_ascii=False)
+        
+        annotation_logger.info(f"Feedback salvato con ID: {feedback_id} per il documento {doc_id}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Feedback salvato con successo",
+            "feedback_id": feedback_id
+        })
+    
+    except Exception as e:
+        annotation_logger.error(f"Errore nel salvataggio del feedback: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Errore: {str(e)}"}), 500
+
+@app.route('/api/train_with_feedback', methods=['POST'])
+@login_required
+@admin_required
+def train_with_feedback():
+    """
+    API per addestrare il modello NLP utilizzando il feedback raccolto.
+    """
+    try:
+        from src.core.config import get_config_manager
+        config_manager = get_config_manager()
+        
+        # Ottieni il percorso di feedback dalla configurazione
+        feedback_dir = config_manager.get('annotation.feedback.storage_dir', 'src/core/annotation/data/feedback')
+        
+        # Assicurati che il percorso sia assoluto
+        if not os.path.isabs(feedback_dir):
+            feedback_dir = os.path.join(ROOT_DIR, feedback_dir)
+            
+        feedback_index_file = os.path.join(feedback_dir, 'feedback_index.json')
+        
+        if not os.path.exists(feedback_index_file):
+            return jsonify({
+                "status": "error",
+                "message": "Nessun feedback disponibile per l'addestramento."
+            }), 400
+        
+        # Carica l'indice dei feedback
+        with open(feedback_index_file, 'r', encoding='utf-8') as f:
+            feedback_index = json.load(f)
+        
+        # Filtra solo i feedback non utilizzati per l'addestramento
+        unused_feedback = [entry for entry in feedback_index if not entry.get('used_for_training', False)]
+        
+        if not unused_feedback:
+            return jsonify({
+                "status": "error",
+                "message": "Nessun nuovo feedback disponibile per l'addestramento."
+            }), 400
+        
+        annotation_logger.info(f"Preparazione di {len(unused_feedback)} feedback per l'addestramento")
+        
+        # Crea il dataset di addestramento
+        training_data = []
+        
+        for entry in unused_feedback:
+            feedback_file = os.path.join(feedback_dir, entry['filename'])
+            if not os.path.exists(feedback_file):
+                annotation_logger.warning(f"File di feedback non trovato: {feedback_file}")
+                continue
+                
+            with open(feedback_file, 'r', encoding='utf-8') as f:
+                feedback_data = json.load(f)
+            
+            # Estrai il testo e le entità corrette
+            text = feedback_data.get('text', '')
+            corrected_entities = feedback_data.get('corrected_entities', [])
+            
+            if not text or not corrected_entities:
+                continue
+            
+            # Converti le entità nel formato richiesto per l'addestramento
+            formatted_entities = []
+            for entity in corrected_entities:
+                formatted_entities.append({
+                    "start": entity['start_char'],
+                    "end": entity['end_char'],
+                    "label": entity['type_id']
+                })
+            
+            # Aggiungi l'esempio al dataset
+            training_data.append({
+                "text": text,
+                "entities": formatted_entities
+            })
+        
+        if not training_data:
+            return jsonify({
+                "status": "error",
+                "message": "Impossibile creare dataset di addestramento dai feedback disponibili."
+            }), 400
+        
+        annotation_logger.info(f"Creato dataset di addestramento con {len(training_data)} esempi")
+        
+        # Percorso per l'output del modello addestrato
+        output_dir = config_manager.get('training.reinforcement.output_dir', 'src/core/data/models/transformer_feedback')
+        if not os.path.isabs(output_dir):
+            output_dir = os.path.join(ROOT_DIR, output_dir)
+            
+        # Assicurati che la directory esista
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Ottieni l'istanza NER dal sistema
+        global _ner_system
+        if not _ner_system:
+            return jsonify({
+                "status": "error",
+                "message": "Sistema NER non disponibile."
+            }), 500
+        
+        # Prepara i parametri di addestramento
+        epochs = config_manager.get('training.reinforcement.epochs', 3)
+        batch_size = config_manager.get('training.reinforcement.batch_size', 4)
+        
+        # Addestra il modello
+        annotation_logger.info(f"Avvio addestramento con {len(training_data)} esempi, {epochs} epoche, batch size {batch_size}")
+        success = _ner_system.train(training_data, output_dir, epochs=epochs, batch_size=batch_size)
+        
+        if not success:
+            return jsonify({
+                "status": "error",
+                "message": "Errore durante l'addestramento del modello."
+            }), 500
+        
+        # Aggiorna il registro dei feedback per indicare quali sono stati utilizzati
+        for entry in feedback_index:
+            if not entry.get('used_for_training', False):
+                entry['used_for_training'] = True
+        
+        # Salva l'indice aggiornato
+        with open(feedback_index_file, 'w', encoding='utf-8') as f:
+            json.dump(feedback_index, f, indent=2, ensure_ascii=False)
+        
+        annotation_logger.info("Addestramento completato con successo e registro feedback aggiornato")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Modello addestrato con successo utilizzando {len(training_data)} esempi.",
+            "details": {
+                "examples_used": len(training_data),
+                "epochs": epochs,
+                "model_dir": output_dir
+            }
+        })
+        
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'addestramento con feedback: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"Errore durante l'addestramento: {str(e)}"
+        }), 500
+
+@app.route('/api/feedback_stats', methods=['GET'])
+@login_required
+def feedback_stats():
+    """
+    API per ottenere statistiche sui feedback raccolti per il reinforcement learning.
+    """
+    try:
+        feedback_dir = os.path.join(DB_PATH.parent, 'feedback')
+        feedback_index_file = os.path.join(feedback_dir, 'feedback_index.json')
+        
+        if not os.path.exists(feedback_index_file):
+            return jsonify({
+                "status": "success",
+                "total_feedback": 0,
+                "unique_documents": 0,
+                "last_feedback_date": None
+            })
+        
+        with open(feedback_index_file, 'r', encoding='utf-8') as f:
+            feedback_index = json.load(f)
+        
+        # Calcola statistiche di base
+        total_feedback = len(feedback_index)
+        unique_documents = len(set(entry['document_id'] for entry in feedback_index))
+        
+        # Trova la data dell'ultimo feedback
+        last_feedback_date = None
+        if feedback_index:
+            # Ordina per timestamp decrescente
+            sorted_feedback = sorted(feedback_index, key=lambda x: x.get('timestamp', ''), reverse=True)
+            if sorted_feedback:
+                timestamp = sorted_feedback[0].get('timestamp')
+                if timestamp:
+                    try:
+                        dt = datetime.datetime.fromisoformat(timestamp)
+                        last_feedback_date = dt.strftime("%d/%m/%Y %H:%M")
+                    except:
+                        last_feedback_date = timestamp
+        
+        # Calcola quanti feedback sono stati utilizzati per l'addestramento
+        used_for_training = sum(1 for entry in feedback_index if entry.get('used_for_training', False))
+        
+        return jsonify({
+            "status": "success",
+            "total_feedback": total_feedback,
+            "unique_documents": unique_documents,
+            "used_for_training": used_for_training,
+            "last_feedback_date": last_feedback_date
+        })
+        
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'ottenimento delle statistiche dei feedback: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# Istanza globale di NERSystem
+_ner_system = None
+
+def register_ner_system(ner_system):
+    """
+    Registra l'istanza NERSystem nell'app Flask.
+    
+    Args:
+        ner_system: Istanza di NERSystem da registrare
+    """
+    global _ner_system
+    _ner_system = ner_system
+    annotation_logger.info("Sistema NER registrato nell'app di annotazione")
+
+@app.route('/test_ner')
+@login_required
+def test_ner():
+    """
+    Pagina per testare il sistema NER.
+    Consente di inserire un testo e visualizzare le entità riconosciute.
+    """
+    return render_template('test_ner.html')
+
+@app.route('/knowledge_graph')
+@login_required
+def knowledge_graph():
+    """
+    Pagina per visualizzare e interagire con il Knowledge Graph.
+    Consente di visualizzare il grafo, avviare run di estrazione e validare i risultati.
+    """
+    return render_template('knowledge_graph.html')
+
+@app.route('/api/knowledge_graph/stats', methods=['GET'])
+@login_required
+def api_knowledge_graph_stats():
+    """
+    API per ottenere statistiche sul Knowledge Graph.
+    """
+    from src.retrival.knowledge_graph.src.neo4j_storage import Neo4jGraphStorage
+    import asyncio
+    
+    try:
+        # Inizializza Neo4jGraphStorage
+        graph_storage = Neo4jGraphStorage()
+        
+        # Esegui in un contesto asincrono
+        async def get_graph_stats():
+            try:
+                await graph_storage.initialize()
+                
+                # Ottieni label dei nodi e tipi di relazioni
+                labels = await graph_storage.get_all_labels()
+                relationship_types = await graph_storage.get_all_relationship_types()
+                
+                # Chiudi la connessione
+                await graph_storage.close()
+                
+                return {
+                    "labels": labels,
+                    "relationship_types": relationship_types
+                }
+            except Exception as e:
+                annotation_logger.error(f"Errore nell'ottenimento delle statistiche del grafo: {e}", exc_info=True)
+                return {"error": str(e)}
+        
+        # Esegui la funzione asincrona
+        stats = asyncio.run(get_graph_stats())
+        
+        if "error" in stats:
+            return jsonify({"status": "error", "message": stats["error"]}), 500
+        
+        return jsonify({
+            "status": "success",
+            "stats": stats
+        })
+        
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'ottenimento delle statistiche del grafo: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/knowledge_graph/get', methods=['GET'])
+@login_required
+def api_get_knowledge_graph():
+    """
+    API per ottenere un sottografo del Knowledge Graph.
+    Parametri:
+        - node_label: Label dei nodi (opzionale)
+        - depth: Profondità massima (predefinita: 2)
+        - limit: Limite massimo di percorsi (predefinito: 100)
+        - relation_types: Tipi di relazione (opzionale, formato: tipo1,tipo2,...)
+    """
+    from src.retrival.knowledge_graph.src.neo4j_storage import Neo4jGraphStorage
+    import asyncio
+    
+    try:
+        # Ottieni parametri dalla query string
+        node_label = request.args.get('node_label')
+        depth = int(request.args.get('depth', 2))
+        limit = int(request.args.get('limit', 100))
+        relation_types_str = request.args.get('relation_types')
+        
+        # Converti relation_types da stringa a lista
+        relation_types = relation_types_str.split(',') if relation_types_str else None
+        
+        # Inizializza Neo4jGraphStorage
+        graph_storage = Neo4jGraphStorage()
+        
+        # Esegui in un contesto asincrono
+        async def get_graph():
+            try:
+                await graph_storage.initialize()
+                
+                # Ottieni il sottografo
+                graph_data = await graph_storage.get_knowledge_graph(
+                    node_label=node_label,
+                    depth=depth,
+                    limit=limit,
+                    relation_types=relation_types
+                )
+                
+                # Chiudi la connessione
+                await graph_storage.close()
+                
+                return graph_data
+            except Exception as e:
+                annotation_logger.error(f"Errore nell'ottenimento del grafo: {e}", exc_info=True)
+                return {"error": str(e)}
+        
+        # Esegui la funzione asincrona
+        graph_data = asyncio.run(get_graph())
+        
+        if isinstance(graph_data, dict) and "error" in graph_data:
+            return jsonify({"status": "error", "message": graph_data["error"]}), 500
+        
+        return jsonify({
+            "status": "success",
+            "graph_data": graph_data
+        })
+        
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'ottenimento del grafo: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/knowledge_graph/run', methods=['POST'])
+@login_required
+@admin_required
+def api_run_knowledge_graph_extraction():
+    """
+    API per avviare un'estrazione del Knowledge Graph.
+    Parametri (JSON):
+        - input_file: Percorso del file JSONL da elaborare
+        - config: Configurazione aggiuntiva (opzionale)
+        - limit: Limite di chunk da elaborare (opzionale)
+        - shuffle: Se randomizzare l'ordine dei chunk (opzionale)
+    """
+    try:
+        data = request.json
+        
+        # Estrai parametri
+        input_file = data.get('input_file')
+        config_file = data.get('config')
+        limit = data.get('limit')
+        shuffle = data.get('shuffle', False)
+        
+        if not input_file:
+            return jsonify({
+                "status": "error",
+                "message": "Parametro 'input_file' richiesto"
+            }), 400
+        
+        # Costruisci il comando per avviare l'estrazione
+        import sys
+        import os
+        import subprocess
+        
+        # Determina il percorso del modulo
+        module_path = os.path.abspath('src/retrival/knowledge_graph/graph_main.py')
+        
+        # Costruisci il comando
+        command = [sys.executable, module_path, '--input-jsonl', input_file]
+        
+        if config_file:
+            command.extend(['--config', config_file])
+        
+        if limit:
+            command.extend(['--limit', str(limit)])
+        
+        if shuffle:
+            command.append('--shuffle')
+        
+        # Avvia il processo in background
+        annotation_logger.info(f"Avvio estrazione del Knowledge Graph con comando: {' '.join(command)}")
+        
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        return jsonify({
+            "status": "success",
+            "message": "Estrazione del Knowledge Graph avviata in background",
+            "process_id": process.pid
+        })
+        
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'avvio dell'estrazione del Knowledge Graph: {e}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": f"Errore nell'avvio dell'estrazione: {str(e)}"
+        }), 500

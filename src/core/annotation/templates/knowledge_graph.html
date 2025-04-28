@@ -1,0 +1,697 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Graph - NER-Giuridico{% endblock %}
+
+{% block page_id %}knowledge-graph{% endblock %}
+
+{% block styles %}
+<style>
+    #graph-container {
+        width: 100%;
+        height: 600px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        background-color: #f9f9f9;
+    }
+    .card-header .btn-group {
+        float: right;
+    }
+    .card-body-scroll {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    #graph-legend {
+        margin-top: 15px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        background-color: #f5f5f5;
+    }
+    .legend-item {
+        display: inline-block;
+        margin-right: 15px;
+        margin-bottom: 5px;
+    }
+    .legend-color {
+        display: inline-block;
+        width: 15px;
+        height: 15px;
+        margin-right: 5px;
+        border-radius: 3px;
+    }
+    .run-form-section {
+        margin-bottom: 15px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="mb-4">
+        <i class="fas fa-project-diagram me-2"></i> Knowledge Graph
+        <small class="text-muted">Visualizzazione e gestione del grafo di conoscenza</small>
+    </h1>
+
+    <div class="row">
+        <div class="col-md-3">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filtri</h5>
+                </div>
+                <div class="card-body">
+                    <form id="graph-filter-form">
+                        <div class="mb-3">
+                            <label for="nodeLabel" class="form-label">Tipo di Entità</label>
+                            <select id="nodeLabel" class="form-select">
+                                <option value="">Tutti i tipi</option>
+                                <!-- Opzioni aggiunte dinamicamente -->
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="depth" class="form-label">Profondità</label>
+                            <input type="range" class="form-range" id="depth" min="1" max="4" value="2">
+                            <div class="d-flex justify-content-between">
+                                <small>1</small>
+                                <small>2</small>
+                                <small>3</small>
+                                <small>4</small>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="limit" class="form-label">Limite risultati</label>
+                            <input type="number" class="form-control" id="limit" min="10" max="500" value="100">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Tipi di Relazione</label>
+                            <div id="relationTypes" class="card-body-scroll">
+                                <!-- Checkbox aggiunti dinamicamente -->
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-search me-2"></i>Visualizza Grafo
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {% if g.user.role == 'admin' %}
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="fas fa-cogs me-2"></i>Estrazione</h5>
+                </div>
+                <div class="card-body">
+                    <form id="run-extraction-form">
+                        <div class="run-form-section">
+                            <label for="inputFile" class="form-label">File di input (JSONL)</label>
+                            <input type="text" class="form-control" id="inputFile" placeholder="Percorso al file JSONL">
+                        </div>
+                        <div class="run-form-section">
+                            <label for="configFile" class="form-label">File di configurazione (opzionale)</label>
+                            <input type="text" class="form-control" id="configFile" placeholder="Percorso al file JSON">
+                        </div>
+                        <div class="run-form-section">
+                            <label for="chunkLimit" class="form-label">Limite chunk (opzionale)</label>
+                            <input type="number" class="form-control" id="chunkLimit" placeholder="Es. 100">
+                        </div>
+                        <div class="run-form-section form-check">
+                            <input type="checkbox" class="form-check-input" id="shuffleChunks">
+                            <label class="form-check-label" for="shuffleChunks">Randomizza chunk</label>
+                        </div>
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="fas fa-play me-2"></i>Avvia Estrazione
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Statistiche</h5>
+                </div>
+                <div class="card-body">
+                    <div id="stats-loading" class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Caricamento...</span>
+                        </div>
+                        <p>Caricamento statistiche...</p>
+                    </div>
+                    <div id="stats-content" style="display:none;">
+                        <h6>Tipi di Entità</h6>
+                        <ul id="entity-types-list" class="list-group mb-3">
+                            <!-- Lista generata dinamicamente -->
+                        </ul>
+                        
+                        <h6>Tipi di Relazione</h6>
+                        <ul id="relation-types-list" class="list-group">
+                            <!-- Lista generata dinamicamente -->
+                        </ul>
+                    </div>
+                    <div id="stats-error" class="alert alert-danger" style="display:none;">
+                        Errore nel caricamento delle statistiche.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-9">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white">
+                    <h5 class="mb-0"><i class="fas fa-project-diagram me-2"></i>Visualizzazione Grafo</h5>
+                    <div class="btn-group" role="group">
+                        <button id="btn-zoom-in" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-search-plus"></i>
+                        </button>
+                        <button id="btn-zoom-out" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-search-minus"></i>
+                        </button>
+                        <button id="btn-reset-view" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                        <button id="btn-save-image" class="btn btn-sm btn-outline-light">
+                            <i class="fas fa-image"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="graph-loading" class="text-center p-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Caricamento grafo...</span>
+                        </div>
+                        <p>Caricamento del grafo in corso...</p>
+                    </div>
+                    <div id="graph-container" style="display:none;"></div>
+                    <div id="graph-error" class="alert alert-danger m-3" style="display:none;">
+                        Errore nel caricamento del grafo.
+                    </div>
+                    <div id="graph-empty" class="alert alert-info m-3" style="display:none;">
+                        Nessun dato trovato. Utilizza i filtri per visualizzare il grafo.
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <div id="graph-legend"></div>
+                    <div id="graph-stats" class="text-muted mt-2"></div>
+                </div>
+            </div>
+
+            <div class="card mb-4">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Dettagli</h5>
+                </div>
+                <div class="card-body">
+                    <div id="node-details">
+                        <p class="text-muted">Seleziona un nodo nel grafo per visualizzarne i dettagli.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/randomcolor@0.6.2/randomColor.min.js"></script>
+
+<script type="module">
+    import { api } from "{{ url_for('static', filename='js/api.js') }}";
+    
+    // Variabili globali
+    let network = null;
+    let nodes = null;
+    let edges = null;
+    let nodeColors = {};
+    let relationshipColors = {};
+    
+    // Cache dei dati
+    let entityTypes = [];
+    let relationshipTypes = [];
+    
+    // Dizionario dei colori delle label
+    const colorMap = {};
+    
+    // Funzione per caricare le statistiche
+    async function loadStats() {
+        try {
+            document.getElementById('stats-loading').style.display = 'block';
+            document.getElementById('stats-content').style.display = 'none';
+            document.getElementById('stats-error').style.display = 'none';
+            
+            const response = await fetch('/api/knowledge_graph/stats');
+            const data = await response.json();
+            
+            if (data.status === 'error') {
+                throw new Error(data.message);
+            }
+            
+            const stats = data.stats;
+            entityTypes = stats.labels || [];
+            relationshipTypes = stats.relationship_types || [];
+            
+            // Aggiungi le opzioni al select
+            const nodeLabelSelect = document.getElementById('nodeLabel');
+            nodeLabelSelect.innerHTML = '<option value="">Tutti i tipi</option>';
+            
+            entityTypes.forEach(label => {
+                const option = document.createElement('option');
+                option.value = label;
+                option.textContent = label;
+                nodeLabelSelect.appendChild(option);
+            });
+            
+            // Aggiungi i checkbox per i tipi di relazione
+            const relationTypesContainer = document.getElementById('relationTypes');
+            relationTypesContainer.innerHTML = '';
+            
+            relationshipTypes.forEach((relType, index) => {
+                const id = `relType_${index}`;
+                const div = document.createElement('div');
+                div.className = 'form-check';
+                div.innerHTML = `
+                    <input class="form-check-input relation-type-checkbox" type="checkbox" value="${relType}" id="${id}" checked>
+                    <label class="form-check-label" for="${id}">${relType}</label>
+                `;
+                relationTypesContainer.appendChild(div);
+            });
+            
+            // Popola le liste di statistiche
+            const entityTypesList = document.getElementById('entity-types-list');
+            entityTypesList.innerHTML = '';
+            
+            entityTypes.forEach(type => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center py-2';
+                
+                // Genera un colore casuale
+                if (!colorMap[type]) {
+                    colorMap[type] = randomColor({luminosity: 'bright'});
+                }
+                
+                li.innerHTML = `
+                    <span><span class="badge" style="background-color: ${colorMap[type]};">&nbsp;</span> ${type}</span>
+                `;
+                entityTypesList.appendChild(li);
+            });
+            
+            const relationTypesList = document.getElementById('relation-types-list');
+            relationTypesList.innerHTML = '';
+            
+            relationshipTypes.forEach(type => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center py-2';
+                
+                if (!relationshipColors[type]) {
+                    relationshipColors[type] = randomColor({luminosity: 'dark'});
+                }
+                
+                li.innerHTML = `
+                    <span><span class="badge" style="background-color: ${relationshipColors[type]};">&nbsp;</span> ${type}</span>
+                `;
+                relationTypesList.appendChild(li);
+            });
+            
+            document.getElementById('stats-loading').style.display = 'none';
+            document.getElementById('stats-content').style.display = 'block';
+            
+        } catch (error) {
+            console.error('Errore nel caricamento delle statistiche:', error);
+            document.getElementById('stats-loading').style.display = 'none';
+            document.getElementById('stats-error').style.display = 'block';
+            document.getElementById('stats-error').textContent = `Errore: ${error.message}`;
+        }
+    }
+    
+    // Funzione per caricare e visualizzare il grafo
+    async function loadGraph(params = {}) {
+        try {
+            document.getElementById('graph-loading').style.display = 'block';
+            document.getElementById('graph-container').style.display = 'none';
+            document.getElementById('graph-error').style.display = 'none';
+            document.getElementById('graph-empty').style.display = 'none';
+            
+            // Costruisci i parametri query
+            const queryParams = new URLSearchParams();
+            if (params.nodeLabel) queryParams.append('node_label', params.nodeLabel);
+            if (params.depth) queryParams.append('depth', params.depth);
+            if (params.limit) queryParams.append('limit', params.limit);
+            if (params.relationTypes && params.relationTypes.length > 0) {
+                queryParams.append('relation_types', params.relationTypes.join(','));
+            }
+            
+            const response = await fetch(`/api/knowledge_graph/get?${queryParams.toString()}`);
+            const data = await response.json();
+            
+            if (data.status === 'error') {
+                throw new Error(data.message);
+            }
+            
+            const graphData = data.graph_data;
+            
+            if (!graphData || graphData.length === 0) {
+                document.getElementById('graph-loading').style.display = 'none';
+                document.getElementById('graph-empty').style.display = 'block';
+                return;
+            }
+            
+            // Prepara i dati per vis.js
+            const nodeSet = new Set();
+            const visNodes = [];
+            const visEdges = [];
+            
+            // Contatore per gli ID unici delle relazioni
+            let edgeCounter = 0;
+            
+            // Elabora ogni percorso nel grafo
+            graphData.forEach(path => {
+                // Aggiungi i nodi
+                path.nodes.forEach(node => {
+                    if (!nodeSet.has(node.id)) {
+                        nodeSet.add(node.id);
+                        
+                        // Determina il colore del nodo in base al tipo
+                        let nodeColor = '#cccccc'; // Colore predefinito
+                        let nodeLabel = 'Unknown';
+                        
+                        // Estrai il tipo di entità dalla proprietà NodeLabels o direttamente dalle etichette
+                        const nodeLabels = Array.isArray(node._labels) ? node._labels : 
+                                           node.NodeLabels ? node.NodeLabels : [];
+                        
+                        if (nodeLabels.length > 0) {
+                            // Usa il primo tipo di entità significativo
+                            const entityType = nodeLabels.find(label => label !== 'Node') || nodeLabels[0];
+                            nodeLabel = entityType;
+                            
+                            // Usa un colore dal dizionario o genera un nuovo colore
+                            if (!colorMap[entityType]) {
+                                colorMap[entityType] = randomColor({luminosity: 'bright'});
+                            }
+                            nodeColor = colorMap[entityType];
+                        }
+                        
+                        visNodes.push({
+                            id: node.id,
+                            label: node.name || node.id,
+                            title: node.description || node.name || node.id,
+                            color: {
+                                background: nodeColor,
+                                border: '#000000',
+                                highlight: {
+                                    background: nodeColor,
+                                    border: '#000000'
+                                }
+                            },
+                            font: {
+                                size: 12
+                            },
+                            data: node,
+                            group: nodeLabel
+                        });
+                    }
+                });
+                
+                // Aggiungi le relazioni
+                path.relationships.forEach(rel => {
+                    const sourceId = rel.start_node.id;
+                    const targetId = rel.end_node.id;
+                    const relType = rel.type;
+                    
+                    // Genera un ID veramente univoco per la relazione
+                    const edgeId = `edge_${sourceId}_${relType}_${targetId}_${edgeCounter++}`;
+                    
+                    // Determina il colore della relazione
+                    if (!relationshipColors[relType]) {
+                        relationshipColors[relType] = randomColor({luminosity: 'dark'});
+                    }
+                    
+                    visEdges.push({
+                        id: edgeId,
+                        from: sourceId,
+                        to: targetId,
+                        label: relType,
+                        font: {
+                            size: 10,
+                            align: 'middle'
+                        },
+                        color: relationshipColors[relType],
+                        arrows: 'to',
+                        data: rel.properties
+                    });
+                });
+            });
+            
+            // Crea il dataset per vis.js
+            nodes = new vis.DataSet(visNodes);
+            edges = new vis.DataSet(visEdges);
+            
+            // Preparati a disegnare il grafo
+            document.getElementById('graph-loading').style.display = 'none';
+            document.getElementById('graph-container').style.display = 'block';
+            
+            // Crea la legenda
+            createLegend();
+            
+            // Aggiorna le statistiche
+            document.getElementById('graph-stats').textContent = 
+                `${visNodes.length} nodi, ${visEdges.length} relazioni`;
+            
+            // Crea la rete
+            drawNetwork();
+            
+        } catch (error) {
+            console.error('Errore nel caricamento del grafo:', error);
+            document.getElementById('graph-loading').style.display = 'none';
+            document.getElementById('graph-error').style.display = 'block';
+            document.getElementById('graph-error').textContent = `Errore: ${error.message}`;
+        }
+    }
+    
+    // Funzione per disegnare la rete
+    function drawNetwork() {
+        const container = document.getElementById('graph-container');
+        
+        const data = {
+            nodes: nodes,
+            edges: edges
+        };
+        
+        const options = {
+            nodes: {
+                shape: 'box',
+                margin: 10,
+                borderWidth: 1,
+                shadow: true
+            },
+            edges: {
+                width: 1,
+                shadow: true,
+                smooth: {
+                    type: 'continuous',
+                    roundness: 0.5
+                }
+            },
+            physics: {
+                stabilization: {
+                    iterations: 100
+                },
+                barnesHut: {
+                    springLength: 150,
+                    springConstant: 0.05,
+                    gravitationalConstant: -2000,
+                    damping: 0.3
+                }
+            },
+            interaction: {
+                tooltipDelay: 200,
+                hover: true,
+                hoverConnectedEdges: true,
+                multiselect: false,
+                navigationButtons: true
+            },
+            groups: {}
+        };
+        
+        // Aggiungi colori dei gruppi
+        Object.keys(colorMap).forEach(group => {
+            options.groups[group] = {
+                color: {
+                    background: colorMap[group],
+                    border: '#000000',
+                    highlight: {
+                        background: colorMap[group],
+                        border: '#000000'
+                    }
+                }
+            };
+        });
+        
+        // Crea la rete
+        network = new vis.Network(container, data, options);
+        
+        // Aggiungi event listener
+        network.on('click', function(params) {
+            const nodeId = params.nodes[0];
+            if (nodeId) {
+                const node = nodes.get(nodeId);
+                showNodeDetails(node);
+            }
+        });
+        
+        // Aggiungi handler per i pulsanti di zoom
+        document.getElementById('btn-zoom-in').addEventListener('click', function() {
+            const scale = network.getScale() * 1.2;
+            network.moveTo({scale: scale});
+        });
+        
+        document.getElementById('btn-zoom-out').addEventListener('click', function() {
+            const scale = network.getScale() / 1.2;
+            network.moveTo({scale: scale});
+        });
+        
+        document.getElementById('btn-reset-view').addEventListener('click', function() {
+            network.fit();
+        });
+        
+        document.getElementById('btn-save-image').addEventListener('click', function() {
+            const canvas = container.querySelector('canvas');
+            if (canvas) {
+                const image = canvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                link.href = image;
+                link.download = 'knowledge-graph.png';
+                link.click();
+            }
+        });
+    }
+    
+    // Funzione per creare la legenda
+    function createLegend() {
+        const legend = document.getElementById('graph-legend');
+        legend.innerHTML = '';
+        
+        // Aggiungi tipi di entità alla legenda
+        Object.keys(colorMap).forEach(type => {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            item.innerHTML = `
+                <span class="legend-color" style="background-color: ${colorMap[type]};"></span>
+                <span>${type}</span>
+            `;
+            legend.appendChild(item);
+        });
+    }
+    
+    // Funzione per mostrare i dettagli di un nodo
+    function showNodeDetails(node) {
+        const detailsContainer = document.getElementById('node-details');
+        
+        if (!node || !node.data) {
+            detailsContainer.innerHTML = '<p class="text-muted">Seleziona un nodo nel grafo per visualizzarne i dettagli.</p>';
+            return;
+        }
+        
+        // Costruisci HTML per i dettagli
+        let html = `
+            <h5>${node.label || 'Nodo'}</h5>
+            <p class="text-muted">${node.data._labels ? node.data._labels.join(', ') : 'Nessun tipo'}</p>
+            <hr>
+        `;
+        
+        html += '<table class="table table-sm table-striped">';
+        html += '<tbody>';
+        
+        // Aggiungi tutte le proprietà tranne quelle riservate
+        Object.entries(node.data).forEach(([key, value]) => {
+            // Salta le proprietà che iniziano con underscore
+            if (key.startsWith('_')) return;
+            
+            // Formatta il valore
+            let formattedValue = value;
+            if (typeof value === 'object') {
+                formattedValue = JSON.stringify(value);
+            }
+            
+            html += `
+                <tr>
+                    <th scope="row">${key}</th>
+                    <td>${formattedValue}</td>
+                </tr>
+            `;
+        });
+        
+        html += '</tbody></table>';
+        
+        detailsContainer.innerHTML = html;
+    }
+    
+    // Handler per il form dei filtri
+    document.getElementById('graph-filter-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const nodeLabel = document.getElementById('nodeLabel').value;
+        const depth = document.getElementById('depth').value;
+        const limit = document.getElementById('limit').value;
+        
+        // Raccogli i tipi di relazione selezionati
+        const relationTypes = [];
+        document.querySelectorAll('.relation-type-checkbox:checked').forEach(checkbox => {
+            relationTypes.push(checkbox.value);
+        });
+        
+        loadGraph({
+            nodeLabel,
+            depth,
+            limit,
+            relationTypes
+        });
+    });
+    
+    // Handler per il form di estrazione
+    {% if g.user.role == 'admin' %}
+    document.getElementById('run-extraction-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const inputFile = document.getElementById('inputFile').value;
+        const configFile = document.getElementById('configFile').value;
+        const chunkLimit = document.getElementById('chunkLimit').value;
+        const shuffleChunks = document.getElementById('shuffleChunks').checked;
+        
+        if (!inputFile) {
+            alert('Il percorso del file di input è richiesto.');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/knowledge_graph/run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    input_file: inputFile,
+                    config: configFile || null,
+                    limit: chunkLimit ? parseInt(chunkLimit) : null,
+                    shuffle: shuffleChunks
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'error') {
+                throw new Error(data.message);
+            }
+            
+            alert('Estrazione avviata con successo in background.');
+            
+        } catch (error) {
+            console.error('Errore nell\'avvio dell\'estrazione:', error);
+            alert('Errore nell\'avvio dell\'estrazione: ' + error.message);
+        }
+    });
+    {% endif %}
+    
+    // Carica le statistiche all'avvio
+    document.addEventListener('DOMContentLoaded', function() {
+        loadStats();
+    });
+</script>
+{% endblock %} 

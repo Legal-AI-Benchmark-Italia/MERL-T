@@ -589,107 +589,521 @@ function handleJumpToAnnotation(annotationId) {
 }
 
 async function handleAutoAnnotate() {
-    // ++ Aggiunta: Non permettere auto-annotazione se lo stato è 'completed' o 'skipped' ++
-    if (documentStatus === 'completed' || documentStatus === 'skipped') {
-        showNotification(`Il documento è ${documentStatus === 'completed' ? 'completato' : 'saltato'}. Non è possibile eseguire il riconoscimento automatico.`, 'warning');
+    // Controlli di sicurezza e preparazione
+    if (!documentText) {
+        showToast('Errore', 'Testo del documento non disponibile', 'error');
         return;
     }
-    // -- Fine Aggiunta --
-
-    if (!textContentEl) return;
-    const text = getTextContent(textContentEl);
-    if (!text || !text.trim()) {
-        showNotification("Nessun testo da analizzare.", "info");
-        return;
-    }
-    if (!autoAnnotateBtn) return;
-
-    autoAnnotateBtn.disabled = true;
-    autoAnnotateBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Riconoscimento...';
-    showLoading("Riconoscimento entità in corso...");
 
     try {
-        const result = await api.recognizeEntities(text);
-        const recognizedEntities = result.entities || [];
-        console.log("Recognized entities raw:", recognizedEntities);
+        // Riferimento al pulsante
+        const autoAnnotateBtn = document.getElementById('auto-annotate-btn');
+        
+        // Mostra indicatore di caricamento
+        autoAnnotateBtn.classList.add('loading');
+        autoAnnotateBtn.disabled = true;
+        autoAnnotateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Elaborazione...';
 
-        if (recognizedEntities.length === 0) {
-            showNotification("Nessuna nuova entità riconosciuta automaticamente.", "info");
-            return; // Esce qui dal blocco try
-        }
-
-        let addedCount = 0;
-        // Filtra tipi invalidi e sovrapposizioni
-        const validNewEntities = recognizedEntities.filter(recEntity => {
-            const recEntityTypeStr = recEntity.type?.toString(); // Usa stringa per lookup
-            if (!recEntityTypeStr || !entityTypesMap.has(recEntityTypeStr)) {
-                console.warn(`Auto-annotate: Skipping entity with unknown/missing type "${recEntityTypeStr}"`, recEntity);
-                return false;
+        // Chiama l'API per il riconoscimento delle entità
+        const response = await api.recognizeEntities(documentText);
+        
+        if (response.status === 'success' && response.entities && response.entities.length > 0) {
+            // Salva le entità riconosciute per la validazione
+            const recognizedEntities = response.entities;
+            
+            // Messaggi di avviso dal server
+            if (response.warning) {
+                showToast('Attenzione', response.warning, 'warning');
             }
-            const overlaps = annotations.some(existingAnn =>
-                (recEntity.start < existingAnn.end && recEntity.end > existingAnn.start)
-            );
-            if (overlaps) {
-                 console.log(`Auto-annotate: Skipping overlapping entity`, recEntity);
-                 return false;
-            }
-            if (recEntity.start == null || recEntity.end == null || recEntity.start >= recEntity.end || !recEntity.text) {
-                 console.warn(`Auto-annotate: Skipping invalid entity data`, recEntity);
-                 return false;
-            }
-            return true;
-        });
-
-        console.log("Valid new entities to add:", validNewEntities);
-
-        if (validNewEntities.length > 0) {
-             showLoading(`Salvataggio di ${validNewEntities.length} nuove annotazioni...`);
-             for (const newAnnData of validNewEntities) {
-                 try {
-                    const annotationPayload = {
-                        start: newAnnData.start,
-                        end: newAnnData.end,
-                        text: newAnnData.text,
-                        type: newAnnData.type?.toString() // Assicura sia stringa per API
-                    };
-                    const saved = await api.saveAnnotation(currentDocId, annotationPayload);
-                    if (saved && saved.annotation) {
-                         // Assicura tipo stringa anche nella risposta
-                         if(saved.annotation.type && typeof saved.annotation.type !== 'string') {
-                           saved.annotation.type = saved.annotation.type.toString();
-                         }
-                        annotations.push(saved.annotation);
-                        addedCount++;
-                    } else {
-                         console.warn("Auto-annotate save response missing annotation data for:", newAnnData);
-                    }
-                 } catch (saveError) {
-                     console.error("Error saving auto-annotation:", newAnnData, saveError);
-                     const errorMsg = saveError.response?.data?.message || saveError.message || "Errore sconosciuto";
-                     showNotification(`Errore salvataggio annotazione auto "${newAnnData.text.substring(0,20)}...": ${errorMsg}`, "warning");
-                 }
-             }
-
-            renderAnnotationList();
-            updateHighlighting();
-            if (addedCount > 0) {
-                showNotification(`${addedCount} nuove annotazioni aggiunte automaticamente.`, 'success');
-            } else {
-                 showNotification("Nessuna nuova annotazione valida è stata salvata (controlla log per errori).", "warning");
+            
+            // Feedback all'utente
+            showToast('Informazione', `Riconosciute ${recognizedEntities.length} entità. Procedi con la validazione.`, 'info');
+            
+            // Creazione modalità di validazione
+            enterValidationMode(recognizedEntities);
+        } else if (response.status === 'success' && (!response.entities || response.entities.length === 0)) {
+            showToast('Informazione', 'Nessuna entità riconosciuta nel testo. Prova ad annotare manualmente.', 'info');
+            
+            // Messaggi di avviso dal server
+            if (response.warning) {
+                showToast('Attenzione', response.warning, 'warning');
             }
         } else {
-            showNotification("Nessuna nuova annotazione non sovrapposta o di tipo valido trovata.", "info");
+            showToast('Errore', 'Risposta dal server non valida', 'error');
         }
-
     } catch (error) {
-        console.error("Error during auto-annotation process:", error);
-        const message = error.response?.data?.message || error.message || "Errore sconosciuto";
-        showNotification(`Errore nel riconoscimento automatico: ${message}`, 'danger');
+        console.error('Errore durante il riconoscimento automatico:', error);
+        showToast('Errore', `Errore durante il riconoscimento automatico: ${error.message}`, 'error');
     } finally {
+        // Ripristina il pulsante
+        const autoAnnotateBtn = document.getElementById('auto-annotate-btn');
+        autoAnnotateBtn.classList.remove('loading');
         autoAnnotateBtn.disabled = false;
         autoAnnotateBtn.innerHTML = '<i class="fas fa-magic me-1"></i> Riconoscimento Auto';
-        hideLoading();
     }
+}
+
+/**
+ * Attiva la modalità di validazione per le entità riconosciute automaticamente
+ * @param {Array} entities - Lista delle entità riconosciute
+ */
+function enterValidationMode(entities) {
+    // Salva le entità originali in una variabile globale per riferimento futuro nel feedback
+    window.originalRecognizedEntities = [...entities];
+    
+    // Crea interfaccia di validazione
+    const validationPanel = document.createElement('div');
+    validationPanel.id = 'validationPanel';
+    validationPanel.className = 'validation-panel card border-primary shadow';
+    validationPanel.innerHTML = `
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Validazione Entità Riconosciute</h5>
+            <button type="button" class="btn-close btn-close-white" aria-label="Chiudi"></button>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>Sono state riconosciute <strong>${entities.length}</strong> entità.
+                <p class="mb-0 small mt-1">Controlla, correggi ed accetta le entità corrette. Questo migliorerà il sistema di riconoscimento automatico nel tempo.</p>
+            </div>
+            <div class="mb-2 d-flex justify-content-between align-items-center">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="selectAllEntities" checked>
+                    <label class="form-check-label" for="selectAllEntities">Seleziona tutte</label>
+                </div>
+                <div class="d-flex">
+                    <div class="btn-group btn-group-sm me-2">
+                        <button class="btn btn-outline-secondary" id="sortByPosition">
+                            <i class="fas fa-sort-numeric-down"></i> Posizione
+                        </button>
+                        <button class="btn btn-outline-secondary" id="sortByConfidence">
+                            <i class="fas fa-sort-amount-down"></i> Confidenza
+                        </button>
+                        <button class="btn btn-outline-secondary" id="sortByType">
+                            <i class="fas fa-sort-alpha-down"></i> Tipo
+                        </button>
+                    </div>
+                    <input type="search" class="form-control form-control-sm" id="filterValidationEntities" placeholder="Filtra...">
+                </div>
+            </div>
+            <div class="entity-validation-list" style="max-height: 60vh; overflow-y: auto;">
+                <table class="table table-sm table-hover">
+                    <thead class="sticky-top bg-white">
+                        <tr>
+                            <th style="width: 40%">Testo</th>
+                            <th style="width: 25%">Tipo</th>
+                            <th style="width: 25%">Confidenza</th>
+                            <th style="width: 10%">Azioni</th>
+                        </tr>
+                    </thead>
+                    <tbody id="entityValidationTbody">
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex justify-content-between mt-3">
+                <button id="rejectAllBtn" class="btn btn-outline-danger">
+                    <i class="fas fa-times me-1"></i> Annulla
+                </button>
+                <button id="acceptSelectedBtn" class="btn btn-success">
+                    <i class="fas fa-check me-1"></i> Conferma Selezionate (<span id="selectedCount">${entities.length}</span>)
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(validationPanel);
+    
+    // Popola la tabella delle entità
+    const tbody = document.getElementById('entityValidationTbody');
+    
+    entities.forEach((entity, index) => {
+        // Cerca l'entityType corrispondente nella mappa
+        const entityType = entityTypesMap.get(entity.type) || {
+            name: entity.type, 
+            color: '#aaa',
+            display_name: entity.type.charAt(0).toUpperCase() + entity.type.slice(1).toLowerCase()
+        };
+        
+        // Formatta la percentuale di confidenza
+        const confidence = entity.confidence ? (entity.confidence * 100).toFixed(0) + '%' : 'N/A';
+        const confidenceClass = entity.confidence > 0.8 ? 'bg-success' : 
+                               entity.confidence > 0.5 ? 'bg-warning' : 'bg-danger';
+        
+        const row = document.createElement('tr');
+        row.dataset.entityIndex = index;
+        row.dataset.entityId = entity.id || `temp_${index}`;
+        row.dataset.entityText = entity.text;
+        row.dataset.entityType = entity.type;
+        row.dataset.entityConfidence = entity.confidence || 0;
+        
+        row.innerHTML = `
+            <td class="entity-text" title="${entity.text}">${entity.text.length > 50 ? entity.text.substring(0, 50) + '...' : entity.text}</td>
+            <td>
+                <span class="badge" style="background-color: ${entityType.color}">
+                    ${entityType.display_name || entityType.name}
+                </span>
+            </td>
+            <td>
+                <div class="progress" style="height: 12px;">
+                    <div class="progress-bar ${confidenceClass}" role="progressbar" 
+                        style="width: ${entity.confidence ? entity.confidence * 100 : 50}%;" 
+                        aria-valuenow="${entity.confidence ? entity.confidence * 100 : 50}" 
+                        aria-valuemin="0" aria-valuemax="100">
+                    </div>
+                </div>
+                <small>${confidence}</small>
+            </td>
+            <td>
+                <div class="form-check">
+                    <input class="form-check-input entity-validation-check" type="checkbox" checked>
+                </div>
+            </td>
+        `;
+        
+        // Click sulla riga per evidenziare l'entità nel testo
+        row.addEventListener('click', (e) => {
+            if (!e.target.matches('input[type="checkbox"]')) {
+                const entity = entities[index];
+                jumpToTextPosition(entity.start, entity.end);
+            }
+        });
+        
+        tbody.appendChild(row);
+    });
+    
+    // Event listener per il checkbox "seleziona tutti"
+    document.getElementById('selectAllEntities').addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        document.querySelectorAll('.entity-validation-check').forEach(checkbox => {
+            checkbox.checked = checked;
+        });
+        updateSelectedCount();
+    });
+    
+    // Event listener per chiudere il pannello di validazione
+    validationPanel.querySelector('.btn-close').addEventListener('click', () => {
+        exitValidationMode();
+    });
+    
+    // Event listener per rifiutare tutte le annotazioni
+    document.getElementById('rejectAllBtn').addEventListener('click', () => {
+        if (confirm("Sei sicuro di voler annullare la validazione? Tutte le entità riconosciute saranno scartate.")) {
+            exitValidationMode();
+        }
+    });
+    
+    // Event listener per accettare le annotazioni selezionate
+    document.getElementById('acceptSelectedBtn').addEventListener('click', async () => {
+        const checkedRows = document.querySelectorAll('#entityValidationTbody tr .entity-validation-check:checked');
+        
+        if (checkedRows.length === 0) {
+            showToast('Avviso', 'Nessuna entità selezionata per il salvataggio', 'warning');
+            return;
+        }
+        
+        const selectedEntities = [];
+        
+        checkedRows.forEach(checkbox => {
+            const row = checkbox.closest('tr');
+            const index = parseInt(row.dataset.entityIndex);
+            selectedEntities.push(entities[index]);
+        });
+        
+        if (selectedEntities.length > 0) {
+            // Salva le entità selezionate come annotazioni
+            await saveRecognizedEntities(selectedEntities);
+        }
+        
+        exitValidationMode();
+    });
+    
+    // Funzione per aggiornare il conteggio delle entità selezionate
+    function updateSelectedCount() {
+        const checkedCount = document.querySelectorAll('.entity-validation-check:checked').length;
+        document.getElementById('selectedCount').textContent = checkedCount;
+    }
+    
+    // Aggiungi event listener per aggiornare il conteggio quando cambia una selezione
+    document.querySelectorAll('.entity-validation-check').forEach(checkbox => {
+        checkbox.addEventListener('change', updateSelectedCount);
+    });
+    
+    // Event listener per ordinare per posizione
+    document.getElementById('sortByPosition').addEventListener('click', () => {
+        sortValidationTable('position');
+    });
+    
+    // Event listener per ordinare per confidenza
+    document.getElementById('sortByConfidence').addEventListener('click', () => {
+        sortValidationTable('confidence');
+    });
+    
+    // Event listener per ordinare per tipo
+    document.getElementById('sortByType').addEventListener('click', () => {
+        sortValidationTable('type');
+    });
+    
+    // Event listener per filtrare le entità
+    document.getElementById('filterValidationEntities').addEventListener('input', (e) => {
+        const filterText = e.target.value.toLowerCase();
+        document.querySelectorAll('#entityValidationTbody tr').forEach(row => {
+            const entityText = row.dataset.entityText.toLowerCase();
+            const entityType = row.dataset.entityType.toLowerCase();
+            
+            if (entityText.includes(filterText) || entityType.includes(filterText)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+    
+    // Funzione per ordinare la tabella di validazione
+    function sortValidationTable(criterion) {
+        const tbody = document.getElementById('entityValidationTbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        
+        rows.sort((a, b) => {
+            if (criterion === 'position') {
+                return parseInt(a.dataset.entityIndex) - parseInt(b.dataset.entityIndex);
+            } else if (criterion === 'confidence') {
+                return parseFloat(b.dataset.entityConfidence) - parseFloat(a.dataset.entityConfidence);
+            } else if (criterion === 'type') {
+                return a.dataset.entityType.localeCompare(b.dataset.entityType);
+            }
+            return 0;
+        });
+        
+        // Rimuovi le righe esistenti
+        rows.forEach(row => row.remove());
+        
+        // Aggiungi le righe ordinate
+        rows.forEach(row => tbody.appendChild(row));
+    }
+    
+    // Evidenzia le entità riconosciute nel testo del documento
+    highlightRecognizedEntities(entities);
+}
+
+/**
+ * Esce dalla modalità di validazione
+ */
+function exitValidationMode() {
+    // Rimuovi il pannello di validazione
+    const validationPanel = document.getElementById('validationPanel');
+    if (validationPanel) {
+        validationPanel.remove();
+    }
+    
+    // Ripristina l'evidenziazione normale
+    updateHighlighting();
+}
+
+/**
+ * Salva le entità riconosciute come annotazioni e invia feedback per l'apprendimento
+ * @param {Array} entities - Lista delle entità riconosciute da salvare
+ */
+async function saveRecognizedEntities(entities) {
+    try {
+        showToast('Informazione', 'Salvataggio annotazioni in corso...', 'info');
+        
+        let savedCount = 0;
+        let feedbackData = {
+            document_id: documentId,
+            original_predictions: [],
+            validated_entities: [],
+            document_text: documentText,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Prima elaboriamo tutte le entità per creare il feedback completo
+        for (const entity of entities) {
+            // Aggiungi l'entità ai dati di feedback come validata
+            feedbackData.validated_entities.push({
+                id: entity.id || generateUniqueId(),
+                start: entity.start,
+                end: entity.end,
+                text: entity.text,
+                type: entity.type,
+                confidence: entity.confidence || 1.0
+            });
+        }
+        
+        // Aggiunge tutte le predizioni originali per confronto
+        if (window.originalRecognizedEntities && window.originalRecognizedEntities.length > 0) {
+            // Per ogni entità originale (incluse quelle rifiutate)
+            const acceptedIds = new Set(entities.map(e => e.id));
+            
+            window.originalRecognizedEntities.forEach(entity => {
+                feedbackData.original_predictions.push({
+                    text: entity.text,
+                    start: entity.start,
+                    end: entity.end,
+                    type: entity.type,
+                    confidence: entity.confidence || 1.0,
+                    was_accepted: acceptedIds.has(entity.id)
+                });
+            });
+        } else {
+            // Se non abbiamo predizioni originali salvate, usiamo le entità accettate
+            feedbackData.original_predictions = entities.map(entity => ({
+                text: entity.text,
+                start: entity.start,
+                end: entity.end,
+                type: entity.type,
+                confidence: entity.confidence || 1.0,
+                was_accepted: true
+            }));
+        }
+        
+        // Invia il feedback per l'apprendimento (prima di salvare le annotazioni)
+        try {
+            const feedbackResponse = await api.sendAnnotationFeedback(feedbackData);
+            console.log("Feedback inviato per il reinforcement learning", feedbackResponse);
+        } catch (error) {
+            console.error("Errore nell'invio del feedback:", error);
+            // Non blocchiamo il flusso principale se c'è un errore nel feedback
+        }
+        
+        // Ora salviamo le entità validate come annotazioni
+        for (const entity of entities) {
+            // Crea un oggetto annotazione
+            const annotation = {
+                id: entity.id || generateUniqueId(),
+                start: entity.start,
+                end: entity.end,
+                text: entity.text,
+                type: entity.type,
+                created_at: new Date().toISOString()
+            };
+            
+            // Aggiungi metadati di confidenza e origine
+            annotation.metadata = {
+                confidence: entity.confidence || 1.0,
+                source: 'auto', // Indica che l'annotazione è stata generata automaticamente
+                validated: true, // Indica che l'annotazione è stata validata dall'utente
+                feedback_sent: true // Indica che è stato inviato feedback
+            };
+            
+            try {
+                // Salva l'annotazione
+                const response = await api.saveAnnotation(documentId, annotation);
+                if (response.status === 'success') {
+                    annotations.push(annotation);
+                    savedCount++;
+                }
+            } catch (error) {
+                console.error(`Errore nel salvataggio dell'annotazione ${annotation.text}:`, error);
+            }
+        }
+        
+        if (savedCount > 0) {
+            // Aggiorna l'interfaccia
+            renderAnnotationList();
+            updateEntityTypeCounters();
+            updateHighlighting();
+            
+            showToast('Successo', `Salvate ${savedCount} annotazioni con feedback per il modello`, 'success');
+            
+            // Aggiorna lo stato del documento se non è già completato
+            if (documentStatus !== 'completed') {
+                await changeDocumentStatus('in_progress');
+            }
+            
+            // Aggiungi una classe css per indicare che questo documento è stato usato per l'addestramento
+            document.getElementById('text-content').classList.add('has-validated-entities');
+        } else {
+            showToast('Avviso', 'Nessuna annotazione salvata', 'warning');
+        }
+    } catch (error) {
+        console.error('Errore durante il salvataggio delle annotazioni:', error);
+        showToast('Errore', `Errore durante il salvataggio: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Evidenzia temporaneamente le entità riconosciute nel testo
+ * @param {Array} entities - Lista delle entità da evidenziare
+ */
+function highlightRecognizedEntities(entities) {
+    const textElement = document.getElementById('documentText');
+    if (!textElement) return;
+    
+    // Pulisci le evidenziazioni esistenti
+    highlightingEngine.removeHighlighting(textElement);
+    
+    // Crea una versione mappabile delle entità
+    const tempAnnotations = entities.map(entity => ({
+        id: 'temp_' + Math.random().toString(36).substring(2, 9),
+        start: entity.start,
+        end: entity.end,
+        text: entity.text,
+        type: entity.type
+    }));
+    
+    // Applica l'evidenziazione con uno stile distintivo per le entità riconosciute
+    highlightingEngine.applyHighlights(textElement, tempAnnotations, entityTypesMap);
+    
+    // Aggiungi una classe speciale agli span di evidenziazione per le entità riconosciute
+    tempAnnotations.forEach(tempAnn => {
+        const span = highlightingEngine.currentHighlights.get(tempAnn.id);
+        if (span) {
+            span.classList.add('recognized-entity');
+            span.style.border = '1px dashed #333';
+        }
+    });
+}
+
+/**
+ * Salta a una posizione specifica nel testo del documento
+ * @param {number} start - Posizione di inizio
+ * @param {number} end - Posizione di fine
+ */
+function jumpToTextPosition(start, end) {
+    const textElement = document.getElementById('documentText');
+    if (!textElement) return;
+    
+    // Evidenzia temporaneamente il testo
+    const tempId = 'temp_' + Math.random().toString(36).substring(2, 9);
+    const tempAnnotation = {
+        id: tempId,
+        start: start,
+        end: end,
+        text: documentText.substring(start, end),
+        type: 'HIGHLIGHT' // Tipo fittizio
+    };
+    
+    // Crea una mappa temporanea con un colore distintivo
+    const tempMap = new Map([['HIGHLIGHT', {name: 'Highlight', color: '#ffff00'}]]);
+    
+    // Ripristina l'evidenziazione originale dopo lo scroll
+    const originalHighlights = [...highlightingEngine.currentHighlights.entries()];
+    
+    // Applica l'evidenziazione temporanea
+    highlightingEngine.applyHighlights(textElement, [tempAnnotation], tempMap);
+    
+    // Scorri fino alla posizione
+    const span = highlightingEngine.currentHighlights.get(tempId);
+    if (span) {
+        span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Aggiungi un effetto visivo
+        span.style.backgroundColor = '#ffff00';
+        span.style.transition = 'background-color 1s ease';
+        
+        // Ripristina l'evidenziazione originale dopo un breve ritardo
+        setTimeout(() => {
+            // Ripristina le evidenziazioni originali
+            highlightingEngine.removeHighlighting(textElement);
+            const originalAnnotations = originalHighlights.map(([id, _]) => 
+                annotations.find(ann => ann.id === id) || tempAnnotation);
+            highlightingEngine.applyHighlights(textElement, originalAnnotations, entityTypesMap);
+        }, 1500);
+    }
+}
+
+// Funzioni di supporto
+function generateUniqueId() {
+    return 'ann_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
 }
 
 // --- Text Editing ---

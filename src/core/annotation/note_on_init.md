@@ -60,7 +60,7 @@ Dopo aver completato la configurazione, puoi avviare l'applicazione:
 
 ```bash
 # Dalla directory principale del progetto
-python -m ner_giuridico.scripts.run_annotation
+python -m ner.scripts.run_annotation
 ```
 
 L'applicazione sarà disponibile all'indirizzo `http://localhost:8080`.

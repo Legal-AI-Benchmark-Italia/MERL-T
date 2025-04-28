@@ -15,9 +15,12 @@ from pathlib import Path
 # Setup del logger
 logger = logging.getLogger("db_manager")
 logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logger.addHandler(handler)
+
+# Verifica se il logger ha già degli handler configurati
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(handler)
 
 class DBContextManager:
     def __init__(self, db_path):

@@ -6,15 +6,15 @@ fastapi
 uvicorn
 pydantic
 python-multipart
-
+sentencepiece==0.2.0
 
 spacy
 transformers
-numpy<2.0.0
+numpy<=2.0.0
 regex
 
 
-neo4j
+neo4j==5.24.0
 
 
 prometheus-client
@@ -37,3 +37,16 @@ transformers
 tensorflow
 tqdm
 --only-binary=pyarrow
+
+# Dipendenze principali
+openai>=1.0.0
+neo4j>=5.8.0
+python-dotenv>=1.0.0
+
+# Dipendenze opzionali per gestione e analisi dati
+pandas>=2.0.0
+numpy>=1.20.0
+
+# Utilità e logging
+tqdm>=4.65.0
+loguru>=0.7.0

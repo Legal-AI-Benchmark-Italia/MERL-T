@@ -171,6 +171,42 @@ export const api = {
             body: formData,
             headers: {} // Rimuovi Content-Type per lasciare che il browser lo imposti correttamente con FormData
         });
-}
+    },
 
+    // Sistema di Addestramento e Feedback
+    trainModel: (options = {}) => request('/train_model', { 
+        method: 'POST', 
+        body: options 
+    }),
+    
+    // Nuovo metodo per inviare feedback sulle annotazioni
+    sendAnnotationFeedback: (data) => request('/annotation_feedback', {
+        method: 'POST',
+        body: data
+    }),
+    
+    // Nuovo metodo per l'addestramento incrementale con i feedback
+    trainModelWithFeedback: () => request('/train_with_feedback', {
+        method: 'POST'
+    }),
+    
+    // Funzioni per il Knowledge Graph
+    getKnowledgeGraphStats: () => request('/knowledge_graph/stats'),
+    
+    getKnowledgeGraph: (params = {}) => {
+        const queryParams = new URLSearchParams();
+        if (params.nodeLabel) queryParams.append('node_label', params.nodeLabel);
+        if (params.depth) queryParams.append('depth', params.depth);
+        if (params.limit) queryParams.append('limit', params.limit);
+        if (params.relationTypes && params.relationTypes.length > 0) {
+            queryParams.append('relation_types', params.relationTypes.join(','));
+        }
+        
+        return request(`/knowledge_graph/get?${queryParams.toString()}`);
+    },
+    
+    runKnowledgeGraphExtraction: (data) => request('/knowledge_graph/run', {
+        method: 'POST',
+        body: data
+    })
 };

@@ -57,10 +57,26 @@
                             <i class="fas fa-chart-line me-1"></i> Statistiche
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'knowledge_graph' %}active{% endif %}" href="{{ url_for('knowledge_graph') }}">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ['knowledge_graph', 'knowledge_graph_validator'] %}active{% endif %}" 
+                           href="#" id="knowledgeGraphDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-project-diagram me-1"></i> Knowledge Graph
                         </a>
+                        <ul class="dropdown-menu" aria-labelledby="knowledgeGraphDropdown">
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'knowledge_graph' %}active{% endif %}" 
+                                   href="{{ url_for('knowledge_graph') }}">
+                                    <i class="fas fa-network-wired me-2"></i>Visualizzazione
+                                </a>
+                            </li>
+                            <li>
+                                <a class="dropdown-item {% if request.endpoint == 'knowledge_graph_validator' %}active{% endif %}" 
+                                   href="{{ url_for('knowledge_graph_validator') }}">
+                                    <i class="fas fa-check-double me-2"></i>Validazione
+                                </a>
+                            </li>
+                        </ul>
                     </li>
                      <li class="nav-item">
                         <a class="nav-link" href="/annotation/use_guide.md" target="_blank"> <!-- Link diretto al file -->
@@ -78,6 +94,7 @@
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="adminDropdown">
                             <li><a class="dropdown-item" href="{{ url_for('admin_users') }}"><i class="fas fa-users me-2"></i>Gestione Utenti</a></li>
                             <li><a class="dropdown-item" href="{{ url_for('register') }}"><i class="fas fa-user-plus me-2"></i>Nuovo Utente</a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin_graph_chunks') }}"><i class="fas fa-project-diagram me-2"></i>Gestione Chunk KG</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{{ url_for('dashboard') }}"><i class="fas fa-chart-bar me-2"></i>Dashboard</a></li>
                         </ul>

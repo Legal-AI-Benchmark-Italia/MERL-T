@@ -3065,3 +3065,229 @@ def api_run_knowledge_graph_extraction():
             "status": "error",
             "message": f"Errore nell'avvio dell'estrazione: {str(e)}"
         }), 500
+
+# Gestione dei chunk del grafo
+
+@app.route('/api/graph_chunks/<chunk_id>', methods=['GET'])
+@login_required
+def api_get_graph_chunk(chunk_id):
+    """API per ottenere un chunk specifico del grafo."""
+    chunk = db_manager.get_graph_chunk(chunk_id)
+    if not chunk:
+        return jsonify({"status": "error", "message": f"Chunk {chunk_id} non trovato"}), 404
+    return jsonify({"status": "success", "chunk": chunk})
+
+@app.route('/api/graph_chunks', methods=['POST'])
+@login_required
+def api_create_graph_chunk():
+    """API per creare un nuovo chunk del grafo."""
+    data = request.json
+    chunk_id = db_manager.save_graph_chunk(data, session.get('user_id'))
+    return jsonify({"status": "success", "chunk_id": chunk_id})
+
+# Gestione delle proposte di modifica
+@app.route('/api/graph_proposals', methods=['GET'])
+@login_required
+def api_get_graph_proposals():
+    """API per ottenere tutte le proposte di modifica per un chunk."""
+    chunk_id = request.args.get('chunk_id')
+    if not chunk_id:
+        return jsonify({"status": "error", "message": "Parametro chunk_id richiesto"}), 400
+    proposals = db_manager.get_graph_proposals(chunk_id)
+    return jsonify({"status": "success", "proposals": proposals})
+
+@app.route('/api/graph_proposals', methods=['POST'])
+@login_required
+def api_create_graph_proposal():
+    """API per creare una nuova proposta di modifica."""
+    data = request.json
+    user_id = session.get('user_id')
+    proposal_id = db_manager.save_graph_proposal(data, user_id)
+    
+    # Calcola il numero di voti necessari (51% degli utenti attivi)
+    total_users = len(db_manager.get_all_users(active_only=True))
+    votes_required = max(1, total_users // 2 + 1)
+    db_manager.update_graph_proposal_votes_required(proposal_id, votes_required)
+    
+    return jsonify({"status": "success", "proposal_id": proposal_id, "votes_required": votes_required})
+
+# Gestione dei voti
+@app.route('/api/graph_votes', methods=['POST'])
+@login_required
+def api_vote_graph_proposal():
+    """API per votare una proposta di modifica."""
+    data = request.json
+    user_id = session.get('user_id')
+    result = db_manager.add_graph_vote(data, user_id)
+    
+    # Verifica se la proposta ha raggiunto il numero di voti necessari
+    if result.get("proposal_approved"):
+        # Applica la modifica al grafo
+        apply_graph_proposal(result["proposal_id"])
+    
+    return jsonify({"status": "success", "result": result})
+
+@app.route('/knowledge_graph_validator')
+@login_required
+def knowledge_graph_validator():
+    """
+    Pagina per visualizzare e validare il Knowledge Graph.
+    Consente di esaminare chunk del grafo e votare sulle proposte di modifica.
+    """
+    return render_template('knowledge_graph_validator.html')
+
+@app.route('/api/graph_chunk_assignments', methods=['GET'])
+@login_required
+@admin_required
+def api_get_chunk_assignments():
+    """API per ottenere le assegnazioni di un chunk."""
+    chunk_id = request.args.get('chunk_id')
+    if not chunk_id:
+        return jsonify({"status": "error", "message": "Parametro chunk_id richiesto"}), 400
+    
+    assignments = db_manager.get_chunk_assignments(chunk_id)
+    return jsonify({"status": "success", "assignments": assignments})
+
+@app.route('/api/graph_chunk_assignments', methods=['POST'])
+@login_required
+@admin_required
+def api_assign_chunk():
+    """API per assegnare un chunk a un utente."""
+    data = request.json
+    chunk_id = data.get('chunk_id')
+    user_id = data.get('user_id')
+    
+    if not chunk_id or not user_id:
+        return jsonify({"status": "error", "message": "chunk_id e user_id sono richiesti"}), 400
+    
+    success = db_manager.assign_chunk_to_user(chunk_id, user_id, session.get('user_id'))
+    
+    if not success:
+        return jsonify({"status": "error", "message": "Errore nell'assegnazione del chunk"}), 500
+    
+    return jsonify({"status": "success", "message": "Chunk assegnato con successo"})
+
+@app.route('/api/graph_chunk_assignments', methods=['DELETE'])
+@login_required
+@admin_required
+def api_remove_chunk_assignment():
+    """API per rimuovere l'assegnazione di un chunk a un utente."""
+    data = request.json
+    chunk_id = data.get('chunk_id')
+    user_id = data.get('user_id')
+    
+    if not chunk_id or not user_id:
+        return jsonify({"status": "error", "message": "chunk_id e user_id sono richiesti"}), 400
+    
+    success = db_manager.remove_chunk_assignment(chunk_id, user_id)
+    
+    if not success:
+        return jsonify({"status": "error", "message": "Errore nella rimozione dell'assegnazione"}), 500
+    
+    return jsonify({"status": "success", "message": "Assegnazione rimossa con successo"})
+
+@app.route('/api/graph_chunks/<chunk_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def api_delete_graph_chunk(chunk_id):
+    """API per eliminare un chunk."""
+    success = db_manager.delete_graph_chunk(chunk_id)
+    
+    if not success:
+        return jsonify({"status": "error", "message": f"Errore nell'eliminazione del chunk {chunk_id}"}), 500
+    
+    return jsonify({"status": "success", "message": f"Chunk {chunk_id} eliminato con successo"})
+                    
+@app.route('/api/apply_graph_proposal', methods=['POST'])
+@login_required
+def api_apply_graph_proposal():
+    """API per applicare una proposta approvata al grafo."""
+    data = request.json
+    proposal_id = data.get('proposal_id')
+    
+    if not proposal_id:
+        return jsonify({"status": "error", "message": "proposal_id richiesto"}), 400
+    
+    try:
+        # Ottieni la proposta 
+        proposal = db_manager.get_graph_proposal(proposal_id)
+        
+        if not proposal or proposal.get('status') != 'approved':
+            return jsonify({"status": "error", "message": "Proposta non trovata o non approvata"}), 404
+        
+        # Applica la proposta al grafo usando il tuo sistema esistente
+        from src.retrival.knowledge_graph.graph_main import apply_changes_to_graph
+        import asyncio
+        
+        async def apply_changes():
+            result = await apply_changes_to_graph(
+                proposal_type=proposal.get('proposal_type'),
+                data=proposal.get('proposed_data')
+            )
+            return result
+        
+        # Esegui l'applicazione asincrona
+        result = asyncio.run(apply_changes())
+        
+        if result.get('success'):
+            # Aggiorna lo stato della proposta
+            db_manager.update_graph_proposal_status(proposal_id, 'applied')
+            
+            # Aggiorna lo stato del chunk se necessario
+            chunk_id = proposal.get('chunk_id')
+            if chunk_id:
+                db_manager.update_graph_chunk_status(chunk_id, 'validated')
+            
+            return jsonify({
+                "status": "success",
+                "message": "Proposta applicata con successo al grafo",
+                "details": result.get('details', {})
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": result.get('message', "Errore nell'applicazione della proposta"),
+                "details": result.get('details', {})
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Errore nell'applicazione della proposta al grafo: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
+@app.route('/admin/graph_chunks')
+@login_required
+@admin_required
+def admin_graph_chunks():
+    """
+    Pagina di amministrazione per gestire i chunk del Knowledge Graph.
+    """
+    return render_template('admin_graph_chunks.html')
+
+@app.route('/api/graph_chunks', methods=['GET'])
+@login_required 
+def api_get_graph_chunks():
+    try:
+        # Assumendo che graph_data sia una lista di nodi
+        graph_data = db_manager.get_graph_chunks()
+        node_label = request.args.get('node_label')
+        
+        # Converti graph_data in dizionario se è una lista
+        if isinstance(graph_data, list):
+            graph_data = {
+                "nodes": graph_data,
+                "edges": []  # o recupera le edges se necessario
+            }
+            
+        chunks = [{
+            "id": str(uuid.uuid4()),
+            "title": f"Sottografo {node_label or ''} ({len(graph_data.get('nodes', []))} nodi)",
+            "description": f"Chunk contenente {len(graph_data.get('nodes', []))} nodi e {len(graph_data.get('edges', []))} relazioni",
+            "status": "pending",
+            "data": graph_data
+        }]
+        
+        return jsonify({"status": "success", "chunks": chunks})
+        
+    except Exception as e:
+        logger.error(f"Errore nell'API dei chunk del grafo: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500

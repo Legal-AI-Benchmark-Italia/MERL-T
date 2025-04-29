@@ -208,5 +208,40 @@ export const api = {
     runKnowledgeGraphExtraction: (data) => request('/knowledge_graph/run', {
         method: 'POST',
         body: data
-    })
+    }),
+
+    // Chunk del grafo
+    getGraphChunks: (status = null) => {
+        const queryParams = new URLSearchParams();
+        if (status) queryParams.append('status', status);
+        return request(`/graph_chunks${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+    },
+    getGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`),
+
+    createGraphChunk: (data) => request('/graph_chunks', { method: 'POST', body: data }),
+
+    // Proposte
+    getGraphProposals: (chunkId) => request(`/graph_proposals?chunk_id=${chunkId}`),
+
+    createGraphProposal: (data) => request('/graph_proposals', { method: 'POST', body: data }),
+
+    // Voti
+    voteGraphProposal: (data) => request('/graph_votes', { method: 'POST', body: data }),
+
+// Aggiungi questi metodi all'oggetto api nel file api.js
+
+// Gestione chunk
+getChunkAssignments: (chunkId) => request(`/graph_chunk_assignments?chunk_id=${chunkId}`),
+
+assignGraphChunk: (chunkId, userId) => request('/graph_chunk_assignments', { 
+    method: 'POST', 
+    body: { chunk_id: chunkId, user_id: userId } 
+}),
+
+removeChunkAssignment: (chunkId, userId) => request('/graph_chunk_assignments', { 
+    method: 'DELETE', 
+    body: { chunk_id: chunkId, user_id: userId } 
+}),
+
+deleteGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`, { method: 'DELETE' }),
 };

@@ -1286,3 +1286,454 @@ class AnnotationDBManager:
         except Exception as e:
             logger.error(f"Errore nell'importazione delle annotazioni: {e}")
             return False
+    
+    # Metodi per i chunk del grafo
+    def get_graph_chunks(self, status=None, assigned_to=None) -> List[Dict[str, Any]]:
+        """Ottiene tutti i chunk del grafo con filtri."""
+        try:
+            with self._get_db() as (conn, cursor):
+                query = "SELECT * FROM graph_chunks"
+                params = []
+                
+                # Costruisci la query dinamicamente in base ai filtri
+                conditions = []
+                if status:
+                    conditions.append("status = ?")
+                    params.append(status)
+                if assigned_to:
+                    conditions.append("assigned_to = ?")
+                    params.append(assigned_to)
+                    
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                    
+                query += " ORDER BY date_created DESC"
+                
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                
+                chunks = []
+                for row in rows:
+                    chunk = dict(row)
+                    
+                    # Converti dati JSON
+                    if 'data' in chunk and chunk['data']:
+                        try:
+                            chunk['data'] = json.loads(chunk['data'])
+                        except json.JSONDecodeError:
+                            self.logger.warning(f"Error decoding data for chunk {chunk['id']}")
+                            chunk['data'] = {}
+                    
+                    chunks.append(chunk)
+                    
+                return chunks
+        except Exception as e:
+            self.logger.error(f"Error retrieving graph chunks: {e}")
+            self.logger.exception(e)
+            return []
+
+    def get_graph_chunk(self, chunk_id: str) -> Dict[str, Any]:
+        """Ottiene un chunk specifico del grafo."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("SELECT * FROM graph_chunks WHERE id = ?", (chunk_id,))
+                row = cursor.fetchone()
+                
+                if not row:
+                    return None
+                    
+                chunk = dict(row)
+                
+                # Converti dati JSON
+                if 'data' in chunk and chunk['data']:
+                    try:
+                        chunk['data'] = json.loads(chunk['data'])
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"Error decoding data for chunk {chunk_id}")
+                        chunk['data'] = {}
+                
+                return chunk
+        except Exception as e:
+            self.logger.error(f"Error retrieving graph chunk {chunk_id}: {e}")
+            self.logger.exception(e)
+            return None
+
+    def save_graph_chunk(self, chunk_data: Dict[str, Any], user_id: str = None) -> str:
+        """Salva un chunk del grafo."""
+        try:
+            now = datetime.datetime.now().isoformat()
+            
+            # Genera un ID se non presente
+            chunk_id = chunk_data.get('id')
+            if not chunk_id:
+                chunk_id = f"chunk_{int(datetime.datetime.now().timestamp())}"
+            
+            # Converti dati in JSON
+            data_json = json.dumps(chunk_data.get('data', {}))
+            
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO graph_chunks 
+                    (id, title, description, chunk_type, data, status, date_created, date_modified, created_by, assigned_to)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        chunk_id,
+                        chunk_data.get('title', f"Chunk {chunk_id}"),
+                        chunk_data.get('description', ''),
+                        chunk_data.get('chunk_type', 'subgraph'),
+                        data_json,
+                        chunk_data.get('status', 'pending'),
+                        chunk_data.get('date_created', now),
+                        now,
+                        chunk_data.get('created_by', user_id),
+                        chunk_data.get('assigned_to')
+                    )
+                )
+                
+                # Log activity
+                if user_id:
+                    self.log_user_activity(
+                        user_id=user_id,
+                        action_type="create_graph_chunk" if cursor.rowcount == 1 else "update_graph_chunk",
+                        document_id=chunk_id
+                    )
+                
+                return chunk_id
+        except Exception as e:
+            self.logger.error(f"Error saving graph chunk: {e}")
+            self.logger.exception(e)
+            return None
+
+    # Metodi per le proposte
+    def get_graph_proposals(self, chunk_id: str) -> List[Dict[str, Any]]:
+        """Ottiene tutte le proposte di modifica per un chunk."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    """
+                    SELECT p.*, 
+                        COUNT(CASE WHEN v.vote = 'approve' THEN 1 END) as approve_count,
+                        COUNT(CASE WHEN v.vote = 'reject' THEN 1 END) as reject_count
+                    FROM graph_proposals p
+                    LEFT JOIN graph_votes v ON p.id = v.proposal_id
+                    WHERE p.chunk_id = ?
+                    GROUP BY p.id
+                    ORDER BY p.date_created DESC
+                    """, 
+                    (chunk_id,)
+                )
+                rows = cursor.fetchall()
+                
+                proposals = []
+                for row in rows:
+                    proposal = dict(row)
+                    
+                    # Converti dati JSON
+                    for field in ['original_data', 'proposed_data']:
+                        if field in proposal and proposal[field]:
+                            try:
+                                proposal[field] = json.loads(proposal[field])
+                            except json.JSONDecodeError:
+                                self.logger.warning(f"Error decoding {field} for proposal {proposal['id']}")
+                                proposal[field] = {}
+                    
+                    # Ottieni i dettagli dei voti
+                    cursor.execute(
+                        """
+                        SELECT v.*, u.username, u.full_name
+                        FROM graph_votes v
+                        JOIN users u ON v.user_id = u.id
+                        WHERE v.proposal_id = ?
+                        """, 
+                        (proposal['id'],)
+                    )
+                    votes = [dict(vote) for vote in cursor.fetchall()]
+                    proposal['votes'] = votes
+                    
+                    proposals.append(proposal)
+                    
+                return proposals
+        except Exception as e:
+            self.logger.error(f"Error retrieving graph proposals: {e}")
+            self.logger.exception(e)
+            return []
+
+    def save_graph_proposal(self, proposal_data: Dict[str, Any], user_id: str = None) -> str:
+        """Salva una proposta di modifica."""
+        try:
+            now = datetime.datetime.now().isoformat()
+            
+            # Genera un ID se non presente
+            proposal_id = proposal_data.get('id')
+            if not proposal_id:
+                proposal_id = f"proposal_{int(datetime.datetime.now().timestamp())}"
+            
+            # Converti dati in JSON
+            original_data_json = json.dumps(proposal_data.get('original_data', {}))
+            proposed_data_json = json.dumps(proposal_data.get('proposed_data', {}))
+            
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO graph_proposals 
+                    (id, chunk_id, proposal_type, original_data, proposed_data, status, votes_required, date_created, date_modified, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        proposal_id,
+                        proposal_data.get('chunk_id'),
+                        proposal_data.get('proposal_type', 'modify'),
+                        original_data_json,
+                        proposed_data_json,
+                        proposal_data.get('status', 'pending'),
+                        proposal_data.get('votes_required', 0),
+                        proposal_data.get('date_created', now),
+                        now,
+                        proposal_data.get('created_by', user_id)
+                    )
+                )
+                
+                # Log activity
+                if user_id:
+                    self.log_user_activity(
+                        user_id=user_id,
+                        action_type="create_graph_proposal",
+                        document_id=proposal_data.get('chunk_id'),
+                        details=f"Proposta di tipo {proposal_data.get('proposal_type')}"
+                    )
+                
+                return proposal_id
+        except Exception as e:
+            self.logger.error(f"Error saving graph proposal: {e}")
+            self.logger.exception(e)
+            return None
+
+    # Metodi per i voti
+    def add_graph_vote(self, vote_data: Dict[str, Any], user_id: str = None) -> Dict[str, Any]:
+        """Aggiunge un voto a una proposta di modifica."""
+        try:
+            now = datetime.datetime.now().isoformat()
+            
+            # Genera un ID se non presente
+            vote_id = vote_data.get('id')
+            if not vote_id:
+                vote_id = f"vote_{int(datetime.datetime.now().timestamp())}"
+            
+            proposal_id = vote_data.get('proposal_id')
+            vote_value = vote_data.get('vote')
+            
+            if not proposal_id or not vote_value:
+                raise ValueError("proposal_id e vote sono campi obbligatori")
+            
+            with self._get_db() as (conn, cursor):
+                # Verifica se l'utente ha già votato questa proposta
+                cursor.execute(
+                    "SELECT id, vote FROM graph_votes WHERE proposal_id = ? AND user_id = ?",
+                    (proposal_id, user_id)
+                )
+                existing_vote = cursor.fetchone()
+                
+                if existing_vote:
+                    # Aggiorna il voto esistente
+                    cursor.execute(
+                        "UPDATE graph_votes SET vote = ?, comment = ?, date_created = ? WHERE id = ?",
+                        (vote_value, vote_data.get('comment', ''), now, existing_vote['id'])
+                    )
+                    vote_id = existing_vote['id']
+                    vote_changed = existing_vote['vote'] != vote_value
+                else:
+                    # Inserisci nuovo voto
+                    cursor.execute(
+                        """
+                        INSERT INTO graph_votes 
+                        (id, proposal_id, user_id, vote, comment, date_created)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            vote_id,
+                            proposal_id,
+                            user_id,
+                            vote_value,
+                            vote_data.get('comment', ''),
+                            now
+                        )
+                    )
+                    vote_changed = True
+                
+                # Log activity
+                if user_id:
+                    self.log_user_activity(
+                        user_id=user_id,
+                        action_type="vote_graph_proposal",
+                        details=f"Voto '{vote_value}' per proposta {proposal_id}"
+                    )
+                
+                # Conta i voti per questa proposta
+                cursor.execute(
+                    """
+                    SELECT 
+                        COUNT(CASE WHEN vote = 'approve' THEN 1 END) as approve_count,
+                        COUNT(CASE WHEN vote = 'reject' THEN 1 END) as reject_count
+                    FROM graph_votes
+                    WHERE proposal_id = ?
+                    """, 
+                    (proposal_id,)
+                )
+                vote_counts = cursor.fetchone()
+                
+                # Ottieni il numero di voti richiesti per la proposta
+                cursor.execute(
+                    "SELECT votes_required FROM graph_proposals WHERE id = ?",
+                    (proposal_id,)
+                )
+                proposal = cursor.fetchone()
+                votes_required = proposal['votes_required'] if proposal else 0
+                
+                # Verifica se la proposta deve essere approvata o respinta
+                approve_count = vote_counts['approve_count']
+                reject_count = vote_counts['reject_count']
+                proposal_approved = False
+                proposal_rejected = False
+                
+                # Se il numero di voti approva o rigetta supera la soglia del 51%
+                if approve_count >= votes_required:
+                    cursor.execute(
+                        "UPDATE graph_proposals SET status = 'approved', date_modified = ? WHERE id = ?",
+                        (now, proposal_id)
+                    )
+                    proposal_approved = True
+                elif reject_count >= votes_required:
+                    cursor.execute(
+                        "UPDATE graph_proposals SET status = 'rejected', date_modified = ? WHERE id = ?",
+                        (now, proposal_id)
+                    )
+                    proposal_rejected = True
+                
+                return {
+                    "vote_id": vote_id,
+                    "proposal_id": proposal_id,
+                    "approve_count": approve_count,
+                    "reject_count": reject_count,
+                    "votes_required": votes_required,
+                    "proposal_approved": proposal_approved,
+                    "proposal_rejected": proposal_rejected,
+                    "vote_changed": vote_changed
+                }
+        except Exception as e:
+            self.logger.error(f"Error adding graph vote: {e}")
+            self.logger.exception(e)
+            return {"status": "error", "message": str(e)}
+
+    # Metodi per le assegnazioni dei chunk
+    def get_chunk_assignments(self, chunk_id: str) -> List[Dict[str, Any]]:
+        """Ottiene le assegnazioni di un chunk."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute("""
+                    SELECT c.id as chunk_id, u.id as user_id, u.username, u.full_name, c.date_modified as assigned_date 
+                    FROM graph_chunks c
+                    JOIN users u ON c.assigned_to = u.id
+                    WHERE c.id = ?
+                """, (chunk_id,))
+                
+                assignments = []
+                for row in cursor.fetchall():
+                    assignments.append(dict(row))
+                
+                return assignments
+        except Exception as e:
+            self.logger.error(f"Error retrieving chunk assignments: {e}")
+            self.logger.exception(e)
+            return []
+
+    def assign_chunk_to_user(self, chunk_id: str, user_id: str, assigner_id: str = None) -> bool:
+        """Assegna un chunk a un utente."""
+        try:
+            now = datetime.datetime.now().isoformat()
+            
+            with self._get_db() as (conn, cursor):
+                # Verifica che il chunk esista
+                cursor.execute("SELECT id FROM graph_chunks WHERE id = ?", (chunk_id,))
+                if not cursor.fetchone():
+                    self.logger.warning(f"Chunk {chunk_id} not found for assignment")
+                    return False
+                
+                # Verifica che l'utente esista
+                cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+                if not cursor.fetchone():
+                    self.logger.warning(f"User {user_id} not found for assignment")
+                    return False
+                
+                # Assegna il chunk
+                cursor.execute(
+                    "UPDATE graph_chunks SET assigned_to = ?, date_modified = ? WHERE id = ?",
+                    (user_id, now, chunk_id)
+                )
+                
+                # Log activity
+                if assigner_id:
+                    self.log_user_activity(
+                        user_id=assigner_id,
+                        action_type="assign_graph_chunk",
+                        document_id=chunk_id,
+                        details=f"Chunk assegnato all'utente {user_id}"
+                    )
+                
+                return True
+        except Exception as e:
+            self.logger.error(f"Error assigning chunk: {e}")
+            self.logger.exception(e)
+            return False
+
+    def remove_chunk_assignment(self, chunk_id: str, user_id: str) -> bool:
+        """Rimuove l'assegnazione di un chunk a un utente."""
+        try:
+            now = datetime.datetime.now().isoformat()
+            
+            with self._get_db() as (conn, cursor):
+                # Verifica che il chunk sia assegnato all'utente specificato
+                cursor.execute(
+                    "SELECT id FROM graph_chunks WHERE id = ? AND assigned_to = ?", 
+                    (chunk_id, user_id)
+                )
+                if not cursor.fetchone():
+                    self.logger.warning(f"Chunk {chunk_id} not assigned to user {user_id}")
+                    return False
+                
+                # Rimuovi l'assegnazione
+                cursor.execute(
+                    "UPDATE graph_chunks SET assigned_to = NULL, date_modified = ? WHERE id = ?",
+                    (now, chunk_id)
+                )
+                
+                return True
+        except Exception as e:
+            self.logger.error(f"Error removing chunk assignment: {e}")
+            self.logger.exception(e)
+            return False
+
+    def delete_graph_chunk(self, chunk_id: str) -> bool:
+        """Elimina un chunk e tutte le proposte e voti associati."""
+        try:
+            with self._get_db() as (conn, cursor):
+                # Elimina i voti associati alle proposte del chunk
+                cursor.execute("""
+                    DELETE FROM graph_votes 
+                    WHERE proposal_id IN (
+                        SELECT id FROM graph_proposals WHERE chunk_id = ?
+                    )
+                """, (chunk_id,))
+                
+                # Elimina le proposte associate al chunk
+                cursor.execute("DELETE FROM graph_proposals WHERE chunk_id = ?", (chunk_id,))
+                
+                # Elimina il chunk
+                cursor.execute("DELETE FROM graph_chunks WHERE id = ?", (chunk_id,))
+                
+                return True
+        except Exception as e:
+            self.logger.error(f"Error deleting graph chunk: {e}")
+            self.logger.exception(e)
+            return False

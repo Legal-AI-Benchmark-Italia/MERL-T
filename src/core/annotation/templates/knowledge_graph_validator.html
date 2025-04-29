@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+
+{% block title %}Validazione Knowledge Graph - NER-Giuridico{% endblock %}
+{% block page_id %}knowledge_graph_validator{% endblock %}
+
+{% block styles %}
+<!-- Aggiungiamo la libreria vis-network per la visualizzazione del grafo -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/dist/vis-network.min.css">
+<style>
+    #graph-viewer {
+        height: 500px;
+        border: 1px solid #ccc;
+        background-color: #f8f9fa;
+    }
+    
+    .chunk-item.active {
+        border-left: 4px solid #0d6efd;
+        background-color: rgba(13, 110, 253, 0.1);
+    }
+    
+    .proposal-card {
+        transition: all 0.3s ease;
+    }
+    
+    .proposal-card:hover {
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+    
+    .entity-highlight {
+        padding: 2px 0;
+        border-radius: 2px;
+        transition: all 0.2s ease-in-out;
+    }
+    
+    .entity-highlight.selected {
+        box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.8);
+    }
+    
+    #entity-info-panel {
+        max-width: 350px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="h3">
+                <i class="fas fa-project-diagram me-2"></i> Validazione Knowledge Graph
+            </h1>
+            <p class="text-muted">
+                Visualizza e valida i chunk del Knowledge Graph attraverso un sistema di votazione collaborativa.
+            </p>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Colonna sinistra: lista chunk e filtri -->
+        <div class="col-md-3">
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Chunk Assegnati</h5>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="filterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-filter"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="filterDropdown">
+                            <li><h6 class="dropdown-header">Filtra per stato</h6></li>
+                            <li>
+                                <select class="form-select form-select-sm mx-2" style="width: 90%;" id="chunk-filter">
+                                    <option value="pending" selected>In attesa</option>
+                                    <option value="validated">Validati</option>
+                                    <option value="rejected">Respinti</option>
+                                    <option value="all">Tutti</option>
+                                </select>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="list-group list-group-flush" id="graph-chunk-list">
+                    <!-- I chunk verranno caricati dinamicamente qui -->
+                    <div class="text-center p-3">
+                        <div class="spinner-border spinner-border-sm text-primary" role="status">
+                            <span class="visually-hidden">Caricamento...</span>
+                        </div>
+                        <p class="text-muted mt-2">Caricamento chunk...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Legenda</h5>
+                </div>
+                <div class="card-body p-2">
+                    <div class="mb-2">
+                        <span class="badge bg-secondary">pending</span> Chunk in attesa di validazione
+                    </div>
+                    <div class="mb-2">
+                        <span class="badge bg-success">validated</span> Chunk validato
+                    </div>
+                    <div class="mb-2">
+                        <span class="badge bg-danger">rejected</span> Chunk respinto
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Colonna centrale: visualizzazione grafo -->
+        <div class="col-md-6">
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Visualizzazione Grafo</h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary" id="zoom-reset-btn">
+                            <i class="fas fa-search"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="toggle-physics-btn">
+                            <i class="fas fa-atom"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="graph-viewer"></div>
+                </div>
+                <div class="card-footer d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle me-1"></i> Clicca su un nodo o una relazione per selezionarlo
+                        </small>
+                    </div>
+                    <button class="btn btn-sm btn-primary" id="create-proposal-btn">
+                        <i class="fas fa-plus me-1"></i> Nuova Proposta
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Legenda Nodi</h5>
+                </div>
+                <div class="card-body p-2">
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <span class="badge" style="background-color: #FF5733;">&nbsp;&nbsp;&nbsp;</span>
+                            <span class="ms-1">Norma</span>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <span class="badge" style="background-color: #33FF57;">&nbsp;&nbsp;&nbsp;</span>
+                            <span class="ms-1">Concetto</span>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <span class="badge" style="background-color: #3357FF;">&nbsp;&nbsp;&nbsp;</span>
+                            <span class="ms-1">Sentenza</span>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <span class="badge" style="background-color: #FF33A8;">&nbsp;&nbsp;&nbsp;</span>
+                            <span class="ms-1">Soggetto</span>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <span class="badge" style="background-color: #33A8FF;">&nbsp;&nbsp;&nbsp;</span>
+                            <span class="ms-1">Procedura</span>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <span class="badge" style="background-color: #A833FF;">&nbsp;&nbsp;&nbsp;</span>
+                            <span class="ms-1">Dottrina</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Colonna destra: proposte di modifica -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Proposte di Modifica</h5>
+                    <button class="btn btn-sm btn-outline-primary" id="refresh-proposals-btn">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <div id="proposal-list" class="p-3">
+                        <!-- Le proposte verranno caricate dinamicamente qui -->
+                        <div class="text-center">
+                            <p class="text-muted">Seleziona un chunk per visualizzare le proposte</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Libreria vis.js per la visualizzazione del grafo -->
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+
+<!-- Script specifico per la validazione del Knowledge Graph -->
+<script type="module">
+    import { initGraphValidator } from "{{ url_for('static', filename='js/knowledgeGraphValidator.js') }}";
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        initGraphValidator();
+        
+        // Carica i chunk assegnati all'utente corrente
+        async function loadAssignedChunks(status = 'pending') {
+            try {
+                showLoading();
+                
+                // Passa l'ID utente per ottenere solo i chunk assegnati
+                const userId = document.body.dataset.userId;
+                const response = await api.getGraphChunks(status, userId);
+                
+                if (response && response.status === 'success') {
+                    graphChunks = response.chunks || [];
+                    renderChunkList(graphChunks);
+                    
+                    // Se c'è almeno un chunk, seleziona il primo
+                    if (graphChunks.length > 0) {
+                        selectChunk(graphChunks[0].id);
+                    } else {
+                        // Nessun chunk disponibile
+                        const graphViewer = document.getElementById('graph-viewer');
+                        if (graphViewer) {
+                            graphViewer.innerHTML = `
+                                <div class="text-center p-5">
+                                    <i class="fas fa-project-diagram fa-4x mb-3 text-muted"></i>
+                                    <h4>Nessun chunk del grafo disponibile</h4>
+                                    <p class="text-muted">Non hai chunk del grafo assegnati con lo stato selezionato.</p>
+                                </div>
+                            `;
+                        }
+                        
+                        const proposalList = document.getElementById('proposal-list');
+                        if (proposalList) {
+                            proposalList.innerHTML = '';
+                        }
+                    }
+                } else {
+                    showNotification('Errore nel caricamento dei chunk del grafo', 'danger');
+                }
+            } catch (error) {
+                console.error('Error loading graph chunks:', error);
+                showNotification(`Errore: ${error.message}`, 'danger');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // Aggiunto event listener per il reset dello zoom
+        document.getElementById('zoom-reset-btn')?.addEventListener('click', () => {
+            // Questa funzione deve essere implementata nel knowledgeGraphValidator.js
+            window.resetGraphZoom && window.resetGraphZoom();
+        });
+        
+        // Aggiunto event listener per il toggle della fisica
+        document.getElementById('toggle-physics-btn')?.addEventListener('click', () => {
+            // Questa funzione deve essere implementata nel knowledgeGraphValidator.js
+            window.toggleGraphPhysics && window.toggleGraphPhysics();
+        });
+        
+        // Aggiunto event listener per il refresh delle proposte
+        document.getElementById('refresh-proposals-btn')?.addEventListener('click', () => {
+            // Questa funzione deve essere implementata nel knowledgeGraphValidator.js
+            window.refreshProposals && window.refreshProposals();
+        });
+    });
+</script>
+{% endblock %}

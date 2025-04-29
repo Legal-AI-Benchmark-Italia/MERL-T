@@ -51,7 +51,7 @@ The NER module follows a layered architecture pattern with distinct components h
 
 ### 2.3 Key Components
 
-1. **NERGiuridico/DynamicNERGiuridico** : Core controllers orchestrating the entity recognition process
+1. **NERGiuridico**: Core controllers orchestrating the entity recognition process
 2. **EntityManager** : Manages entity type definitions, properties, and relationships
 3. **RuleBasedRecognizer** : Identifies entities using regex patterns and gazetteers
 4. **TransformerRecognizer** : Uses deep learning models for entity extraction
@@ -117,7 +117,7 @@ class DynamicEntityManager:
             "custom": set()
         }
         self.observers: List[EntityObserver] = []
-    
+  
     def add_entity_type(self, name: str, display_name: str, category: str, 
                         color: str, metadata_schema: Dict[str, str], 
                         patterns: List[str] = None) -> bool:
@@ -207,13 +207,13 @@ class RuleBasedRecognizer:
     def __init__(self, entity_manager=None):
         self.enabled = config.get("models.rule_based.enable", True)
         self.entity_manager = entity_manager
-    
+  
         # Load patterns
         self.normative_patterns = self._load_patterns("riferimenti_normativi")
         self.jurisprudence_patterns = self._load_patterns("riferimenti_giurisprudenziali")
         self.concepts_gazetteer = self._load_gazetteer("concetti_giuridici")
         self.dynamic_patterns = {}
-    
+  
         # Compile dynamic patterns if entity manager is available
         if self.entity_manager:
             self._compile_dynamic_patterns()
@@ -241,7 +241,7 @@ class TransformerRecognizer:
         self.batch_size = config.get("models.transformer.batch_size", 16)
 #        self.device = config.get("models.transformer.device", "cuda" if torch.cuda.is_available() else "cpu")
         self.quantization = config.get("models.transformer.quantization", False)
-    
+  
         # Load the model and tokenizer
         self._load_model()
   
@@ -265,16 +265,16 @@ class EntityNormalizer:
     def __init__(self, entity_manager=None):
         self.enable = config.get("normalization.enable", True)
         self.entity_manager = entity_manager
-    
+  
         # Load normalization resources
         self.canonical_forms = self._load_canonical_forms()
         self.abbreviations = self._load_abbreviations()
-    
+  
         # Knowledge graph integration
         self.use_knowledge_graph = config.get("normalization.use_knowledge_graph", False)
         if self.use_knowledge_graph:
             self._setup_knowledge_graph()
-        
+      
         # Register normalizers
         self.normalizers = {}
         self._register_default_normalizers()
@@ -324,13 +324,13 @@ The `NERTrainer` class provides functionality for training and fine-tuning model
 class NERTrainer:
     def __init__(self, model_dir: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         # Initialize trainer with configuration
-    
+  
     def train_from_spacy_format(self, spacy_data: List[Dict[str, Any]], 
                                output_model_name: Optional[str] = None,
                                validation_data: Optional[List[Dict[str, Any]]] = None,
                                callbacks: Optional[List[Callable]] = None) -> str:
         # Implementation for training spaCy models
-    
+  
     def train_transformer_model(self, annotations_file: str, 
                               base_model: str = "dbmdz/bert-base-italian-xxl-cased",
                               output_model_name: Optional[str] = None,

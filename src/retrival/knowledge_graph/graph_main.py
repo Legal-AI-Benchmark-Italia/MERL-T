@@ -331,6 +331,87 @@ def update_config_from_entity_manager(config):
     
     return config
 
+async def apply_changes_to_graph(proposal_type, data):
+    """
+    Applica modifiche al grafo basate su una proposta approvata.
+    
+    Args:
+        proposal_type: Tipo di proposta ('add', 'modify', 'delete')
+        data: Dati per la modifica (nodi o relazioni)
+        
+    Returns:
+        dict: Risultato dell'operazione
+    """
+    try:
+        from src.retrival.knowledge_graph.src.neo4j_storage import Neo4jGraphStorage
+        
+        # Inizializza il graph storage
+        graph_storage = Neo4jGraphStorage()
+        await graph_storage.initialize()
+        
+        result = {"success": False, "message": "", "details": {}}
+        
+        if proposal_type == 'add':
+            # Aggiunta di nodi o relazioni
+            if 'nodes' in data:
+                # Aggiunta nodi
+                added_nodes = await graph_storage.add_nodes(data['nodes'])
+                result['details']['added_nodes'] = len(added_nodes)
+                result['success'] = True
+                
+            if 'edges' in data:
+                # Aggiunta relazioni
+                added_edges = await graph_storage.add_relationships(data['edges'])
+                result['details']['added_edges'] = len(added_edges)
+                result['success'] = True
+                
+        elif proposal_type == 'modify':
+            # Modifica nodi o relazioni
+            if 'nodes' in data:
+                # Modifica nodi
+                updated_nodes = await graph_storage.update_nodes(data['nodes'])
+                result['details']['updated_nodes'] = len(updated_nodes)
+                result['success'] = True
+                
+            if 'edges' in data:
+                # Modifica relazioni
+                updated_edges = await graph_storage.update_relationships(data['edges'])
+                result['details']['updated_edges'] = len(updated_edges)
+                result['success'] = True
+                
+        elif proposal_type == 'delete':
+            # Eliminazione nodi o relazioni
+            if 'nodes' in data:
+                # Elimina nodi
+                deleted_nodes = await graph_storage.delete_nodes([node['id'] for node in data['nodes']])
+                result['details']['deleted_nodes'] = len(deleted_nodes)
+                result['success'] = True
+                
+            if 'edges' in data:
+                # Elimina relazioni
+                deleted_edges = await graph_storage.delete_relationships([edge['id'] for edge in data['edges']])
+                result['details']['deleted_edges'] = len(deleted_edges)
+                result['success'] = True
+        else:
+            result['message'] = f"Tipo di proposta non supportato: {proposal_type}"
+            
+        if result['success']:
+            result['message'] = "Modifiche applicate con successo al grafo"
+        
+        # Chiudi la connessione
+        await graph_storage.close()
+        
+        return result
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Errore nell'applicazione delle modifiche al grafo: {e}\n{error_details}")
+        return {
+            "success": False,
+            "message": f"Errore nell'applicazione delle modifiche: {str(e)}",
+            "details": {"error_trace": error_details}
+        }
+
 async def main():
     # Parsing degli argomenti da linea di comando
     parser = argparse.ArgumentParser(description="Estrazione di un grafo di conoscenza giuridica da testo usando un LLM")

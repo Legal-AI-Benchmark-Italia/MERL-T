@@ -211,11 +211,22 @@ export const api = {
     }),
 
     // Chunk del grafo
-    getGraphChunks: (status = null) => {
-        const queryParams = new URLSearchParams();
-        if (status) queryParams.append('status', status);
-        return request(`/graph_chunks${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+    getGraphChunk: (chunkId) => {
+        return request(`/graph_chunks/${chunkId}`)
+            .catch(error => {
+                // Se il chunk non è trovato, restituisci una risposta speciale
+                if (error.message && error.message.includes('non trovato')) {
+                    return {
+                        status: 'error',
+                        message: error.message,
+                        error_type: 'NotFoundError'
+                    };
+                }
+                // Altrimenti propaga l'errore
+                throw error;
+            });
     },
+    
     getGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`),
 
     createGraphChunk: (data) => request('/graph_chunks', { method: 'POST', body: data }),

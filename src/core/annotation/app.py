@@ -3072,11 +3072,51 @@ def api_run_knowledge_graph_extraction():
 @login_required
 def api_get_graph_chunk(chunk_id):
     """API per ottenere un chunk specifico del grafo."""
-    chunk = db_manager.get_graph_chunk(chunk_id)
-    if not chunk:
-        return jsonify({"status": "error", "message": f"Chunk {chunk_id} non trovato"}), 404
-    return jsonify({"status": "success", "chunk": chunk})
-
+    try:
+        from src.retrival.knowledge_graph.src.neo4j_storage import Neo4jGraphStorage
+        import asyncio
+        
+        # Verifica se il chunk esiste nel database locale
+        chunk = db_manager.get_graph_chunk(chunk_id)
+        
+        if not chunk:
+            # Se non esiste nel DB locale, prova a crearlo dal grafo Neo4j
+            graph_storage = Neo4jGraphStorage()
+            
+            async def get_graph_by_id():
+                try:
+                    await graph_storage.initialize()
+                    
+                    # Qui dovrai implementare la logica per ottenere un sottografo basato sull'ID
+                    # Potresti usare una proprietà speciale o un criterio di ricerca
+                    graph_data = await graph_storage.get_subgraph_by_id(chunk_id)
+                    
+                    await graph_storage.close()
+                    return graph_data
+                except Exception as e:
+                    logger.error(f"Errore nell'ottenimento del sottografo per ID: {e}", exc_info=True)
+                    return None
+            
+            # Esegui la funzione asincrona
+            graph_data = asyncio.run(get_graph_by_id())
+            
+            if not graph_data:
+                return jsonify({"status": "error", "message": f"Chunk {chunk_id} non trovato"}), 404
+            
+            # Crea un nuovo chunk da restituire
+            chunk = {
+                "id": chunk_id,
+                "title": f"Sottografo {chunk_id}",
+                "chunk_type": "subgraph",
+                "data": graph_data,
+                "status": "pending"
+            }
+        
+        return jsonify({"status": "success", "chunk": chunk})
+    except Exception as e:
+        logger.error(f"Errore nel recupero del chunk {chunk_id}: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 @app.route('/api/graph_chunks', methods=['POST'])
 @login_required
 def api_create_graph_chunk():
@@ -3198,62 +3238,47 @@ def api_delete_graph_chunk(chunk_id):
     
     return jsonify({"status": "success", "message": f"Chunk {chunk_id} eliminato con successo"})
                     
-@app.route('/api/apply_graph_proposal', methods=['POST'])
-@login_required
-def api_apply_graph_proposal():
-    """API per applicare una proposta approvata al grafo."""
-    data = request.json
-    proposal_id = data.get('proposal_id')
-    
-    if not proposal_id:
-        return jsonify({"status": "error", "message": "proposal_id richiesto"}), 400
+def apply_graph_proposal(proposal_id):
+    """Applica una proposta di modifica al grafo."""
+    proposal = db_manager.get_graph_proposal(proposal_id)
+    if not proposal or proposal["status"] != "approved":
+        return False
     
     try:
-        # Ottieni la proposta 
-        proposal = db_manager.get_graph_proposal(proposal_id)
-        
-        if not proposal or proposal.get('status') != 'approved':
-            return jsonify({"status": "error", "message": "Proposta non trovata o non approvata"}), 404
-        
-        # Applica la proposta al grafo usando il tuo sistema esistente
-        from src.retrival.knowledge_graph.graph_main import apply_changes_to_graph
+        # Chiama Neo4j per applicare la modifica
+        from src.retrival.knowledge_graph.src.neo4j_storage import Neo4jGraphStorage
         import asyncio
         
+        graph_storage = Neo4jGraphStorage()
+        
         async def apply_changes():
-            result = await apply_changes_to_graph(
-                proposal_type=proposal.get('proposal_type'),
-                data=proposal.get('proposed_data')
-            )
-            return result
-        
-        # Esegui l'applicazione asincrona
-        result = asyncio.run(apply_changes())
-        
-        if result.get('success'):
-            # Aggiorna lo stato della proposta
-            db_manager.update_graph_proposal_status(proposal_id, 'applied')
+            await graph_storage.initialize()
             
+            if proposal["proposal_type"] == "add":
+                # Aggiunge nodi o relazioni
+                await graph_storage.add_entities(proposal["proposed_data"])
+            elif proposal["proposal_type"] == "modify":
+                # Modifica nodi o relazioni
+                await graph_storage.update_entities(proposal["proposed_data"])
+            elif proposal["proposal_type"] == "delete":
+                # Elimina nodi o relazioni
+                await graph_storage.delete_entities(proposal["proposed_data"])
+            
+            await graph_storage.close()
+            return True
+        
+        success = asyncio.run(apply_changes())
+        
+        if success:
             # Aggiorna lo stato del chunk se necessario
-            chunk_id = proposal.get('chunk_id')
-            if chunk_id:
-                db_manager.update_graph_chunk_status(chunk_id, 'validated')
-            
-            return jsonify({
-                "status": "success",
-                "message": "Proposta applicata con successo al grafo",
-                "details": result.get('details', {})
-            })
-        else:
-            return jsonify({
-                "status": "error",
-                "message": result.get('message', "Errore nell'applicazione della proposta"),
-                "details": result.get('details', {})
-            }), 500
-            
+            chunk_id = proposal["chunk_id"]
+            db_manager.update_graph_chunk_status(chunk_id, "validated")
+        
+        return success
     except Exception as e:
-        logger.error(f"Errore nell'applicazione della proposta al grafo: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
-    
+        logger.error(f"Errore nell'applicazione della proposta al grafo: {e}")
+        return False
+
 @app.route('/admin/graph_chunks')
 @login_required
 @admin_required
@@ -3263,31 +3288,3 @@ def admin_graph_chunks():
     """
     return render_template('admin_graph_chunks.html')
 
-@app.route('/api/graph_chunks', methods=['GET'])
-@login_required 
-def api_get_graph_chunks():
-    try:
-        # Assumendo che graph_data sia una lista di nodi
-        graph_data = db_manager.get_graph_chunks()
-        node_label = request.args.get('node_label')
-        
-        # Converti graph_data in dizionario se è una lista
-        if isinstance(graph_data, list):
-            graph_data = {
-                "nodes": graph_data,
-                "edges": []  # o recupera le edges se necessario
-            }
-            
-        chunks = [{
-            "id": str(uuid.uuid4()),
-            "title": f"Sottografo {node_label or ''} ({len(graph_data.get('nodes', []))} nodi)",
-            "description": f"Chunk contenente {len(graph_data.get('nodes', []))} nodi e {len(graph_data.get('edges', []))} relazioni",
-            "status": "pending",
-            "data": graph_data
-        }]
-        
-        return jsonify({"status": "success", "chunks": chunks})
-        
-    except Exception as e:
-        logger.error(f"Errore nell'API dei chunk del grafo: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500

@@ -209,7 +209,6 @@ function renderChunkList(chunks) {
     });
 }
 
-// Seleziona un chunk e carica i suoi dati
 async function selectChunk(chunkId) {
     if (currentChunkId === chunkId) return;
     
@@ -225,26 +224,74 @@ async function selectChunk(chunkId) {
         });
         
         // Carica i dati del chunk
-        const response = await api.getGraphChunk(chunkId);
-        
-        if (response && response.status === 'success') {
-            currentChunkId = chunkId;
-            currentGraph = response.chunk.data;
+        try {
+            const response = await api.getGraphChunk(chunkId);
             
-            // Aggiorna la visualizzazione
-            updateGraphVisualization(currentGraph);
+            if (response && response.status === 'success') {
+                currentChunkId = chunkId;
+                currentGraph = response.chunk.data;
+                
+                // Aggiorna la visualizzazione
+                updateGraphVisualization(currentGraph);
+                
+                // Carica le proposte per questo chunk
+                loadChunkProposals(chunkId);
+            } else {
+                throw new Error(response?.message || 'Errore nel caricamento del chunk');
+            }
+        } catch (error) {
+            console.error('Error selecting graph chunk:', error);
+            showNotification(`Errore nel caricamento del chunk: ${error.message}. Caricamento di un chunk alternativo...`, 'warning');
             
-            // Carica le proposte per questo chunk
-            loadChunkProposals(chunkId);
-        } else {
-            showNotification('Errore nel caricamento del chunk', 'danger');
+            // Carica un chunk alternativo
+            try {
+                // Ricarica la lista completa dei chunk
+                await loadAssignedChunks();
+                
+                // Seleziona il primo chunk disponibile
+                if (graphChunks.length > 0) {
+                    selectChunk(graphChunks[0].id);
+                    showNotification('Caricato un chunk alternativo.', 'info');
+                } else {
+                    // Se non ci sono chunk, mostra un messaggio e pulisci la visualizzazione
+                    showEmptyState();
+                }
+                
+            } catch (fallbackError) {
+                console.error('Error loading fallback chunk:', fallbackError);
+                showNotification('Impossibile caricare chunk alternativi.', 'danger');
+                showEmptyState();
+            }
         }
     } catch (error) {
-        console.error('Error selecting graph chunk:', error);
+        console.error('Error in chunk selection workflow:', error);
         showNotification(`Errore: ${error.message}`, 'danger');
+        showEmptyState();
     } finally {
         hideLoading();
     }
+}
+
+// Funzione helper per mostrare lo stato vuoto
+function showEmptyState() {
+    const graphViewer = document.getElementById('graph-viewer');
+    if (graphViewer) {
+        graphViewer.innerHTML = `
+            <div class="text-center p-5">
+                <i class="fas fa-project-diagram fa-4x mb-3 text-muted"></i>
+                <h4>Nessun chunk del grafo disponibile</h4>
+                <p class="text-muted">Non sono disponibili chunk del grafo da visualizzare.</p>
+            </div>
+        `;
+    }
+    
+    const proposalList = document.getElementById('proposal-list');
+    if (proposalList) {
+        proposalList.innerHTML = '';
+    }
+    
+    currentChunkId = null;
+    currentGraph = null;
 }
 
 // Aggiorna la visualizzazione del grafo

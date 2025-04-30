@@ -211,22 +211,15 @@ export const api = {
     }),
 
     // Chunk del grafo
-    getGraphChunk: (chunkId) => {
-        return request(`/graph_chunks/${chunkId}`)
-            .catch(error => {
-                // Se il chunk non è trovato, restituisci una risposta speciale
-                if (error.message && error.message.includes('non trovato')) {
-                    return {
-                        status: 'error',
-                        message: error.message,
-                        error_type: 'NotFoundError'
-                    };
-                }
-                // Altrimenti propaga l'errore
-                throw error;
-            });
+    getGraphChunks: (status = null, assignedTo = null) => {
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+        if (assignedTo) params.append('assigned_to', assignedTo);
+        
+        const endpoint = `/graph_chunks${params.toString() ? '?' + params.toString() : ''}`;
+        return request(endpoint);
     },
-    
+
     getGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`),
 
     createGraphChunk: (data) => request('/graph_chunks', { method: 'POST', body: data }),
@@ -238,8 +231,6 @@ export const api = {
 
     // Voti
     voteGraphProposal: (data) => request('/graph_votes', { method: 'POST', body: data }),
-
-// Aggiungi questi metodi all'oggetto api nel file api.js
 
 // Gestione chunk
 getChunkAssignments: (chunkId) => request(`/graph_chunk_assignments?chunk_id=${chunkId}`),
@@ -255,4 +246,11 @@ removeChunkAssignment: (chunkId, userId) => request('/graph_chunk_assignments', 
 }),
 
 deleteGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`, { method: 'DELETE' }),
+
+// Admin: Generate Chunks
+generateGraphChunks: (params) => request('/admin/generate_chunks', { 
+    method: 'POST', 
+    body: params 
+}),
+
 };

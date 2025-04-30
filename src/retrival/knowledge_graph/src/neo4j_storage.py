@@ -677,3 +677,71 @@ class Neo4jGraphStorage(BaseGraphStorage):
         """Supporto per context manager async: chiude la connessione."""
         logger.debug("Chiamata __aexit__ del context manager")
         await self.close()
+
+    async def get_node_neighborhood(self, seed_node_id: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+        """Recupera il vicinato a 1 hop (nodi e relazioni) per un dato seed node ID."""
+        logger.debug(f"Recupero vicinato per seed node: {seed_node_id}")
+        query = """
+        MATCH (seed {id: $seedId})-[r]-(neighbor)
+        RETURN
+          seed {.*, _labels: labels(seed)} as seedNode,
+          neighbor {.*, _labels: labels(neighbor)} as neighborNode,
+          r {.*, _type: type(r), _start: seed.id, _end: neighbor.id} as relationship
+        """
+        # Note: _start and _end now use the application IDs directly
+        
+        try:
+            results = await self._execute_read(query, {"seedId": seed_node_id})
+            
+            if not results:
+                logger.warning(f"Nessun vicinato trovato per il seed node {seed_node_id}")
+                # Check if the seed node exists at all
+                seed_exists = await self.has_node(seed_node_id)
+                if not seed_exists:
+                     logger.error(f"Seed node {seed_node_id} non trovato nel grafo.")
+                return None
+            
+            nodes_map = {}
+            edges_map = {}
+            
+            for record in results:
+                seed_data = dict(record["seedNode"])
+                neighbor_data = dict(record["neighborNode"])
+                rel_data = dict(record["relationship"])
+                
+                # Add nodes to map (avoids duplicates)
+                if seed_data["id"] not in nodes_map:
+                    nodes_map[seed_data["id"]] = seed_data
+                if neighbor_data["id"] not in nodes_map:
+                    nodes_map[neighbor_data["id"]] = neighbor_data
+                
+                # Format and add relationship
+                rel_id = rel_data.get('id') # Relationships might not have a custom ID 
+                if not rel_id:
+                    # Generate a temporary ID if missing, based on nodes and type
+                    rel_id = f"{rel_data['_start']}-{rel_data['_type']}-{rel_data['_end']}"
+                
+                if rel_id not in edges_map:
+                    formatted_edge = {
+                        "id": rel_id,
+                        "source": rel_data['_start'],
+                        "target": rel_data['_end'],
+                        "type": rel_data['_type']
+                    }
+                    # Add other properties, excluding internal ones
+                    for key, value in rel_data.items():
+                        if not key.startswith('_'):
+                            formatted_edge[key] = value
+                    edges_map[rel_id] = formatted_edge
+            
+            neighborhood_data = {
+                "nodes": list(nodes_map.values()),
+                "edges": list(edges_map.values())
+            }
+            logger.debug(f"Vicinato per {seed_node_id} recuperato: {len(neighborhood_data['nodes'])} nodi, {len(neighborhood_data['edges'])} relazioni.")
+            return neighborhood_data
+            
+        except Exception as e:
+            logger.error(f"Errore nel recupero del vicinato per {seed_node_id}: {e}")
+            logger.exception(e)
+            return None

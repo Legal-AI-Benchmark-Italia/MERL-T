@@ -1358,39 +1358,74 @@ class AnnotationDBManager:
             self.logger.exception(e)
             return None
 
-    def save_graph_chunk(self, chunk_data: Dict[str, Any], user_id: str = None) -> str:
-        """Salva un chunk del grafo."""
+    def check_chunk_exists_for_seed(self, seed_node_id: str) -> bool:
+        """Verifica se esiste già un chunk per un dato seed node ID."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    "SELECT 1 FROM graph_chunks WHERE seed_node_id = ? LIMIT 1", 
+                    (seed_node_id,)
+                )
+                exists = cursor.fetchone() is not None
+                return exists
+        except sqlite3.OperationalError as e:
+            # Handle case where column might not exist yet (though migration should prevent this)
+            if "no such column: seed_node_id" in str(e):
+                self.logger.warning("Column seed_node_id not found, assuming chunk does not exist.")
+                return False
+            else:
+                self.logger.error(f"Error checking chunk existence for seed {seed_node_id}: {e}")
+                return False # Assume false on error?
+        except Exception as e:
+            self.logger.error(f"Error checking chunk existence for seed {seed_node_id}: {e}")
+            return False # Assume false on error?
+
+    def save_graph_chunk(self, chunk_data: Dict[str, Any], user_id: str = None, seed_node_id: Optional[str] = None) -> str:
+        """Salva un chunk del grafo, includendo opzionalmente il seed_node_id."""
         try:
             now = datetime.datetime.now().isoformat()
             
             # Genera un ID se non presente
             chunk_id = chunk_data.get('id')
             if not chunk_id:
-                chunk_id = f"chunk_{int(datetime.datetime.now().timestamp())}"
+                chunk_id = f"chunk_{int(datetime.datetime.now().timestamp())}\""
             
             # Converti dati in JSON
             data_json = json.dumps(chunk_data.get('data', {}))
             
+            # Get seed_node_id from chunk_data if not passed explicitly
+            if seed_node_id is None:
+                seed_node_id = chunk_data.get('seed_node_id')
+                
             with self._get_db() as (conn, cursor):
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO graph_chunks 
-                    (id, title, description, chunk_type, data, status, date_created, date_modified, created_by, assigned_to)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        chunk_id,
-                        chunk_data.get('title', f"Chunk {chunk_id}"),
-                        chunk_data.get('description', ''),
-                        chunk_data.get('chunk_type', 'subgraph'),
-                        data_json,
-                        chunk_data.get('status', 'pending'),
-                        chunk_data.get('date_created', now),
-                        now,
-                        chunk_data.get('created_by', user_id),
-                        chunk_data.get('assigned_to')
-                    )
+                # Check if seed_node_id column exists
+                cursor.execute("PRAGMA table_info(graph_chunks)")
+                columns = [col[1] for col in cursor.fetchall()]
+                has_seed_col = 'seed_node_id' in columns
+
+                sql = f'''
+                INSERT OR REPLACE INTO graph_chunks 
+                (id, title, description, chunk_type, data, status, date_created, date_modified, created_by, assigned_to{', seed_node_id' if has_seed_col else ''})
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?{', ?' if has_seed_col else ''})
+                '''
+                
+                params = (
+                    chunk_id,
+                    chunk_data.get('title', f"Chunk {chunk_id}"),
+                    chunk_data.get('description', ''),
+                    chunk_data.get('chunk_type', 'subgraph'),
+                    data_json,
+                    chunk_data.get('status', 'pending'),
+                    chunk_data.get('date_created', now),
+                    now,
+                    chunk_data.get('created_by', user_id),
+                    chunk_data.get('assigned_to'),
                 )
+                
+                if has_seed_col:
+                    params += (seed_node_id,)
+                    
+                cursor.execute(sql, params)
                 
                 # Log activity
                 if user_id:
@@ -1509,6 +1544,48 @@ class AnnotationDBManager:
             self.logger.error(f"Error saving graph proposal: {e}")
             self.logger.exception(e)
             return None
+
+    def update_graph_proposal_status(self, proposal_id: str, status: str, message: Optional[str] = None) -> bool:
+        """Aggiorna lo stato di una proposta e opzionalmente aggiunge un messaggio."""
+        allowed_statuses = ['pending', 'approved', 'rejected', 'applied', 'failed']
+        if status not in allowed_statuses:
+            self.logger.error(f"Tentativo di impostare uno stato non valido '{status}' per la proposta {proposal_id}")
+            return False
+            
+        try:
+            now = datetime.datetime.now().isoformat()
+            with self._get_db() as (conn, cursor):
+                # Potremmo voler aggiungere un campo 'message' alla tabella graph_proposals per memorizzare errori o note
+                # Per ora, aggiorniamo solo lo stato e la data di modifica.
+                cursor.execute(
+                    "UPDATE graph_proposals SET status = ?, date_modified = ? WHERE id = ?",
+                    (status, now, proposal_id)
+                )
+                conn.commit()
+                success = cursor.rowcount > 0
+                if success:
+                    self.logger.info(f"Stato della proposta {proposal_id} aggiornato a '{status}' (Messaggio: {message or 'N/A'})")
+                else:
+                     self.logger.warning(f"Nessuna proposta trovata con ID {proposal_id} per aggiornare lo stato a '{status}'.")
+                return success
+        except Exception as e:
+            self.logger.error(f"Errore nell'aggiornamento dello stato della proposta {proposal_id}: {e}")
+            self.logger.exception(e)
+            return False
+            
+    def update_graph_proposal_votes_required(self, proposal_id: str, votes_required: int) -> bool:
+        """Aggiorna il numero di voti richiesti per una proposta."""
+        try:
+            with self._get_db() as (conn, cursor):
+                cursor.execute(
+                    "UPDATE graph_proposals SET votes_required = ? WHERE id = ?",
+                    (votes_required, proposal_id)
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            self.logger.error(f"Errore nell'aggiornamento dei voti richiesti per la proposta {proposal_id}: {e}")
+            return False
 
     # Metodi per i voti
     def add_graph_vote(self, vote_data: Dict[str, Any], user_id: str = None) -> Dict[str, Any]:

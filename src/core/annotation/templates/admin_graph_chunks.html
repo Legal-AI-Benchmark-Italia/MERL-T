@@ -29,6 +29,9 @@
                             <option value="validated">Validati</option>
                             <option value="rejected">Respinti</option>
                         </select>
+                        <button id="generate-chunks-btn" class="btn btn-sm btn-info me-2" title="Genera Nuovi Chunk di Validazione">
+                            <i class="fas fa-cogs"></i> Genera
+                        </button>
                         <button id="create-new-chunk-btn" class="btn btn-sm btn-success">
                             <i class="fas fa-plus"></i>
                         </button>
@@ -183,6 +186,48 @@
         </div>
     </div>
 </div>
+
+<!-- Modal per la generazione dei chunk -->
+<div class="modal fade" id="generateChunksModal" tabindex="-1" aria-labelledby="generateChunksModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="generateChunksModalLabel">Genera Chunk di Validazione</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Configura i parametri per la generazione dei chunk basati sul vicinato dei nodi seed.</p>
+                
+                <form id="generate-chunks-form">
+                    <div class="mb-3">
+                        <label for="num-chunks-input" class="form-label">Numero di Chunk da Generare</label>
+                        <input type="number" class="form-control" id="num-chunks-input" value="10" min="1" max="1000" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="seed-label-input" class="form-label">Label del Nodo Seed</label>
+                        <input type="text" class="form-control" id="seed-label-input" value="Norma" placeholder="Es: Norma, AttoGiudiziario" required>
+                         <small class="form-text text-muted">La label principale dei nodi da cui partire per creare i chunk.</small>
+                    </div>
+                    
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" value="" id="force-recreate-checkbox">
+                        <label class="form-check-label" for="force-recreate-checkbox">
+                            Forza Ricreazione
+                        </label>
+                        <small class="form-text text-muted d-block">Se selezionato, crea nuovi chunk anche se ne esistono già per i nodi seed selezionati.</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="confirm-generate-chunks-btn">
+                    <i class="fas fa-cogs me-1"></i> Genera Chunk
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -195,6 +240,7 @@
     let users = [];
     let currentChunkId = null;
     let deleteChunkModalInstance = null;
+    let generateChunksModalInstance = null;
     
     // Inizializzazione della pagina
     document.addEventListener('DOMContentLoaded', () => {
@@ -214,6 +260,10 @@
         const deleteChunkModalEl = document.getElementById('deleteChunkModal');
         if (deleteChunkModalEl) {
             deleteChunkModalInstance = new bootstrap.Modal(deleteChunkModalEl);
+        }
+        const generateChunksModalEl = document.getElementById('generateChunksModal');
+        if (generateChunksModalEl) {
+            generateChunksModalInstance = new bootstrap.Modal(generateChunksModalEl);
         }
     }
     
@@ -237,6 +287,10 @@
         // Eliminazione chunk
         document.getElementById('delete-chunk-btn')?.addEventListener('click', showDeleteChunkModal);
         document.getElementById('confirm-delete-chunk-btn')?.addEventListener('click', deleteChunk);
+        
+        // Add listener for generate chunks button
+        document.getElementById('generate-chunks-btn')?.addEventListener('click', showGenerateChunksModal);
+        document.getElementById('confirm-generate-chunks-btn')?.addEventListener('click', generateChunks);
     }
     
     // Carica i chunk esistenti
@@ -679,6 +733,68 @@
             return date.toLocaleString();
         } catch {
             return dateString;
+        }
+    }
+
+    // Show modal to confirm chunk generation
+    function showGenerateChunksModal() {
+        document.getElementById('num-chunks-input').value = 10;
+        document.getElementById('seed-label-input').value = 'Norma';
+        document.getElementById('force-recreate-checkbox').checked = false;
+        
+        if (generateChunksModalInstance) {
+            generateChunksModalInstance.show();
+        } else {
+            console.error("Generate chunks modal not initialized.");
+        }
+    }
+
+    // Call the backend API to generate chunks
+    async function generateChunks() {
+        const numChunksInput = document.getElementById('num-chunks-input');
+        const seedLabelInput = document.getElementById('seed-label-input');
+        const forceRecreateCheckbox = document.getElementById('force-recreate-checkbox');
+
+        const numChunks = parseInt(numChunksInput?.value || '10', 10);
+        const seedLabel = seedLabelInput?.value || 'Norma';
+        const forceRecreate = forceRecreateCheckbox?.checked || false;
+
+        if (isNaN(numChunks) || numChunks <= 0) {
+            showNotification('Inserisci un numero valido di chunk da generare.', 'warning');
+            return;
+        }
+        if (!seedLabel) {
+            showNotification('Inserisci una label valida per i nodi seed.', 'warning');
+            return;
+        }
+
+        try {
+            showLoading();
+            showNotification('Generazione chunk in corso... Potrebbe richiedere tempo.', 'info');
+            
+            const response = await api.generateGraphChunks({
+                num_chunks: numChunks,
+                seed_label: seedLabel,
+                force_recreate: forceRecreate
+            });
+            
+            hideLoading();
+            
+            if (response && response.status === 'success') {
+                showNotification(response.message || 'Generazione chunk completata.', 'success');
+                await loadChunks();
+            } else {
+                showNotification(response?.message || 'Errore durante la generazione dei chunk', 'danger');
+            }
+        } catch (error) {
+            hideLoading();
+            console.error('Error generating chunks:', error);
+            showNotification(`Errore API: ${error.message}`, 'danger');
+        } finally {
+            if (generateChunksModalInstance) {
+                generateChunksModalInstance.hide();
+            }
+            hideLoading();
         }
     }
 </script>

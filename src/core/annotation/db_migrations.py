@@ -69,6 +69,13 @@ class MigrationManager:
             "function": self._migration_004_add_graph_tables
         })
 
+        # Add the new migration for seed_node_id column
+        self.migrations.append({
+            "version": "005_add_seed_node_id_to_chunks",
+            "description": "Add seed_node_id column to graph_chunks table",
+            "function": self._migration_005_add_seed_node_id_to_chunks
+        })
+
         logger.debug(f"Registered {len(self.migrations)} migrations.")
 
     def _create_migrations_table(self):
@@ -305,6 +312,36 @@ class MigrationManager:
 
             conn.commit()
             logger.info("All graph related tables created successfully.")
+
+    def _migration_005_add_seed_node_id_to_chunks(self):
+        """Add seed_node_id column to the graph_chunks table."""
+        logger.info("Running migration 005: Add seed_node_id to graph_chunks")
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # Check if table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='graph_chunks'")
+            if not cursor.fetchone():
+                logger.error("Table 'graph_chunks' does not exist. Cannot apply migration 005.")
+                # This shouldn't happen if migration 004 ran correctly
+                raise RuntimeError("Prerequisite table 'graph_chunks' missing for migration 005")
+
+            # Check if column exists
+            cursor.execute("PRAGMA table_info(graph_chunks)")
+            columns = [col[1] for col in cursor.fetchall()]
+            column_exists = 'seed_node_id' in columns
+
+            if not column_exists:
+                logger.info("Adding 'seed_node_id' column to 'graph_chunks' table")
+                cursor.execute("ALTER TABLE graph_chunks ADD COLUMN seed_node_id TEXT")
+                # Optional: Create an index for faster lookups if needed later
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_graph_chunks_seed_node_id ON graph_chunks(seed_node_id)")
+                logger.info("Column 'seed_node_id' added.")
+            else:
+                logger.info("Column 'seed_node_id' already exists in 'graph_chunks'.")
+
+            conn.commit()
 
 
 def run_migrations(db_path: str):

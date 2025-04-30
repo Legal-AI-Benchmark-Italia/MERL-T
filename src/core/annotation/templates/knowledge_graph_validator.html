@@ -130,9 +130,17 @@
                             <i class="fas fa-info-circle me-1"></i> Clicca su un nodo o una relazione per selezionarlo
                         </small>
                     </div>
-                    <button class="btn btn-sm btn-primary" id="create-proposal-btn">
-                        <i class="fas fa-plus me-1"></i> Nuova Proposta
-                    </button>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-success" id="init-add-proposal-btn" title="Proponi Aggiunta"> 
+                            <i class="fas fa-plus"></i> Add 
+                        </button>
+                        <button class="btn btn-warning" id="init-modify-proposal-btn" title="Proponi Modifica (seleziona elementi prima)">
+                            <i class="fas fa-edit"></i> Modify
+                        </button>
+                        <button class="btn btn-danger" id="init-delete-proposal-btn" title="Proponi Eliminazione (seleziona elementi prima)">
+                            <i class="fas fa-trash-alt"></i> Delete
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -176,9 +184,19 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Proposte di Modifica</h5>
-                    <button class="btn btn-sm btn-outline-primary" id="refresh-proposals-btn">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>
+                    <div class="btn-toolbar">
+                        <select id="proposal-status-filter" class="form-select form-select-sm me-2" style="width: auto;">
+                           <option value="all">Tutti</option>
+                           <option value="pending" selected>In attesa</option>
+                           <option value="approved">Approvate</option>
+                           <option value="applied">Applicate</option>
+                           <option value="rejected">Respinte</option>
+                           <option value="failed">Fallite</option>
+                       </select>
+                       <button class="btn btn-sm btn-outline-primary" id="refresh-proposals-btn" title="Aggiorna proposte">
+                           <i class="fas fa-sync-alt"></i>
+                       </button>
+                    </div>
                 </div>
                 <div class="card-body p-0">
                     <div id="proposal-list" class="p-3">
@@ -201,73 +219,50 @@
 <!-- Script specifico per la validazione del Knowledge Graph -->
 <script type="module">
     import { initGraphValidator } from "{{ url_for('static', filename='js/knowledgeGraphValidator.js') }}";
+    // We need ui utilities for loading indicators
+    import { showLoading, hideLoading } from "{{ url_for('static', filename='js/ui.js') }}";
+    // Import api directly if needed for user ID, although it should be handled within knowledgeGraphValidator.js
+    import { api } from "{{ url_for('static', filename='js/api.js') }}"; 
     
     document.addEventListener('DOMContentLoaded', () => {
+        // Initialize the main validator logic
         initGraphValidator();
         
+        // Attach event listeners to buttons, relying on functions attached to window by knowledgeGraphValidator.js
         
-        // Carica i chunk assegnati all'utente corrente
-        async function loadAssignedChunks(status = 'pending') {
-            try {
-                showLoading();
-                
-                // Passa l'ID utente per ottenere solo i chunk assegnati
-                const userId = document.body.dataset.userId;
-                const response = await api.getGraphChunks(status, userId);
-                
-                if (response && response.status === 'success') {
-                    graphChunks = response.chunks || [];
-                    renderChunkList(graphChunks);
-                    
-                    // Se c'è almeno un chunk, seleziona il primo
-                    if (graphChunks.length > 0) {
-                        selectChunk(graphChunks[0].id);
-                    } else {
-                        // Nessun chunk disponibile
-                        const graphViewer = document.getElementById('graph-viewer');
-                        if (graphViewer) {
-                            graphViewer.innerHTML = `
-                                <div class="text-center p-5">
-                                    <i class="fas fa-project-diagram fa-4x mb-3 text-muted"></i>
-                                    <h4>Nessun chunk del grafo disponibile</h4>
-                                    <p class="text-muted">Non hai chunk del grafo assegnati con lo stato selezionato.</p>
-                                </div>
-                            `;
-                        }
-                        
-                        const proposalList = document.getElementById('proposal-list');
-                        if (proposalList) {
-                            proposalList.innerHTML = '';
-                        }
-                    }
-                } else {
-                    showNotification('Errore nel caricamento dei chunk del grafo', 'danger');
-                }
-            } catch (error) {
-                console.error('Error loading graph chunks:', error);
-                showNotification(`Errore: ${error.message}`, 'danger');
-            } finally {
-                hideLoading();
-            }
-        }
-        
-        // Aggiunto event listener per il reset dello zoom
         document.getElementById('zoom-reset-btn')?.addEventListener('click', () => {
-            // Questa funzione deve essere implementata nel knowledgeGraphValidator.js
-            window.resetGraphZoom && window.resetGraphZoom();
+            if (window.resetGraphZoom) {
+                window.resetGraphZoom();
+            } else {
+                console.warn("resetGraphZoom function not found on window object.");
+            }
         });
         
-        // Aggiunto event listener per il toggle della fisica
         document.getElementById('toggle-physics-btn')?.addEventListener('click', () => {
-            // Questa funzione deve essere implementata nel knowledgeGraphValidator.js
-            window.toggleGraphPhysics && window.toggleGraphPhysics();
+             if (window.toggleGraphPhysics) {
+                window.toggleGraphPhysics();
+            } else {
+                console.warn("toggleGraphPhysics function not found on window object.");
+            }
         });
         
-        // Aggiunto event listener per il refresh delle proposte
         document.getElementById('refresh-proposals-btn')?.addEventListener('click', () => {
-            // Questa funzione deve essere implementata nel knowledgeGraphValidator.js
-            window.refreshProposals && window.refreshProposals();
+             if (window.refreshProposals) {
+                window.refreshProposals();
+            } else {
+                console.warn("refreshProposals function not found on window object.");
+            }
         });
+
+        // Ensure user ID is available for knowledgeGraphValidator.js if needed
+        // It's better practice to pass it during init or let the JS fetch it via api.js
+        const userId = document.body.dataset.userId; 
+        if (!userId) {
+            console.warn("User ID not found in document body dataset.");
+        }
+        // Example: Pass userId during initialization if needed by initGraphValidator
+        // initGraphValidator({ userId: userId }); 
+        // Or rely on knowledgeGraphValidator.js fetching it itself.
     });
 </script>
 {% endblock %}

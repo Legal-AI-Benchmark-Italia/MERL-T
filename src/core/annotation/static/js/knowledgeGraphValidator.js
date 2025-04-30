@@ -12,6 +12,36 @@ let currentChunkId = null;
 let currentGraph = null;
 let currentProposals = [];
 let graphVisualization = null;
+let physicsEnabled = true; // Track physics state
+
+// --- Helper Functions Exposed to Window ---
+
+window.resetGraphZoom = () => {
+    if (graphVisualization) {
+        graphVisualization.fit();
+    } else {
+        console.warn("Graph visualization not initialized for zoom reset.");
+    }
+};
+
+window.toggleGraphPhysics = () => {
+    if (graphVisualization) {
+        physicsEnabled = !physicsEnabled;
+        graphVisualization.setOptions({ physics: { enabled: physicsEnabled } });
+        showNotification(`Fisica ${physicsEnabled ? 'abilitata' : 'disabilitata'}`, 'info');
+    } else {
+        console.warn("Graph visualization not initialized for physics toggle.");
+    }
+};
+
+window.refreshProposals = () => {
+    if (currentChunkId) {
+        loadChunkProposals(currentChunkId);
+        showNotification('Lista proposte aggiornata.', 'info');
+    } else {
+        showNotification('Nessun chunk selezionato per aggiornare le proposte.', 'warning');
+    }
+};
 
 // Inizializzazione della pagina
 export function initGraphValidator() {
@@ -53,6 +83,9 @@ export function initGraphValidator() {
             loadAssignedChunks(status);
         });
     }
+    
+    // Setup listeners for proposal initiation buttons
+    setupProposalInitiationListeners();
 }
 
 // Inizializza la visualizzazione del grafo
@@ -128,7 +161,17 @@ async function loadAssignedChunks(status = 'pending') {
     try {
         showLoading();
         
-        const response = await api.getGraphChunks(status);
+        // Get current user ID
+        const userId = api.getCurrentUserId(); 
+        if (!userId) {
+            showNotification('ID utente non trovato. Impossibile caricare i chunk assegnati.', 'danger');
+            hideLoading();
+            return;
+        }
+
+        // Call API with status and user ID
+        // Assuming api.getGraphChunks now accepts (status, assignedTo)
+        const response = await api.getGraphChunks(status, userId);
         
         if (response && response.status === 'success') {
             graphChunks = response.chunks || [];
@@ -189,9 +232,9 @@ function renderChunkList(chunks) {
         
         // Determina la classe di stato
         let statusBadgeClass = 'bg-secondary';
-        if (chunk.status === 'validated') {
+        if (chunk.status === 'validated' || chunk.status === 'applied') {
             statusBadgeClass = 'bg-success';
-        } else if (chunk.status === 'rejected') {
+        } else if (chunk.status === 'rejected' || chunk.status === 'failed') {
             statusBadgeClass = 'bg-danger';
         }
         
@@ -361,12 +404,77 @@ async function loadChunkProposals(chunkId) {
     }
 }
 
+// Funzione helper per evidenziare nodi/relazioni nel grafo
+function highlightGraphEntities(proposal) {
+    if (!graphVisualization) return;
+
+    const nodeIdsToHighlight = [];
+    const edgeIdsToHighlight = [];
+
+    const extractIds = (data) => {
+        if (!data) return;
+        if (data.nodes) {
+            data.nodes.forEach(node => node.id && nodeIdsToHighlight.push(node.id));
+        }
+        if (data.edges) {
+            // Per le relazioni, potremmo evidenziare i nodi sorgente/destinazione se l'ID della relazione non è nel grafo
+            data.edges.forEach(edge => {
+                if (edge.id && graphVisualization.body.data.edges.get(edge.id)) {
+                    edgeIdsToHighlight.push(edge.id);
+                } else {
+                    // Se la relazione non è visualizzata (es. in 'add'), evidenzia nodi connessi
+                    if (edge.source) nodeIdsToHighlight.push(edge.source);
+                    if (edge.target) nodeIdsToHighlight.push(edge.target);
+                }
+            });
+        }
+    };
+
+    // Estrai IDs dai dati originali e proposti
+    extractIds(proposal.original_data);
+    extractIds(proposal.proposed_data);
+
+    // Rimuovi duplicati
+    const uniqueNodeIds = [...new Set(nodeIdsToHighlight)];
+    const uniqueEdgeIds = [...new Set(edgeIdsToHighlight)];
+
+    // Resetta selezioni precedenti
+    graphVisualization.unselectAll();
+
+    // Seleziona/Evidenzia le entità trovate
+    if (uniqueNodeIds.length > 0 || uniqueEdgeIds.length > 0) {
+        graphVisualization.selectNodes(uniqueNodeIds);
+        graphVisualization.selectEdges(uniqueEdgeIds);
+        // Opzionale: zoom sulle entità evidenziate
+        // graphVisualization.fit({ nodes: uniqueNodeIds, animation: true });
+    } else {
+        // Nessuna entità specifica trovata, forse è una proposta generica?
+        // console.warn(`Nessuna entità specifica da evidenziare per la proposta ${proposal.id}`);
+    }
+}
+
+// Funzione helper per resettare l'evidenziazione
+function resetGraphHighlighting() {
+     if (graphVisualization) {
+        graphVisualization.unselectAll();
+    }
+}
+
 // Renderizza la lista delle proposte
 function renderProposalList(proposals) {
     const proposalList = document.getElementById('proposal-list');
     if (!proposalList) return;
     
-    if (proposals.length === 0) {
+    // Get the current filter value
+    const statusFilter = document.getElementById('proposal-status-filter')?.value || 'all';
+
+    // Filter proposals based on status
+    const filteredProposals = proposals.filter(p => {
+        if (statusFilter === 'all') return true;
+        return p.status === statusFilter;
+    });
+    
+    if (filteredProposals.length === 0) {
         proposalList.innerHTML = `
             <div class="text-center p-3">
                 <p class="text-muted">Nessuna proposta disponibile</p>
@@ -382,7 +490,7 @@ function renderProposalList(proposals) {
     
     proposalList.innerHTML = '';
     
-    proposals.forEach(proposal => {
+    filteredProposals.forEach(proposal => {
         const item = document.createElement('div');
         item.className = 'card mb-3 proposal-card';
         item.dataset.proposalId = proposal.id;
@@ -449,6 +557,10 @@ function renderProposalList(proposals) {
         `;
         
         proposalList.appendChild(item);
+
+        // Aggiungi event listeners per hover sulla card per evidenziare
+        item.addEventListener('mouseenter', () => highlightGraphEntities(proposal));
+        item.addEventListener('mouseleave', resetGraphHighlighting);
     });
     
     // Aggiungi event listeners per i pulsanti di voto
@@ -470,49 +582,114 @@ function renderProposalList(proposals) {
 // Visualizza i dettagli della proposta in base al tipo
 function renderProposalContent(proposal) {
     const type = proposal.proposal_type;
+    const originalData = proposal.original_data || {};
+    const proposedData = proposal.proposed_data || {};
     
+    let contentHtml = '';
+
     if (type === 'add') {
-        // Proposta di aggiunta
-        const entities = proposal.proposed_data.nodes || proposal.proposed_data.edges || [];
-        return `
-            <div class="alert alert-info">
-                Aggiunta di ${entities.length} ${proposal.proposed_data.nodes ? 'nodi' : 'relazioni'} al grafo
+        const nodesToAdd = proposedData.nodes || [];
+        const edgesToAdd = proposedData.edges || [];
+        contentHtml = `
+            <div class="alert alert-success small">
+                <i class="fas fa-plus-circle me-1"></i> 
+                <strong>Aggiunta:</strong> ${nodesToAdd.length} nodi, ${edgesToAdd.length} relazioni.
             </div>
-            <pre class="bg-light p-2 mt-2">${JSON.stringify(entities, null, 2)}</pre>
+            ${renderEntitiesTable(nodesToAdd, 'Nodi da Aggiungere')}${renderEntitiesTable(edgesToAdd, 'Relazioni da Aggiungere')}
         `;
     } else if (type === 'modify') {
-        // Proposta di modifica
-        const originalData = proposal.original_data;
-        const proposedData = proposal.proposed_data;
-        
-        return `
-            <div class="alert alert-warning">
-                Modifica di ${proposedData.nodes ? 'nodi' : 'relazioni'} nel grafo
+        const nodesToModify = proposedData.nodes || [];
+        const edgesToModify = proposedData.edges || [];
+        contentHtml = `
+            <div class="alert alert-warning small">
+                <i class="fas fa-edit me-1"></i> 
+                <strong>Modifica:</strong> ${nodesToModify.length} nodi, ${edgesToModify.length} relazioni.
             </div>
-            <div class="row">
+            <div class="row gx-2">
                 <div class="col-md-6">
                     <h6>Originale</h6>
-                    <pre class="bg-light p-2">${JSON.stringify(originalData, null, 2)}</pre>
+                    ${renderEntitiesTable(originalData.nodes, 'Nodi Originali', true)}${renderEntitiesTable(originalData.edges, 'Relazioni Originali', true)}
                 </div>
                 <div class="col-md-6">
                     <h6>Proposta</h6>
-                    <pre class="bg-light p-2">${JSON.stringify(proposedData, null, 2)}</pre>
+                    ${renderEntitiesTable(nodesToModify, 'Nodi Modificati')}${renderEntitiesTable(edgesToModify, 'Relazioni Modificate')}
                 </div>
             </div>
         `;
     } else if (type === 'delete') {
-        // Proposta di eliminazione
-        const entities = proposal.proposed_data.nodes || proposal.proposed_data.edges || [];
-        
-        return `
-            <div class="alert alert-danger">
-                Eliminazione di ${entities.length} ${proposal.proposed_data.nodes ? 'nodi' : 'relazioni'} dal grafo
+        const nodesToDelete = proposedData.nodes || [];
+        const edgesToDelete = proposedData.edges || [];
+        contentHtml = `
+            <div class="alert alert-danger small">
+                <i class="fas fa-trash-alt me-1"></i> 
+                <strong>Eliminazione:</strong> ${nodesToDelete.length} nodi, ${edgesToDelete.length} relazioni.
             </div>
-            <pre class="bg-light p-2 mt-2">${JSON.stringify(entities, null, 2)}</pre>
+            ${renderEntitiesTable(nodesToDelete, 'Nodi da Eliminare')}${renderEntitiesTable(edgesToDelete, 'Relazioni da Eliminare')}
         `;
+    } else {
+        contentHtml = `<div class="alert alert-secondary small">Proposta di tipo sconosciuto: ${type}</div>`;
     }
     
-    return `<div class="alert alert-secondary">Proposta di tipo sconosciuto</div>`;
+    return contentHtml;
+}
+
+// Funzione helper per renderizzare tabelle di entità
+function renderEntitiesTable(entities, title, isOriginal = false) {
+    if (!entities || entities.length === 0) {
+        // Non mostrare nulla se non ci sono entità di quel tipo
+        // return `<div class="text-muted small p-2"><em>${title}: Nessuna</em></div>`;
+        return ''; 
+    }
+
+    let tableHtml = `<h6 class="mt-2 small ${isOriginal ? 'text-muted' : ''}">${title} (${entities.length})</h6>`;
+    tableHtml += `<div class="table-responsive" style="max-height: 150px; overflow-y: auto;">`;
+    tableHtml += `<table class="table table-sm table-bordered small font-monospace">`;
+    
+    // Determina le colonne (semplificato)
+    let headers = [];
+    if (entities[0]?.source !== undefined) { // Sembra una relazione
+        headers = ['ID', 'Source', 'Target', 'Type', 'Props'];
+    } else { // Sembra un nodo
+        headers = ['ID', 'Label', 'Type', 'Props'];
+    }
+
+    tableHtml += `<thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>`;
+
+    entities.forEach(entity => {
+        tableHtml += `<tr>`;
+        headers.forEach(header => {
+            const key = header.toLowerCase();
+            let value = entity[key];
+            if (key === 'props') {
+                // Estrai proprietà extra
+                const coreKeys = ['id', 'label', 'type', 'source', 'target'];
+                const props = Object.entries(entity)
+                                  .filter(([k, v]) => !coreKeys.includes(k))
+                                  .reduce((obj, [k, v]) => ({ ...obj, [k]: v }), {});
+                value = Object.keys(props).length > 0 ? JSON.stringify(props) : '-';
+            } else {
+                 value = value !== undefined ? value : '-';
+            }
+            // Rendi l'ID cliccabile per evidenziare? (Futuro miglioramento)
+            // if (key === 'id') value = `<a href="#" class="entity-link" data-id="${value}">${value}</a>`;
+            tableHtml += `<td>${escapeHtml(String(value))}</td>`;
+        });
+        tableHtml += `</tr>`;
+    });
+
+    tableHtml += `</tbody></table></div>`;
+    return tableHtml;
+}
+
+// Funzione di escape HTML base
+function escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '';
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
 }
 
 // Renderizza la lista dei voti per una proposta
@@ -568,20 +745,35 @@ async function voteProposal(proposalId, voteType) {
         if (response && response.status === 'success') {
             showNotification(`Voto registrato con successo`, 'success');
             
-            // Aggiorna le proposte
-            loadChunkProposals(currentChunkId);
+            // Update proposal list immediately to reflect vote changes
+            loadChunkProposals(currentChunkId); 
             
-            // Se la proposta è stata approvata, aggiorna anche la visualizzazione
-            if (response.result.proposal_approved) {
-                showNotification('La proposta è stata approvata e applicata al grafo!', 'success');
+            // Check if the proposal was applied (backend should indicate this)
+            // Let's assume the backend now returns e.g., response.result.proposal_applied = true
+            if (response.result?.proposal_applied) {
+                showNotification('Proposta approvata e applicata al grafo! Aggiornamento in corso...', 'success');
                 
-                // Ricarica il chunk per visualizzare le modifiche
-                selectChunk(currentChunkId);
-            } else if (response.result.proposal_rejected) {
+                // Reload the chunk data and graph visualization
+                // Use a small delay to allow backend processing if needed, or rely on eventual consistency
+                // setTimeout(() => { selectChunk(currentChunkId); }, 500); 
+                // Or better: Reload immediately, assuming backend update is fast enough
+                await selectChunk(currentChunkId); 
+
+                // Optionally refresh the chunk list as well if the chunk status changed
+                const currentFilter = document.getElementById('chunk-filter')?.value || 'pending';
+                await loadAssignedChunks(currentFilter);
+
+            } else if (response.result?.proposal_approved && !response.result?.proposal_applied) {
+                // Approved but maybe not applied yet or failed application?
+                // Backend logic determines this. If apply failed, backend should update status.
+                showNotification('Proposta approvata, in attesa di applicazione o errore.', 'info');
+            } else if (response.result?.proposal_rejected) {
                 showNotification('La proposta è stata respinta.', 'warning');
             }
         } else {
-            showNotification('Errore nel registrare il voto', 'danger');
+             // Use the error message from the backend response if available
+            const errorMessage = response?.message || 'Errore nel registrare il voto';
+            showNotification(errorMessage, 'danger');
         }
     } catch (error) {
         console.error('Error voting on proposal:', error);
@@ -592,7 +784,7 @@ async function voteProposal(proposalId, voteType) {
 }
 
 // Mostra l'editor per creare una nuova proposta
-function showProposalEditor() {
+function showProposalEditor(presetType = null, presetEntityType = null) {
     const modalId = 'proposalEditorModal';
     
     // Verifica se il modal esiste già
@@ -674,6 +866,22 @@ function showProposalEditor() {
         document.getElementById('entityType').addEventListener('change', updateProposalForm);
         document.getElementById('saveProposalBtn').addEventListener('click', saveProposal);
         
+        // Pre-select types if provided
+        if (presetType) {
+            document.getElementById('proposalType').value = presetType;
+        }
+        if (presetEntityType) {
+             document.getElementById('entityType').value = presetEntityType;
+        }
+        
+        // Update form based on presets
+        updateProposalForm();
+
+        // Add selected entities if modifying/deleting
+        if ((presetType === 'modify' || presetType === 'delete') && presetEntityType) {
+            addSelectedGraphEntitiesToForm(presetEntityType);
+        }
+
         // Mostra il modal
         modalInstance.show();
     } else {
@@ -768,7 +976,7 @@ async function saveProposal() {
             }
         } else if (proposalType === 'delete') {
             // Proposta di eliminazione
-            const selectedEntities = getSelectedEntities();
+            const selectedEntities = getSelectedEntitiesFromForm();
             if (selectedEntities.length === 0) {
                 showNotification('Seleziona almeno un\'entità dal grafo', 'warning');
                 return;
@@ -814,36 +1022,27 @@ async function saveProposal() {
     }
 }
 
-// Ottieni le entità selezionate dal grafo
-function getSelectedEntities() {
-    // Recupera le entità selezionate dalla visualizzazione del grafo
-    const selectedNodes = graphVisualization.getSelectedNodes();
-    const selectedEdges = graphVisualization.getSelectedEdges();
-    
+// Ottieni le entità selezionate DAL FORM della proposta (non più direttamente dal grafo)
+function getSelectedEntitiesFromForm() {
+    const selectedEntitiesList = document.getElementById('selectedEntitiesList');
+    if (!selectedEntitiesList) return [];
+
     const entities = [];
+    const items = selectedEntitiesList.querySelectorAll('.list-group-item');
     
-    if (document.getElementById('entityType').value === 'nodes') {
-        // Estrai i nodi selezionati
-        selectedNodes.forEach(nodeId => {
-            const node = graphVisualization.body.data.nodes.get(nodeId);
-            entities.push({
-                id: node.id,
-                label: node.label,
-                type: node.group
-            });
-        });
-    } else {
-        // Estrai le relazioni selezionate
-        selectedEdges.forEach(edgeId => {
-            const edge = graphVisualization.body.data.edges.get(edgeId);
-            entities.push({
-                id: edge.id,
-                source: edge.from,
-                target: edge.to,
-                type: edge.label
-            });
-        });
-    }
+    items.forEach(item => {
+        const entityId = item.dataset.entityId;
+        // We only need the ID for delete/modify proposals usually
+        // If more data is needed, store it in data-* attributes or retrieve from graphVisualization
+        if (entityId) {
+             entities.push({ id: entityId }); // Simplification: just send ID
+             // Retrieve full data if needed:
+             // const nodeData = graphVisualization.body.data.nodes.get(entityId);
+             // const edgeData = graphVisualization.body.data.edges.get(entityId);
+             // if (nodeData) entities.push({ id: nodeData.id, label: nodeData.label, type: nodeData.group });
+             // else if (edgeData) entities.push({ id: edgeData.id, source: edgeData.from, target: edgeData.to, type: edgeData.label });
+        }
+    });
     
     return entities;
 }
@@ -1072,4 +1271,101 @@ function addEntityToProposal(entityData, entityType) {
     // Mostra il modal se non è già visibile
     const modalInstance = bootstrap.Modal.getInstance(modal) || new bootstrap.Modal(modal);
     modalInstance.show();
+}
+
+// Setup event listeners for the new proposal buttons
+function setupProposalInitiationListeners() {
+    document.getElementById('init-add-proposal-btn')?.addEventListener('click', () => {
+        showProposalEditor('add');
+    });
+
+    document.getElementById('init-modify-proposal-btn')?.addEventListener('click', () => {
+        const selectedNodes = graphVisualization?.getSelectedNodes() || [];
+        const selectedEdges = graphVisualization?.getSelectedEdges() || [];
+        if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+            showNotification('Seleziona almeno un nodo o una relazione dal grafo per proporre una modifica.', 'warning');
+            return;
+        }
+        const entityType = selectedNodes.length > 0 ? 'nodes' : 'edges'; // Prefer nodes if both selected
+        showProposalEditor('modify', entityType);
+    });
+
+    document.getElementById('init-delete-proposal-btn')?.addEventListener('click', () => {
+         const selectedNodes = graphVisualization?.getSelectedNodes() || [];
+        const selectedEdges = graphVisualization?.getSelectedEdges() || [];
+        if (selectedNodes.length === 0 && selectedEdges.length === 0) {
+            showNotification('Seleziona almeno un nodo o una relazione dal grafo per proporre un\'eliminazione.', 'warning');
+            return;
+        }
+         const entityType = selectedNodes.length > 0 ? 'nodes' : 'edges';
+        showProposalEditor('delete', entityType);
+    });
+
+    // Listener for proposal status filter
+    document.getElementById('proposal-status-filter')?.addEventListener('change', (e) => {
+        renderProposalList(currentProposals); // Re-render with the new filter value
+    });
+}
+
+// Helper function to add currently selected graph entities to the proposal form
+function addSelectedGraphEntitiesToForm(entityType) {
+    const selectedEntitiesList = document.getElementById('selectedEntitiesList');
+    if (!selectedEntitiesList) return;
+
+    selectedEntitiesList.innerHTML = ''; // Clear previous selections in form
+
+    const selectedNodes = graphVisualization?.getSelectedNodes() || [];
+    const selectedEdges = graphVisualization?.getSelectedEdges() || [];
+
+    if (entityType === 'nodes') {
+        selectedNodes.forEach(nodeId => {
+            const nodeData = graphVisualization.body.data.nodes.get(nodeId);
+            if (nodeData) addEntityElementToList(nodeData, 'node', selectedEntitiesList);
+        });
+    } else if (entityType === 'edges') {
+        selectedEdges.forEach(edgeId => {
+            const edgeData = graphVisualization.body.data.edges.get(edgeId);
+            if (edgeData) addEntityElementToList(edgeData, 'edge', selectedEntitiesList);
+        });
+    }
+}
+
+// Helper to create and add list item for an entity to the form
+function addEntityElementToList(entityData, entityType, listElement) {
+     const entityItem = document.createElement('div');
+    entityItem.className = 'list-group-item d-flex justify-content-between align-items-center py-1 px-2 small';
+    entityItem.dataset.entityId = entityData.id;
+    
+    let labelHtml = '';
+    if (entityType === 'node') {
+        labelHtml = `
+            <span>
+                <i class="fas fa-cube me-1"></i> 
+                <strong>${entityData.label || entityData.id}</strong>
+                <span class="badge bg-secondary ms-1">${entityData.group}</span>
+            </span>
+        `;
+    } else { // edge
+        labelHtml = `
+            <span>
+                 <i class="fas fa-exchange-alt me-1"></i>
+                <strong>${entityData.label || 'Relazione'}</strong>
+                <small class="ms-1 text-muted">(${entityData.from} → ${entityData.to})</small>
+            </span>
+        `;
+    }
+
+    entityItem.innerHTML = `
+        ${labelHtml}
+        <button type="button" class="btn btn-sm btn-outline-danger remove-entity-btn border-0 p-0 ms-2">
+            <i class="fas fa-times"></i>
+        </button>
+    `;
+    
+    // Add event listener to remove the entity
+    entityItem.querySelector('.remove-entity-btn')?.addEventListener('click', function() {
+        entityItem.remove();
+    });
+    
+    listElement.appendChild(entityItem);
 }

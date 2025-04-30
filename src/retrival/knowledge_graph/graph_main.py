@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 import argparse
 import json
 import random # Importa il modulo random per lo shuffle
+import re
 
 # Import delle classi dal modulo graph_extractor
 from .src.extractor import extract_entities
@@ -13,6 +14,8 @@ from .src.neo4j_storage import Neo4jGraphStorage
 # from .src.prompt import PROMPTS 
 
 from src.core.entities.entity_manager import get_entity_manager
+from src.core.annotation.db_manager import AnnotationDBManager # Assuming db_manager is accessible
+from src.core.config import get_config_manager # For DB paths
 
 # Setup logging con livello INFO di default
 logging.basicConfig(
@@ -411,6 +414,110 @@ async def apply_changes_to_graph(proposal_type, data):
             "message": f"Errore nell'applicazione delle modifiche: {str(e)}",
             "details": {"error_trace": error_details}
         }
+
+async def create_node_centric_chunks(
+    num_chunks: int = 10, 
+    seed_label: str = 'Norma', 
+    user_id: str = 'system', 
+    force_recreate: bool = False
+) -> Dict[str, int]:
+    """Crea chunk di validazione basati sul vicinato a 1 hop dei nodi seed."""
+    logger.info(f"Avvio creazione di {num_chunks} chunk node-centric basati su label '{seed_label}'.")
+    
+    created_count = 0
+    skipped_count = 0
+    error_count = 0
+    
+    # Setup connections
+    config_manager = get_config_manager()
+    neo4j_params = config_manager.get_neo4j_connection_params()
+    db_params = config_manager.get_db_config()
+    
+    # Use context managers for connections
+    async with Neo4jGraphStorage(**neo4j_params) as neo4j_storage:
+        db_manager = AnnotationDBManager(db_path=db_params['db_path'], backup_dir=db_params['backup_dir'])
+        
+        try:
+            # 1. Get potential seed node IDs
+            logger.debug(f"Recupero ID dei nodi seed con label: {seed_label}")
+            # Ensure label is safe for query
+            safe_seed_label = re.sub(r'[^a-zA-Z0-9_]', '', seed_label)
+            if not safe_seed_label:
+                logger.error("Label seme non valida dopo sanificazione.")
+                return {"created": 0, "skipped": 0, "errors": 1}
+                
+            seed_query = f"MATCH (n:{safe_seed_label}) RETURN n.id as id"
+            seed_records = await neo4j_storage._execute_read(seed_query)
+            all_seed_ids = [record["id"] for record in seed_records if record["id"]]
+            
+            if not all_seed_ids:
+                logger.warning(f"Nessun nodo trovato con label '{safe_seed_label}' per generare chunk.")
+                return {"created": 0, "skipped": 0, "errors": 0}
+            
+            logger.info(f"Trovati {len(all_seed_ids)} potenziali nodi seed.")
+            
+            # 2. Sample and create chunks
+            potential_seeds = random.sample(all_seed_ids, min(num_chunks * 2, len(all_seed_ids))) # Sample more to account for skips
+            
+            for seed_id in potential_seeds:
+                if created_count >= num_chunks:
+                    break # Reached target number
+                    
+                try:
+                    # 3. Check for existing chunk
+                    if not force_recreate and db_manager.check_chunk_exists_for_seed(seed_id):
+                        logger.debug(f"Chunk per seed {seed_id} già esistente, saltato.")
+                        skipped_count += 1
+                        continue
+                    
+                    # 4. Get neighborhood data
+                    logger.debug(f"Recupero vicinato per seed: {seed_id}")
+                    neighborhood_data = await neo4j_storage.get_node_neighborhood(seed_id)
+                    
+                    if not neighborhood_data:
+                        logger.warning(f"Impossibile recuperare il vicinato per {seed_id}, chunk non creato.")
+                        error_count += 1
+                        continue
+                        
+                    # 5. Format and save chunk
+                    seed_node_info = next((n for n in neighborhood_data["nodes"] if n["id"] == seed_id), None)
+                    title = f"Vicinato di {safe_seed_label}: {seed_node_info.get('name', seed_id) if seed_node_info else seed_id}"
+                    description = f"Chunk per validare il nodo {seed_id} e le sue connessioni dirette."
+                    
+                    chunk_payload = {
+                        "title": title,
+                        "description": description,
+                        "chunk_type": "subgraph",
+                        "data": neighborhood_data,
+                        "status": "pending",
+                        # 'created_by' will be set by save_graph_chunk if user_id is passed
+                    }
+                    
+                    logger.debug(f"Salvataggio chunk per seed: {seed_id}")
+                    saved_chunk_id = db_manager.save_graph_chunk(chunk_payload, user_id=user_id, seed_node_id=seed_id)
+                    
+                    if saved_chunk_id:
+                        logger.info(f"Chunk {saved_chunk_id} creato per seed {seed_id}")
+                        created_count += 1
+                    else:
+                        logger.error(f"Errore nel salvataggio del chunk per seed {seed_id}")
+                        error_count += 1
+                        
+                except Exception as e_inner:
+                    logger.error(f"Errore durante la creazione del chunk per seed {seed_id}: {e_inner}")
+                    logger.exception(e_inner)
+                    error_count += 1
+        
+        except Exception as e_outer:
+            logger.error(f"Errore durante il processo di creazione chunk: {e_outer}")
+            logger.exception(e_outer)
+            error_count += 1 # Count general errors too
+        
+    # Ensure db_manager connection is implicitly closed by its context manager if it had one
+    # Neo4j connection is closed by the async with block
+            
+    logger.info(f"Creazione chunk completata. Creati: {created_count}, Saltati: {skipped_count}, Errori: {error_count}")
+    return {"created": created_count, "skipped": skipped_count, "errors": error_count}
 
 async def main():
     # Parsing degli argomenti da linea di comando

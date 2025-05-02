@@ -9,10 +9,11 @@ import os
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Set, Protocol
-import sqlite3
+import psycopg2
 from contextlib import contextmanager
 import datetime
 from dataclasses import dataclass, field, asdict
+from src.core.config import get_config_manager
 
 # --- Definizione base di Entity ---
 
@@ -73,7 +74,7 @@ class EntityManager:
         Inizializza il gestore delle entità.
         
         Args:
-            db_path: Percorso al file del database SQLite (opzionale)
+            db_path: Deprecato, ora usa la configurazione PostgreSQL da config.yaml
         """
         self.logger = logging.getLogger("NER-Giuridico.EntityManager")
         
@@ -89,14 +90,23 @@ class EntityManager:
         # Lista degli osservatori
         self.observers: List[EntityObserver] = []
         
-        # Configura percorso del database
-        if db_path:
-            self.db_path = db_path
-        else:
-            # Percorso predefinito
-            default_db_path = str(Path(__file__).parent.parent / "data" / "entities.db")
-            self.db_path = default_db_path
-            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        # Ottieni configurazione PostgreSQL
+        config_manager = get_config_manager()
+        db_config = config_manager.get_section('database')
+        
+        if db_config.get('db_type') != 'postgresql':
+            raise ValueError("Configurazione del database non impostata su 'postgresql' in config.yaml")
+
+        self.db_params = {
+            'host': db_config.get('pg_host', 'localhost'),
+            'port': db_config.get('pg_port', 5432),
+            'user': db_config.get('pg_user'),
+            'password': db_config.get('pg_password'),
+            'dbname': db_config.get('pg_dbname')
+        }
+
+        if not all(self.db_params.values()):
+            raise ValueError("Parametri di connessione PostgreSQL mancanti in config.yaml")
         
         # Inizializza il database
         self._init_database()
@@ -110,8 +120,8 @@ class EntityManager:
         """Context manager per connessioni al database."""
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            conn = psycopg2.connect(**self.db_params)
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             yield conn, cursor
         finally:
             if conn:
@@ -120,12 +130,6 @@ class EntityManager:
     def _init_database(self):
         """Inizializza il database e carica le entità esistenti."""
         try:
-            # Assicura che la directory del database esista
-            db_dir = os.path.dirname(self.db_path)
-            if not os.path.exists(db_dir):
-                os.makedirs(db_dir, exist_ok=True)
-            
-            # Crea/connette al database
             with self._get_db() as (conn, cursor):
                 # Crea tabella entità se non esiste
                 cursor.execute("""
@@ -136,11 +140,11 @@ class EntityManager:
                     category TEXT NOT NULL,
                     color TEXT NOT NULL,
                     description TEXT,
-                    metadata_schema TEXT,
-                    patterns TEXT,
-                    system INTEGER DEFAULT 0,
-                    created_at TEXT,
-                    updated_at TEXT
+                    metadata_schema JSONB,
+                    patterns JSONB,
+                    system BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                 )
                 """)
                 
@@ -188,9 +192,6 @@ class EntityManager:
                 cursor.execute("SELECT * FROM entities")
                 rows = cursor.fetchall()
                 
-                # Ottieni i nomi delle colonne
-                column_names = [desc[0] for desc in cursor.description]
-                
                 # Resetta le strutture dati
                 self.entities.clear()
                 for category in self.categories:
@@ -198,25 +199,23 @@ class EntityManager:
                 
                 # Popola le strutture dati
                 for row in rows:
-                    # Converti riga in dizionario
-                    entity_data = dict(zip(column_names, row))
-                    
-                    # Converti campi JSON
-                    for field in ['metadata_schema', 'patterns']:
-                        if field in entity_data and entity_data[field]:
-                            try:
-                                entity_data[field] = json.loads(entity_data[field])
-                            except json.JSONDecodeError:
-                                entity_data[field] = {} if field == 'metadata_schema' else []
-                        else:
-                            entity_data[field] = {} if field == 'metadata_schema' else []
-                    
-                    # Converti boolean
-                    if 'system' in entity_data:
-                        entity_data['system'] = bool(entity_data['system'])
+                    # I campi JSONB sono già deserializzati da psycopg2 con RealDictCursor
+                    entity_data = dict(row)
                     
                     # Crea oggetto EntityType
-                    entity = EntityType.from_dict(entity_data)
+                    entity = EntityType(
+                        id=entity_data['id'],
+                        name=entity_data['name'],
+                        display_name=entity_data['display_name'],
+                        category=entity_data['category'],
+                        color=entity_data['color'],
+                        description=entity_data['description'],
+                        metadata_schema=entity_data['metadata_schema'] or {},
+                        patterns=entity_data['patterns'] or [],
+                        system=entity_data['system'],
+                        created_at=entity_data['created_at'].isoformat() if entity_data['created_at'] else None,
+                        updated_at=entity_data['updated_at'].isoformat() if entity_data['updated_at'] else None
+                    )
                     
                     # Aggiungi alle strutture dati
                     self.entities[entity.id] = entity
@@ -259,12 +258,6 @@ class EntityManager:
     def add_entity(self, entity: EntityType) -> bool:
         """
         Aggiunge una nuova entità al sistema.
-        
-        Args:
-            entity: Entità da aggiungere
-            
-        Returns:
-            True se l'aggiunta è avvenuta con successo, False altrimenti
         """
         try:
             # Verifica che il nome non sia già in uso
@@ -282,31 +275,46 @@ class EntityManager:
                 self.categories[entity.category] = set()
             
             # Aggiorna data di creazione/modifica
-            now = datetime.datetime.now().isoformat()
-            entity.created_at = now
-            entity.updated_at = now
+            now = datetime.datetime.now(datetime.timezone.utc)
+            entity.created_at = now.isoformat()
+            entity.updated_at = now.isoformat()
             
             # Aggiungi al database
             with self._get_db() as (conn, cursor):
                 # Prepara dati per inserimento
-                entity_dict = entity.to_dict()
-                
-                # Converti campi JSON
-                entity_dict['metadata_schema'] = json.dumps(entity_dict['metadata_schema'])
-                entity_dict['patterns'] = json.dumps(entity_dict['patterns'])
-                
-                # Converti boolean
-                entity_dict['system'] = 1 if entity_dict['system'] else 0
+                entity_dict = {
+                    'id': entity.id,
+                    'name': entity.name,
+                    'display_name': entity.display_name,
+                    'category': entity.category,
+                    'color': entity.color,
+                    'description': entity.description,
+                    'metadata_schema': json.dumps(entity.metadata_schema),
+                    'patterns': json.dumps(entity.patterns),
+                    'system': entity.system,
+                    'created_at': entity.created_at,
+                    'updated_at': entity.updated_at
+                }
                 
                 # Esegui inserimento
-                placeholders = ', '.join(['?' for _ in range(len(entity_dict))])
-                columns = ', '.join(entity_dict.keys())
-                values = tuple(entity_dict.values())
+                cursor.execute("""
+                    INSERT INTO entities 
+                    (id, name, display_name, category, color, description, metadata_schema, patterns, system, created_at, updated_at)
+                    VALUES (%(id)s, %(name)s, %(display_name)s, %(category)s, %(color)s, %(description)s, %(metadata_schema)s::jsonb, 
+                            %(patterns)s::jsonb, %(system)s, %(created_at)s, %(updated_at)s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        display_name = EXCLUDED.display_name,
+                        category = EXCLUDED.category,
+                        color = EXCLUDED.color,
+                        description = EXCLUDED.description,
+                        metadata_schema = EXCLUDED.metadata_schema,
+                        patterns = EXCLUDED.patterns,
+                        system = EXCLUDED.system,
+                        updated_at = EXCLUDED.updated_at
+                    RETURNING id
+                """, entity_dict)
                 
-                cursor.execute(
-                    f"INSERT INTO entities ({columns}) VALUES ({placeholders})", 
-                    values
-                )
                 conn.commit()
             
             # Aggiungi alle strutture dati
@@ -342,7 +350,7 @@ class EntityManager:
             original_entity = self.entities[entity.id]
             
             # Aggiorna data di modifica
-            entity.updated_at = datetime.datetime.now().isoformat()
+            entity.updated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
             
             # Mantieni la data di creazione originale
             entity.created_at = original_entity.created_at
@@ -350,22 +358,34 @@ class EntityManager:
             # Aggiorna il database
             with self._get_db() as (conn, cursor):
                 # Prepara dati per aggiornamento
-                entity_dict = entity.to_dict()
+                entity_dict = {
+                    'id': entity.id,
+                    'name': entity.name,
+                    'display_name': entity.display_name,
+                    'category': entity.category,
+                    'color': entity.color,
+                    'description': entity.description,
+                    'metadata_schema': json.dumps(entity.metadata_schema),
+                    'patterns': json.dumps(entity.patterns),
+                    'system': entity.system,
+                    'updated_at': entity.updated_at
+                }
                 
-                # Converti campi JSON
-                entity_dict['metadata_schema'] = json.dumps(entity_dict['metadata_schema'])
-                entity_dict['patterns'] = json.dumps(entity_dict['patterns'])
+                # Esegui aggiornamento
+                cursor.execute("""
+                    UPDATE entities SET
+                        name = %(name)s,
+                        display_name = %(display_name)s,
+                        category = %(category)s,
+                        color = %(color)s,
+                        description = %(description)s,
+                        metadata_schema = %(metadata_schema)s::jsonb,
+                        patterns = %(patterns)s::jsonb,
+                        system = %(system)s,
+                        updated_at = %(updated_at)s
+                    WHERE id = %(id)s
+                """, entity_dict)
                 
-                # Converti boolean
-                entity_dict['system'] = 1 if entity_dict['system'] else 0
-                
-                # Costruisci query di aggiornamento
-                set_clauses = [f"{key} = ?" for key in entity_dict.keys() if key != 'id']
-                values = [entity_dict[key] for key in entity_dict.keys() if key != 'id']
-                values.append(entity.id)  # Per la clausola WHERE
-                
-                query = f"UPDATE entities SET {', '.join(set_clauses)} WHERE id = ?"
-                cursor.execute(query, values)
                 conn.commit()
             
             # Aggiorna le strutture dati
@@ -417,7 +437,7 @@ class EntityManager:
             
             # Rimuovi dal database
             with self._get_db() as (conn, cursor):
-                cursor.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
+                cursor.execute("DELETE FROM entities WHERE id = %s", (entity_id,))
                 conn.commit()
             
             # Rimuovi dalle strutture dati

@@ -29,133 +29,84 @@
                             <option value="validated">Validati</option>
                             <option value="rejected">Respinti</option>
                         </select>
+                        <button id="refresh-chunks-btn" class="btn btn-sm btn-outline-secondary me-2" title="Aggiorna Lista Chunk">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
                         <button id="generate-chunks-btn" class="btn btn-sm btn-info me-2" title="Genera Nuovi Chunk di Validazione">
                             <i class="fas fa-cogs"></i> Genera
-                        </button>
-                        <button id="create-new-chunk-btn" class="btn btn-sm btn-success">
-                            <i class="fas fa-plus"></i>
                         </button>
                     </div>
                 </div>
                 <div class="list-group list-group-flush" id="chunk-list">
                     <!-- I chunk verranno caricati qui dinamicamente -->
-                    <div class="text-center p-3">
-                        <div class="spinner-border spinner-border-sm text-primary" role="status">
-                            <span class="visually-hidden">Caricamento...</span>
-                        </div>
-                        <p class="text-muted mt-2">Caricamento chunk...</p>
-                    </div>
                 </div>
             </div>
         </div>
         
-        <!-- Colonna centrale: Dettagli chunk e form -->
-        <div class="col-md-5">
+        <!-- Colonna destra: Dettagli chunk -->
+        <div class="col-md-8">
             <div class="card">
                 <div class="card-header">
-                    <h5 id="chunk-details-title" class="mb-0">Dettagli Chunk</h5>
+                    <h5 class="mb-0" id="chunk-details-title">Dettagli Chunk</h5>
                 </div>
                 <div class="card-body">
                     <div id="chunk-details-empty" class="text-center p-3">
-                        <p class="text-muted">Seleziona un chunk esistente o creane uno nuovo</p>
+                        <p class="text-muted">Seleziona un chunk per visualizzare i dettagli</p>
                     </div>
-                    
-                    <form id="chunk-form" class="d-none">
-                        <input type="hidden" id="chunk-id">
-                        
-                        <div class="mb-3">
-                            <label for="chunk-title" class="form-label">Titolo</label>
-                            <input type="text" class="form-control" id="chunk-title" required>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="chunk-description" class="form-label">Descrizione</label>
-                            <textarea class="form-control" id="chunk-description" rows="2"></textarea>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="chunk-type" class="form-label">Tipo di Chunk</label>
-                            <select class="form-select" id="chunk-type" required>
-                                <option value="subgraph">Sottografo</option>
-                                <option value="node_group">Gruppo di Nodi</option>
-                                <option value="relation_group">Gruppo di Relazioni</option>
-                            </select>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label for="chunk-data" class="form-label">Dati (JSON)</label>
-                            <div class="alert alert-info small mb-2">
-                                <i class="fas fa-info-circle me-1"></i> 
-                                Inserisci qui i dati del chunk in formato JSON. Per un sottografo, includi le chiavi "nodes" e "edges".
+                    <div id="chunk-details-content" class="d-none">
+                        <!-- Informazioni di base -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>ID:</strong> <span id="chunk-id"></span>
                             </div>
-                            <textarea class="form-control font-monospace" id="chunk-data" rows="10" required></textarea>
+                            <div class="col-md-6">
+                                <strong>Stato:</strong> <span id="chunk-status" class="badge"></span>
+                        </div>
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>Creato da:</strong> <span id="chunk-created-by"></span>
+                        </div>
+                            <div class="col-md-6">
+                                <strong>Assegnato a:</strong> <span id="chunk-assigned-to"></span>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <strong>Descrizione:</strong>
+                            <p id="chunk-description" class="mb-0"></p>
                         </div>
                         
+                        <!-- Dati del grafo -->
                         <div class="mb-3">
-                            <label for="chunk-status" class="form-label">Stato</label>
-                            <select class="form-select" id="chunk-status">
-                                <option value="pending">In attesa</option>
-                                <option value="validated">Validato</option>
-                                <option value="rejected">Respinto</option>
-                            </select>
+                            <h6>Dati del Grafo</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Nodi</th>
+                                            <th>Relazioni</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td id="chunk-nodes-count">0</td>
+                                            <td id="chunk-edges-count">0</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                         </div>
-                        
-                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                            <button type="button" class="btn btn-outline-secondary" id="cancel-chunk-btn">
-                                Annulla
-                            </button>
-                            <button type="submit" class="btn btn-primary" id="save-chunk-btn">
-                                Salva Chunk
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Colonna destra: Assegnazione chunk -->
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">Assegnazione</h5>
-                </div>
-                <div class="card-body">
-                    <div id="assignment-section-empty" class="text-center p-3">
-                        <p class="text-muted">Seleziona un chunk per gestire le assegnazioni</p>
-                    </div>
-                    
-                    <div id="assignment-section" class="d-none">
-                        <div class="mb-3">
-                            <label for="assigned-to" class="form-label">Assegnato a</label>
-                            <select class="form-select" id="assigned-to">
-                                <option value="">-- Seleziona annotatore --</option>
-                                <!-- Gli utenti verranno caricati qui dinamicamente -->
-                            </select>
-                        </div>
-                        
-                        <div class="mb-3">
-                            <label class="form-label">Assegnazioni Correnti</label>
-                            <div id="current-assignments" class="list-group list-group-flush">
-                                <!-- Le assegnazioni correnti verranno caricate qui dinamicamente -->
-                                <p class="text-muted text-center">Nessuna assegnazione</p>
+                            <div id="chunk-data" class="border rounded p-2 bg-light">
+                                <pre class="mb-0"><code id="chunk-data-json"></code></pre>
                             </div>
                         </div>
                         
-                        <div class="d-grid">
-                            <button type="button" class="btn btn-outline-primary" id="assign-chunk-btn">
-                                <i class="fas fa-user-plus me-1"></i> Assegna
+                        <!-- Azioni -->
+                        <div class="d-flex justify-content-end">
+                            <button class="btn btn-danger me-2" id="delete-chunk-btn">
+                                <i class="fas fa-trash"></i> Elimina
                             </button>
-                        </div>
-                        
-                        <hr>
-                        
-                        <div class="d-grid gap-2">
-                            <button type="button" class="btn btn-sm btn-outline-danger" id="delete-chunk-btn">
-                                <i class="fas fa-trash-alt me-1"></i> Elimina Chunk
-                            </button>
-                            
-                            <a href="#" class="btn btn-sm btn-outline-secondary" id="view-chunk-btn" target="_blank">
-                                <i class="fas fa-eye me-1"></i> Visualizza Grafo
+                            <a href="#" class="btn btn-primary" id="validate-chunk-btn">
+                                <i class="fas fa-check"></i> Valida
                             </a>
                         </div>
                     </div>
@@ -165,65 +116,42 @@
     </div>
 </div>
 
-<!-- Modal per la conferma dell'eliminazione -->
-<div class="modal fade" id="deleteChunkModal" tabindex="-1" aria-labelledby="deleteChunkModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="deleteChunkModalLabel">Conferma Eliminazione</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p>Sei sicuro di voler eliminare il chunk "<span id="chunk-name-to-delete"></span>"?</p>
-                <p class="text-danger">Questa azione è irreversibile e rimuoverà anche tutte le proposte di modifica associate.</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-                <button type="button" class="btn btn-danger" id="confirm-delete-chunk-btn">
-                    <i class="fas fa-trash-alt me-1"></i> Elimina Chunk
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Modal per la generazione dei chunk -->
-<div class="modal fade" id="generateChunksModal" tabindex="-1" aria-labelledby="generateChunksModalLabel" aria-hidden="true">
+<div class="modal fade" id="generateChunksModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="generateChunksModalLabel">Genera Chunk di Validazione</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <h5 class="modal-title">Genera Nuovi Chunks</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p>Configura i parametri per la generazione dei chunk basati sul vicinato dei nodi seed.</p>
-                
-                <form id="generate-chunks-form">
+                <form id="generateChunksForm">
                     <div class="mb-3">
-                        <label for="num-chunks-input" class="form-label">Numero di Chunk da Generare</label>
-                        <input type="number" class="form-control" id="num-chunks-input" value="10" min="1" max="1000" required>
+                        <label for="numChunks" class="form-label">Numero di chunks da generare</label>
+                        <input type="number" class="form-control" id="numChunks" value="3" min="1" max="10">
                     </div>
-                    
                     <div class="mb-3">
-                        <label for="seed-label-input" class="form-label">Label del Nodo Seed</label>
-                        <input type="text" class="form-control" id="seed-label-input" value="Norma" placeholder="Es: Norma, AttoGiudiziario" required>
-                         <small class="form-text text-muted">La label principale dei nodi da cui partire per creare i chunk.</small>
+                        <label for="seedLabel" class="form-label">Label dei nodi seed</label>
+                        <select class="form-control" id="seedLabel">
+                            <option value="Norma">Norma</option>
+                            <option value="ConcettoGiuridico">Concetto Giuridico</option>
+                            <option value="SoggettoGiuridico">Soggetto Giuridico</option>
+                            <option value="AttoGiudiziario">Atto Giudiziario</option>
+                        </select>
                     </div>
-                    
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" value="" id="force-recreate-checkbox">
-                        <label class="form-check-label" for="force-recreate-checkbox">
-                            Forza Ricreazione
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="forceRecreate">
+                            <label class="form-check-label" for="forceRecreate">
+                                Forza ricreazione (sovrascrive i chunk esistenti)
                         </label>
-                        <small class="form-text text-muted d-block">Se selezionato, crea nuovi chunk anche se ne esistono già per i nodi seed selezionati.</small>
+                        </div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annulla</button>
-                <button type="button" class="btn btn-primary" id="confirm-generate-chunks-btn">
-                    <i class="fas fa-cogs me-1"></i> Genera Chunk
-                </button>
+                <button type="button" class="btn btn-primary" id="confirmGenerateBtn">Genera</button>
             </div>
         </div>
     </div>
@@ -281,6 +209,12 @@
             loadChunks(e.target.value);
         });
         
+        // Refresh button
+        document.getElementById('refresh-chunks-btn')?.addEventListener('click', () => {
+             const currentStatus = document.getElementById('chunk-status-filter')?.value || 'all';
+             loadChunks(currentStatus);
+        });
+        
         // Assegnazione chunk
         document.getElementById('assign-chunk-btn')?.addEventListener('click', assignChunk);
         
@@ -298,10 +232,12 @@
         try {
             showLoading();
             
+            console.log(`Loading chunks with status=${status}`);
             const response = await api.getGraphChunks(status);
             
             if (response && response.status === 'success') {
                 chunks = response.chunks || [];
+                console.log('Chunks received from API:', chunks);
                 renderChunkList();
             } else {
                 showNotification('Errore nel caricamento dei chunk', 'danger');
@@ -316,8 +252,12 @@
     
     // Renderizza la lista dei chunk
     function renderChunkList() {
+        console.log('Rendering chunk list with data:', chunks);
         const chunkList = document.getElementById('chunk-list');
-        if (!chunkList) return;
+        if (!chunkList) {
+             console.error('Element with ID \'chunk-list\' not found!');
+             return;
+        }
         
         if (chunks.length === 0) {
             chunkList.innerHTML = `
@@ -335,7 +275,12 @@
         
         chunkList.innerHTML = '';
         
-        chunks.forEach(chunk => {
+        chunks.forEach((chunk, index) => {
+             console.log(`Rendering chunk ${index}:`, chunk);
+             if (!chunk || !chunk.id) {
+                 console.warn(`Chunk at index ${index} is invalid or missing ID:`, chunk);
+                 return;
+             }
             const item = document.createElement('button');
             item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
             item.dataset.chunkId = chunk.id;
@@ -364,6 +309,7 @@
             item.addEventListener('click', () => selectChunk(chunk.id));
             
             chunkList.appendChild(item);
+            console.log(`Appended item for chunk ${chunk.id}`);
         });
     }
     
@@ -423,24 +369,30 @@
                 const chunk = response.chunk;
                 
                 // Popola il form con i dati del chunk
-                document.getElementById('chunk-id').value = chunk.id;
-                document.getElementById('chunk-title').value = chunk.title;
-                document.getElementById('chunk-description').value = chunk.description || '';
-                document.getElementById('chunk-type').value = chunk.chunk_type || 'subgraph';
-                document.getElementById('chunk-data').value = JSON.stringify(chunk.data || {}, null, 2);
-                document.getElementById('chunk-status').value = chunk.status;
+                document.getElementById('chunk-id').textContent = chunk.id;
+                document.getElementById('chunk-status').textContent = chunk.status || 'pending';
+                document.getElementById('chunk-status').className = `badge bg-${getStatusColor(chunk.status)}`;
+                document.getElementById('chunk-created-by').textContent = chunk.created_by_username || chunk.created_by || 'N/A';
+                document.getElementById('chunk-assigned-to').textContent = chunk.assigned_to_username || 'Non assegnato';
+                document.getElementById('chunk-description').textContent = chunk.description || 'Nessuna descrizione';
+                
+                // Aggiorna i conteggi
+                const nodesCount = chunk.data?.nodes?.length || 0;
+                const edgesCount = chunk.data?.edges?.length || 0;
+                document.getElementById('chunk-nodes-count').textContent = nodesCount;
+                document.getElementById('chunk-edges-count').textContent = edgesCount;
+                
+                // Mostra i dati JSON formattati
+                const jsonElement = document.getElementById('chunk-data-json');
+                jsonElement.textContent = JSON.stringify(chunk.data, null, 2);
+                
+                // Aggiorna il link per la validazione
+                const validateBtn = document.getElementById('validate-chunk-btn');
+                validateBtn.href = `/knowledge_graph_validator?chunk_id=${chunk.id}`;
                 
                 // Mostra il form e la sezione assegnazione
                 document.getElementById('chunk-details-empty').classList.add('d-none');
-                document.getElementById('chunk-form').classList.remove('d-none');
-                document.getElementById('assignment-section-empty').classList.add('d-none');
-                document.getElementById('assignment-section').classList.remove('d-none');
-                
-                // Aggiorna il bottone visualizza
-                const viewChunkBtn = document.getElementById('view-chunk-btn');
-                if (viewChunkBtn) {
-                    viewChunkBtn.href = `/knowledge_graph_validator?chunk_id=${chunk.id}`;
-                }
+                document.getElementById('chunk-details-content').classList.remove('d-none');
                 
                 // Aggiorna la lista delle assegnazioni
                 loadChunkAssignments(chunk.id);
@@ -770,7 +722,7 @@
 
         try {
             showLoading();
-            showNotification('Generazione chunk in corso... Potrebbe richiedere tempo.', 'info');
+            showNotification('Avvio generazione chunk in background...', 'info');
             
             const response = await api.generateGraphChunks({
                 num_chunks: numChunks,
@@ -780,11 +732,13 @@
             
             hideLoading();
             
-            if (response && response.status === 'success') {
+            if (response && response.status === 'processing') {
+                showNotification(response.message || 'Generazione chunk avviata in background. Aggiorna manualmente la lista tra poco.', 'info');
+            } else if (response && response.status === 'success') {
                 showNotification(response.message || 'Generazione chunk completata.', 'success');
                 await loadChunks();
             } else {
-                showNotification(response?.message || 'Errore durante la generazione dei chunk', 'danger');
+                showNotification(response?.message || 'Errore nell\'avvio della generazione dei chunk', 'danger');
             }
         } catch (error) {
             hideLoading();
@@ -795,6 +749,22 @@
                 generateChunksModalInstance.hide();
             }
             hideLoading();
+        }
+    }
+
+    // Funzioni di utilità
+    function getStatusColor(status) {
+        switch (status) {
+            case 'validated':
+            case 'applied':
+                return 'success';
+            case 'rejected':
+            case 'failed':
+                return 'danger';
+            case 'pending':
+                return 'warning';
+            default:
+                return 'secondary';
         }
     }
 </script>

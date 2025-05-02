@@ -57,33 +57,91 @@ except IndexError:
     sys.exit(1)
     
 # -----------------------------------------------------------------------------
+# Funzioni di utilità per l'amministrazione
+# -----------------------------------------------------------------------------
+def ensure_admin_exists(db_manager):
+    """Assicura che esista almeno un utente amministratore."""
+    try:
+        # Verifica se esiste già un admin
+        users = db_manager.get_all_users()
+        admin_exists = any(user.get('role') == 'admin' for user in users)
+        
+        if not admin_exists:
+            annotation_logger.info("Nessun amministratore trovato. Creazione admin di default...")
+            # Crea l'utente admin di default
+            admin_data = {
+                'username': 'admin',
+                'password': 'admin',  # In produzione usare una password sicura
+                'full_name': 'Administrator',
+                'role': 'admin',
+                'email': 'admin@example.com',
+                'active': 1
+            }
+            db_manager.create_user(admin_data)
+            annotation_logger.info("Utente amministratore creato con successo.")
+        else:
+            annotation_logger.debug("Utente amministratore già esistente.")
+            
+    except Exception as e:
+        annotation_logger.error(f"Errore durante la verifica/creazione admin: {e}")
+        raise
+
+# -----------------------------------------------------------------------------
 # Setup dell'ambiente
 # -----------------------------------------------------------------------------
 def setup_environment():
     """
-    Configura l'ambiente dell'applicazione, aggiungendo i percorsi necessari
-    al sys.path e identificando la radice del progetto.
+    Configura l'ambiente dell'applicazione.
     
     Returns:
         tuple: Directory corrente e root del progetto
     """
-    current_dir = Path(__file__).resolve().parent
-    annotation_logger.debug(f"Directory corrente: {current_dir}")
-    annotation_logger.debug(f"sys.path attuale: {sys.path}")
-    parent_dir = current_dir.parent
-    if str(parent_dir) not in sys.path:
-        sys.path.insert(0, str(parent_dir))
-    project_root = parent_dir
-    for _ in range(5):
-        if (project_root / "ner").exists() or (project_root / "config").exists():
-            break
-        project_root = project_root.parent
-        if project_root == project_root.parent:
-            break
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    annotation_logger.info(f"Root del progetto: {project_root}")
-    return current_dir, project_root
+    try:
+        current_dir = Path(__file__).resolve().parent
+        annotation_logger.debug(f"Directory corrente: {current_dir}")
+        
+        # Setup paths
+        parent_dir = current_dir.parent
+        if str(parent_dir) not in sys.path:
+            sys.path.insert(0, str(parent_dir))
+        project_root = parent_dir
+        for _ in range(5):
+            if (project_root / "ner").exists() or (project_root / "config").exists():
+                break
+            project_root = project_root.parent
+            if project_root == project_root.parent:
+                break
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        annotation_logger.info(f"Root del progetto: {project_root}")
+        
+        # Inizializza il database manager
+        global db_manager
+        db_manager = AnnotationDBManager()
+        
+        # Esegui le migrazioni del database
+        from core.annotation.db_migrations import run_migrations_for_postgres
+        annotation_logger.info("Esecuzione migrazioni database...")
+        run_migrations_for_postgres()
+        annotation_logger.info("Migrazioni database completate.")
+        
+        # Assicurati che esista l'utente admin
+        ensure_admin_exists(db_manager)
+        
+        # Inizializza il gestore delle entità
+        global entity_manager
+        from src.core.entities.entity_manager import get_entity_manager
+        entity_manager = get_entity_manager()
+        
+        # Inizializza il sistema NER
+        global ner_system
+        from src.processing.ner import NERSystem
+        ner_system = NERSystem()
+        
+        return current_dir, project_root
+    except Exception as e:
+        annotation_logger.error(f"Errore durante il setup dell'ambiente: {e}", exc_info=True)
+        raise
 
 current_dir, project_root = setup_environment()
 
@@ -1225,33 +1283,41 @@ def utility_processor():
     
     return dict(format_date=format_date)
 
+@app.context_processor
+def inject_api_config():
+    """Inject API configuration into templates for frontend use."""
+    from core.config import get_config_manager
+    config = get_config_manager()
+    
+    # Get host and port from config
+    api_host = config.get('annotation.host', '0.0.0.0')
+    api_port = config.get('annotation.port', 8080)
+    
+    # For 0.0.0.0, use the actual serving hostname
+    if api_host == '0.0.0.0':
+        api_host = request.host.split(':')[0]
+    
+    return {
+        'api_base_url': f'//{api_host}:{api_port}/api',
+        'api_config': {
+            'host': api_host,
+            'port': api_port
+        }
+    }
+
 # Inizializza il database manager con percorsi dinamici
 db_path = DB_PATH
 backup_dir = BACKUP_DIR
-max_backups = 10 # Puoi rendere questo configurabile in altro modo se necessario
+db_manager = AnnotationDBManager()
 
+# Ensure database migrations are applied
 try:
-    from .db_migrations import run_migrations
-except ImportError:
-    annotation_logger.warning("Could not import db_migrations module")
-    run_migrations = None
-
-# Then modify the section where db_manager is initialized:
-annotation_logger.info(f"Utilizzo database in: {db_path}")
-annotation_logger.info(f"Directory backup: {backup_dir}")
-
-# Initialize database manager
-# (db_path e backup_dir sono già definiti sopra)
-db_manager = AnnotationDBManager(db_path=db_path, backup_dir=backup_dir)
-ensure_admin_exists(db_manager)
-
-# Run migrations before initializing db_manager
-if run_migrations:
-    try:
-        annotation_logger.info(f"Running database migrations on {db_path}")
-        run_migrations(db_path)
-    except Exception as e:
-        annotation_logger.error(f"Error running migrations: {e}")
+    from core.annotation.db_migrations import run_migrations_for_postgres
+    annotation_logger.info("Running database migrations")
+    run_migrations_for_postgres()
+    annotation_logger.info("Database migrations completed successfully")
+except Exception as e:
+    annotation_logger.error(f"Error running database migrations: {e}", exc_info=True)
 
 @app.before_request
 def update_context():
@@ -1270,7 +1336,18 @@ def load_documents() -> List[Dict[str, Any]]:
         Lista di documenti
     """
     try:
-        return db_manager.get_documents()
+        documents = db_manager.get_documents()
+        
+        # Converti le date in formato ISO per il template
+        for doc in documents:
+            if doc.get('date_created'):
+                if isinstance(doc['date_created'], datetime.datetime):
+                    doc['date_created'] = doc['date_created'].isoformat()
+            if doc.get('date_modified'):
+                if isinstance(doc['date_modified'], datetime.datetime):
+                    doc['date_modified'] = doc['date_modified'].isoformat()
+        
+        return documents
     except Exception as e:
         annotation_logger.error(f"Errore nel caricamento dei documenti: {e}")
         return []
@@ -3081,22 +3158,102 @@ def api_run_knowledge_graph_extraction():
 @app.route('/api/graph_chunks', methods=['GET'])
 @login_required
 def api_get_graph_chunks():
-    """API per ottenere tutti i chunk del grafo con filtri."""
+    """Get all graph chunks with optional filters."""
     try:
+        logger.debug("1. Entering api_get_graph_chunks")
         status = request.args.get('status')
         assigned_to = request.args.get('assigned_to')
         
+        # Log received parameters
+        logger.debug(f"2. Parameters: status={status}, assigned_to={assigned_to}")
+        
+        # Log user role to debug
+        logger.debug(f"3. User role: {g.user.get('role')}, User ID: {g.user.get('id')}")
+        
+        # For "all" status, set to None to bypass filtering in DB
+        if status == 'all':
+            status = None
+            logger.debug("4. Setting status to None to retrieve all statuses")
+        
         # Admin può vedere tutti i chunk, gli altri solo quelli assegnati
         if g.user.get('role') != 'admin' and not assigned_to:
+            original_assigned_to = assigned_to # Log original value before potential change
             assigned_to = g.user.get('id')
+            logger.debug(f"5. User is not admin. Setting assigned_to from {original_assigned_to} to {assigned_to}")
+        else:
+            logger.debug(f"5. User is admin or assigned_to is specified: {assigned_to}")    
             
+        logger.debug(f"6. Calling db_manager.get_graph_chunks with status='{status}', assigned_to='{assigned_to}'")
         chunks = db_manager.get_graph_chunks(status=status, assigned_to=assigned_to)
+        logger.debug(f"7. Received {len(chunks)} chunks from db_manager") # Log count received
+        
+        # Log the first few chunks if available
+        if chunks:
+            logger.debug(f"8. First chunk example: {chunks[0].get('id', 'N/A')}")
+        else:
+            logger.debug("8. No chunks returned from the database")
+            
+        # Direct database check for debugging
+        try:
+            import sqlite3
+            import os
+            
+            if os.path.exists(db_manager.db_path):
+                logger.debug(f"9. Database file exists at {db_manager.db_path}")
+                
+                conn = sqlite3.connect(db_manager.db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                # Check if table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='graph_chunks'")
+                if cursor.fetchone():
+                    logger.debug("10. Table 'graph_chunks' exists")
+                    
+                    # Count total chunks
+                    cursor.execute("SELECT COUNT(*) FROM graph_chunks")
+                    total_count = cursor.fetchone()[0]
+                    logger.debug(f"11. Total chunks in database: {total_count}")
+                    
+                    # Check if records exist
+                    if total_count > 0:
+                        logger.debug("12. Records exist in database")
+                        
+                        # Sample check
+                        cursor.execute("SELECT id, title, status, assigned_to FROM graph_chunks LIMIT 1")
+                        sample = cursor.fetchone()
+                        if sample:
+                            logger.debug(f"13. Sample record ID={sample['id']}, status={sample['status']}, assigned_to={sample['assigned_to']}")
+                    else:
+                        logger.debug("12. No records in database")
+                else:
+                    logger.debug("10. Table 'graph_chunks' does not exist")
+                
+                conn.close()
+            else:
+                logger.debug(f"9. Database file does not exist at {db_manager.db_path}")
+        except Exception as e:
+            logger.debug(f"Direct DB check error: {e}")
+
         return jsonify({"status": "success", "chunks": chunks})
     except Exception as e:
         logger.error(f"Error retrieving graph chunks: {e}")
-        logger.exception(e)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/graph_chunks/<chunk_id>', methods=['GET'])
+@login_required
+def api_get_graph_chunk(chunk_id):
+    """Get a single graph chunk by ID."""
+    try:
+        logger.debug(f"Retrieving graph chunk: {chunk_id}")
+        chunk = db_manager.get_graph_chunk(chunk_id)
+        if not chunk:
+            return jsonify({"status": "error", "message": "Chunk not found"}), 404
+        return jsonify({"status": "success", "chunk": chunk})
+    except Exception as e:
+        logger.error(f"Error retrieving graph chunk {chunk_id}: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-        
+
 @app.route('/api/graph_chunks', methods=['POST'])
 @login_required
 def api_create_graph_chunk():
@@ -3296,33 +3453,139 @@ def admin_graph_chunks():
 @login_required
 @admin_required
 def api_generate_graph_chunks():
-    """API endpoint per generare nuovi chunk di validazione."""
-    data = request.json
+    """API per avviare la generazione dei chunk del grafo in background."""
+    if not request.is_json:
+        return jsonify({"status": "error", "message": "Request must be JSON"}), 400
+        
+    data = request.get_json()
+    
     num_chunks = data.get('num_chunks', 10)
-    seed_label = data.get('seed_label', 'Norma') # Default seed label
+    seed_label = data.get('seed_label', 'Norma')
     force_recreate = data.get('force_recreate', False)
-    
-    # Use current admin user ID as creator
-    creator_id = g.user.get('id', 'system') 
-    
-    annotation_logger.info(f"Richiesta generazione di {num_chunks} chunk basati su label '{seed_label}' ricevuta da {creator_id}.")
-    
+    user_id = g.user.get('id') # Ottieni l'ID dell'utente dalla sessione/g
+
+    if not isinstance(num_chunks, int) or num_chunks <= 0:
+        return jsonify({"status": "error", "message": "'num_chunks' must be a positive integer"}), 400
+    if not isinstance(seed_label, str) or not seed_label:
+        return jsonify({"status": "error", "message": "'seed_label' must be a non-empty string"}), 400
+    if not isinstance(force_recreate, bool):
+        return jsonify({"status": "error", "message": "'force_recreate' must be a boolean"}), 400
+
     try:
-        # Run the async function
-        # Consider using a background task runner (Celery) for long operations
-        result = asyncio.run(create_node_centric_chunks(
-            num_chunks=num_chunks,
-            seed_label=seed_label,
-            user_id=creator_id,
-            force_recreate=force_recreate
-        ))
+        annotation_logger.info(f"Avvio generazione chunk in background: num={num_chunks}, label='{seed_label}', force={force_recreate}, user={user_id}")
+        
+        # Avvia l'attività in background usando asyncio
+        # Nota: questo funziona meglio se Flask è eseguito con un server ASGI (es. Hypercorn, Uvicorn)
+        # Potrebbe richiedere aggiustamenti per WSGI (es. Gunicorn) usando threading o librerie apposite.
+        async def background_task():
+            try:
+                annotation_logger.info("Background task started: Creating node-centric chunks...")
+                result = await create_node_centric_chunks(
+                    num_chunks=num_chunks,
+                    seed_label=seed_label,
+                    user_id=user_id,
+                    force_recreate=force_recreate
+                )
+                annotation_logger.info(f"Background task finished: Result: {result}")
+            except Exception as task_error:
+                annotation_logger.error(f"Errore nel background task di generazione chunk: {task_error}", exc_info=True)
+        
+        # Schedule the background task
+        # Make sure an event loop is running or accessible
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(background_task())
+            annotation_logger.info("Task asyncio creato con successo.")
+        except RuntimeError:
+            # Se non c'è un loop in esecuzione, creane uno e lancialo in un thread separato
+            # Questo è un fallback per ambienti non puramente async
+            annotation_logger.warning("Nessun event loop asyncio in esecuzione. Avvio in un nuovo thread.")
+            import threading
+            def run_async_in_thread():
+                asyncio.run(background_task())
+            thread = threading.Thread(target=run_async_in_thread)
+            thread.start()
+            annotation_logger.info("Task avviato in un thread separato.")
+
+        return jsonify({
+            "status": "processing", # Cambiato da "success"
+            "message": f"Generazione di {num_chunks} chunk avviata in background." # Messaggio modificato
+        }), 202 # HTTP 202 Accepted indica che la richiesta è stata accettata per l'elaborazione
+
+    except Exception as e:
+        annotation_logger.error(f"Errore nell'avvio della generazione dei chunk: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Errore API: {str(e)}"}), 500
+
+@app.route('/api/debug/graph_chunks', methods=['GET'])
+@login_required
+def api_debug_graph_chunks():
+    """Debug API per ottenere direttamente i chunk dal database."""
+    try:
+        # Use the existing db_manager to get database path
+        db_path = db_manager.db_path
+        logger.debug(f"Verificando direttamente il database in: {db_path}")
+        
+        # Connessione diretta al database
+        import sqlite3
+        import json
+        import os
+        
+        if not os.path.exists(db_path):
+            return jsonify({"status": "error", "message": f"Database non trovato in {db_path}"}), 404
+            
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Verifica se la tabella esiste
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='graph_chunks'")
+        if not cursor.fetchone():
+            return jsonify({
+                "status": "error", 
+                "message": "Tabella graph_chunks non trovata nel database",
+                "tables_found": [row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+            }), 404
+        
+        # Conta totale
+        cursor.execute("SELECT COUNT(*) FROM graph_chunks")
+        total_count = cursor.fetchone()[0]
+        
+        # Ottieni alcuni esempi
+        cursor.execute("SELECT * FROM graph_chunks LIMIT 10")
+        columns = [desc[0] for desc in cursor.description]
+        samples = []
+        
+        for row in cursor.fetchall():
+            sample = dict(zip(columns, row))
+            # Convert data to readable format if it exists
+            if 'data' in sample and sample['data']:
+                try:
+                    sample['data'] = json.loads(sample['data'])
+                except:
+                    sample['data'] = "Invalid JSON data"
+            samples.append(sample)
+        
+        # Ottieni informazioni sulle colonne
+        cursor.execute("PRAGMA table_info(graph_chunks)")
+        columns_info = [dict(row) for row in cursor.fetchall()]
+        
+        # Close connection
+        conn.close()
         
         return jsonify({
             "status": "success",
-            "message": f"Generazione chunk completata. Creati: {result.get('created', 0)}, Saltati: {result.get('skipped', 0)}, Errori: {result.get('errors', 0)}",
-            "details": result
+            "database_path": db_path,
+            "total_chunks": total_count,
+            "sample_chunks": samples,
+            "current_user": {
+                "id": g.user.get('id'),
+                "role": g.user.get('role')
+            },
+            "table_structure": columns_info
         })
+        
     except Exception as e:
-        annotation_logger.error(f"Errore durante la generazione dei chunk: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Errore imprevisto: {str(e)}"}), 500
+        logger.error(f"Error in debug endpoint: {e}")
+        logger.exception(e)
+        return jsonify({"status": "error", "message": str(e)}), 500
 

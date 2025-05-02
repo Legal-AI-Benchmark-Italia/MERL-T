@@ -11,6 +11,7 @@ import traceback
 import multiprocessing
 from multiprocessing import Pool
 from typing import List, Dict, Tuple, Any
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Assicurati che questi import usino percorsi relativi se sono nello stesso pacchetto
 from .processor import PDFProcessor
@@ -32,15 +33,13 @@ def _process_single_pdf(data_with_config: Tuple[str, str, Dict[str, Any]]) -> bo
     Returns:
         True se l'elaborazione è andata a buon fine, False altrimenti
     """
-    global _cpu_monitor # Rimosso _throttle_sleep se non definito globalmente altrove
+    global _cpu_monitor
     
-    # Modifica: Riceve relative_output_prefix invece di pdf_name
     pdf_path, relative_output_prefix, config_dict = data_with_config
     
     # Inizializza logger locale
     logger = logging.getLogger("PDFChunker.Worker")
-    # Usa relative_output_prefix nel log per chiarezza
-    logger.info(f"Elaborazione PDF: {pdf_path} -> {relative_output_prefix}") 
+    logger.info(f"Elaborazione PDF: {pdf_path} -> {relative_output_prefix}")
     
     try:
         # Crea una configurazione locale dal dizionario
@@ -51,7 +50,7 @@ def _process_single_pdf(data_with_config: Tuple[str, str, Dict[str, Any]]) -> bo
         # Output manager
         output_manager = OutputManager(local_config.OUTPUT_FOLDER)
         
-        # Modifica: Pulisci usando relative_output_prefix
+        # Pulisci usando relative_output_prefix
         output_manager.cleanup_partial_output(relative_output_prefix)
         
         # Crea il processore
@@ -59,9 +58,9 @@ def _process_single_pdf(data_with_config: Tuple[str, str, Dict[str, Any]]) -> bo
         
         # Processa il PDF con controllo dell'utilizzo della CPU
         start_time = time.time()
-        throttle_sleep = getattr(local_config, 'THROTTLE_SLEEP', 1.0) # Prendi throttle_sleep dalla config
+        throttle_sleep = getattr(local_config, 'THROTTLE_SLEEP', 1.0)
         
-        # Estrai e pulisci il testo
+        # Estrai il testo
         if _cpu_monitor and _cpu_monitor.is_throttling_active():
             logger.info("Throttling attivo, attendere...")
             _cpu_monitor.check_and_throttle(throttle_sleep)
@@ -74,25 +73,34 @@ def _process_single_pdf(data_with_config: Tuple[str, str, Dict[str, Any]]) -> bo
             
         clean_text = processor.clean_text(raw_text)
         
-        # Crea i chunk
-        if _cpu_monitor and _cpu_monitor.is_throttling_active():
-            logger.info("Throttling attivo, attendere...")
-            _cpu_monitor.check_and_throttle(throttle_sleep)
+        # Modalità semplice estrazione: salva direttamente il testo pulito
+        if local_config.SIMPLE_EXTRACT:
+            # Crea il percorso di output per il file .txt
+            output_path = os.path.join(local_config.OUTPUT_FOLDER, f"{relative_output_prefix}.txt")
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
-        chunks = processor.process_text_to_chunks(clean_text)
-        
-        # Modifica: Salva i chunk usando relative_output_prefix
-        if _cpu_monitor and _cpu_monitor.is_throttling_active():
-            logger.info("Throttling attivo, attendere...")
-            _cpu_monitor.check_and_throttle(throttle_sleep)
+            # Salva il testo pulito
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(clean_text)
             
-        output_manager.save_chunks(chunks, relative_output_prefix)
+            logger.info(f"Testo estratto salvato in: {output_path}")
+        else:
+            # Modalità chunking: crea e salva i chunk
+            if _cpu_monitor and _cpu_monitor.is_throttling_active():
+                logger.info("Throttling attivo, attendere...")
+                _cpu_monitor.check_and_throttle(throttle_sleep)
+                
+            chunks = processor.process_text_to_chunks(clean_text)
+            
+            if _cpu_monitor and _cpu_monitor.is_throttling_active():
+                logger.info("Throttling attivo, attendere...")
+                _cpu_monitor.check_and_throttle(throttle_sleep)
+                
+            output_manager.save_chunks(chunks, relative_output_prefix)
         
         elapsed_time = time.time() - start_time
-        # Modifica: Usa relative_output_prefix nel log
         logger.info(f"Completato PDF: {pdf_path} -> {relative_output_prefix} in {elapsed_time:.2f} secondi")
         
-        # Aggiorna il progresso (gestito dal chiamante)
         return True
         
     except KeyboardInterrupt:
@@ -203,3 +211,54 @@ class ParallelExecutor:
             self.logger.error(f"Errore durante l'elaborazione parallela: {str(e)}")
             self.logger.error(traceback.format_exc())
             return False
+
+    def simple_extract_pdfs(self, pdf_files: List[str], config) -> None:
+        """
+        Esegue l'estrazione semplice del testo da PDF in parallelo.
+        
+        Args:
+            pdf_files: Lista di percorsi ai file PDF
+            config: Configurazione
+        """
+        self.logger.info(f"Avvio estrazione semplice da {len(pdf_files)} PDF con {self.num_workers} worker")
+        
+        # Converti config in dizionario per poterlo passare ai worker
+        config_dict = {key: getattr(config, key) for key in dir(config) 
+                      if not key.startswith('__') and not callable(getattr(config, key))}
+        config_dict['INPUT_FOLDER'] = config.INPUT_FOLDER
+        
+        # Prepara i dati per i worker
+        pdf_data_list = []
+        input_folder_abs = os.path.abspath(config.INPUT_FOLDER)
+        
+        for pdf_path in pdf_files:
+            try:
+                pdf_path_abs = os.path.abspath(pdf_path)
+                relative_path = os.path.relpath(pdf_path_abs, input_folder_abs)
+                relative_output_prefix = os.path.splitext(relative_path)[0]
+                pdf_data_list.append((pdf_path_abs, relative_output_prefix, config_dict))
+            except ValueError as e:
+                self.logger.error(f"Impossibile calcolare il percorso relativo per {pdf_path}: {e}")
+                pdf_name = os.path.splitext(os.path.basename(pdf_path))[0]
+                pdf_data_list.append((os.path.abspath(pdf_path), pdf_name, config_dict))
+        
+        with Pool(processes=self.num_workers) as pool:
+            results = pool.map_async(_process_single_pdf, pdf_data_list)
+            pool.close()
+            
+            # Attendi il completamento e aggiorna il progresso
+            results_list = results.get()
+            
+            # Aggiorna il progresso
+            if self.progress_tracker:
+                processed_count = 0
+                for i, success in enumerate(results_list):
+                    if success:
+                        original_pdf_path = pdf_data_list[i][0]
+                        self.progress_tracker.mark_as_processed(original_pdf_path)
+                        processed_count += 1
+                self.logger.info(f"Progresso aggiornato per {processed_count}/{len(pdf_files)} file.")
+            
+            pool.join()
+            
+            self.logger.info("Estrazione semplice completata")

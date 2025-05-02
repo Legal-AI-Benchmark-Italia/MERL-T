@@ -11,17 +11,28 @@ import logging
 from datetime import datetime
 from typing import List
 
-def setup_logging():
+def setup_logging(log_file: str = None):
     """
     Configura il logging per l'applicazione.
     
+    Args:
+        log_file: Percorso del file di log (opzionale)
+        
     Returns:
         Logger configurato
     """
     from .config import Config
     
     # Nome del file di log
-    log_filename = f"pdf_chunker_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    if log_file is None:
+        log_filename = f"pdf_chunker_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    else:
+        log_filename = log_file
+    
+    # Crea la directory del log se non esiste
+    log_dir = os.path.dirname(log_filename)
+    if log_dir and not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
     
     # Configurazione logging
     logging.basicConfig(

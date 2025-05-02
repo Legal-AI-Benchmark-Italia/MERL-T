@@ -6,6 +6,7 @@ import argparse
 import json
 import random # Importa il modulo random per lo shuffle
 import re
+from pathlib import Path
 
 # Import delle classi dal modulo graph_extractor
 from .src.extractor import extract_entities
@@ -431,11 +432,19 @@ async def create_node_centric_chunks(
     # Setup connections
     config_manager = get_config_manager()
     neo4j_params = config_manager.get_neo4j_connection_params()
-    db_params = config_manager.get_db_config()
+    # Retrieve DB params directly using get()
+    backup_dir = config_manager.get('database.backup_dir', 'data/backups') # Provide a default path
     
     # Use context managers for connections
     async with Neo4jGraphStorage(**neo4j_params) as neo4j_storage:
-        db_manager = AnnotationDBManager(db_path=db_params['db_path'], backup_dir=db_params['backup_dir'])
+        # Ensure paths are absolute or relative to project root if needed
+        # (This logic might be better placed within AnnotationDBManager or config manager)
+        project_root = Path(__file__).resolve().parent.parent.parent # Adjust based on graph_main.py location
+        backup_dir = os.path.join(project_root, backup_dir)
+        
+        # Initialize AnnotationDBManager without arguments
+        # It will now read PostgreSQL connection details from the config manager internally
+        db_manager = AnnotationDBManager()
         
         try:
             # 1. Get potential seed node IDs

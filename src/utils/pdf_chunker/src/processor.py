@@ -36,6 +36,7 @@ class PDFProcessor:
         self.timeout_per_page = config.TIMEOUT_PER_PAGE
         self.patterns = config.TEXT_PATTERNS
         self.apply_cleaning = getattr(config, 'APPLY_CLEANING', True)
+        self.simple_extract = getattr(config, 'SIMPLE_EXTRACT', False)
         
         self.logger = logging.getLogger("PDFChunker.Processor")
         self.cleaner = TextCleaner() if self.apply_cleaning else None
@@ -141,6 +142,12 @@ class PDFProcessor:
             return ""
         
         try:
+            # Usa il TextCleaner se disponibile
+            if self.cleaner:
+                cleaned_text, _ = self.cleaner.clean_text(text)
+                return cleaned_text
+            
+            # Fallback al metodo base se il cleaner non è disponibile
             # Rimuove intestazioni e piè di pagina
             text = re.sub(self.patterns['header_footer'], '', text)
             
@@ -427,23 +434,101 @@ class PDFProcessor:
         
         self.logger.info(f"Processati {len(text_chunks)} chunk grezzi, {len(all_chunks)} chunk finali aggiunti.")
         return all_chunks
-    def process_pdf(self, pdf_path: str) -> List[Dict]:
+
+    def simple_extract_pdf(self, pdf_path: str) -> Dict:
         """
-        Processa completamente un PDF e restituisce i chunk puliti.
+        Estrae semplicemente il testo da un PDF e lo salva in un file di testo.
         
         Args:
             pdf_path: Percorso del file PDF
             
         Returns:
-            Lista di dizionari rappresentanti i chunk puliti con metadati
+            Dizionario con il risultato dell'estrazione
         """
-        # Estrai il testo dal PDF
-        raw_text = self.extract_text_from_pdf(pdf_path)
+        try:
+            # Estrai il testo dal PDF
+            text = self.extract_text_from_pdf(pdf_path)
+            
+            # Se l'estrazione ha avuto successo
+            if text:
+                # Pulisci il testo se richiesto
+                if self.apply_cleaning:
+                    text = self.clean_text(text)
+                
+                # Crea il percorso del file di output
+                output_path = os.path.splitext(pdf_path)[0] + '.txt'
+                
+                # Salva il testo nel file
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(text)
+                
+                return {
+                    'success': True,
+                    'output_path': output_path,
+                    'text_length': len(text)
+                }
+            else:
+                # Crea un file placeholder se l'estrazione fallisce
+                output_path = os.path.splitext(pdf_path)[0] + '.txt'
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write("ERRORE: Impossibile estrarre il testo da questo PDF.")
+                
+                return {
+                    'success': False,
+                    'output_path': output_path,
+                    'error': 'Estrazione testo fallita'
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Errore nell'estrazione semplice del PDF {pdf_path}: {str(e)}")
+            
+            # Crea un file placeholder in caso di errore
+            output_path = os.path.splitext(pdf_path)[0] + '.txt'
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(f"ERRORE: {str(e)}")
+            
+            return {
+                'success': False,
+                'output_path': output_path,
+                'error': str(e)
+            }
+
+    def process_pdf(self, pdf_path: str) -> List[Dict]:
+        """
+        Processa un file PDF e restituisce i chunk di testo.
         
-        # Pulisci il testo grezzo (rimozione header/footer, spazi, ecc.)
-        clean_initial_text = self.clean_text(raw_text)
-        
-        # Processa il testo in chunk (la pulizia finale avviene qui)
-        chunks = self.process_text_to_chunks(clean_initial_text)
-        
-        return chunks
+        Args:
+            pdf_path: Percorso del file PDF
+            
+        Returns:
+            Lista di dizionari contenenti i chunk di testo
+        """
+        if self.simple_extract:
+            # Se in modalità semplice estrazione, usa il metodo dedicato
+            result = self.simple_extract_pdf(pdf_path)
+            return [result]  # Restituisci come lista per compatibilità
+            
+        # Modalità chunking normale
+        try:
+            # Estrai il testo dal PDF
+            text = self.extract_text_from_pdf(pdf_path)
+            
+            if not text:
+                self.logger.error(f"Impossibile estrarre testo da {pdf_path}")
+                return []
+            
+            # Pulisci il testo se richiesto
+            if self.apply_cleaning:
+                text = self.clean_text(text)
+            
+            # Processa il testo in chunk
+            if self.sliding_window:
+                chunks = self.create_sliding_window_chunks(text)
+            else:
+                chunks = self.process_text_to_chunks(text)
+            
+            return chunks
+            
+        except Exception as e:
+            self.logger.error(f"Errore nell'elaborazione del PDF {pdf_path}: {str(e)}")
+            return []

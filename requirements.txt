@@ -50,3 +50,7 @@ numpy>=1.20.0
 # Utilità e logging
 tqdm>=4.65.0
 loguru>=0.7.0
+
+Flask-Session
+Flask-Bcrypt
+psycopg2-binary

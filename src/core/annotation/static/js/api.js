@@ -3,10 +3,16 @@
  * Centralized API interaction functions
  */
 
-const API_BASE = '/api'; // Or use Flask's url_for if needed via data attributes
+// Get API base URL from the body data attribute, fallback to constructed URL if not available
+const API_BASE = document.body.dataset.apiBaseUrl || 
+                (window.location.protocol + '//' + window.location.hostname + 
+                (window.location.port ? ':' + window.location.port : '') + '/api');
+
+console.log('Using API base URL:', API_BASE);
 
 async function request(endpoint, options = {}) {
     const url = `${API_BASE}${endpoint}`;
+    console.log(`API Request: ${url}`);
     const defaultOptions = {
         method: 'GET',
         headers: {
@@ -211,16 +217,23 @@ export const api = {
     }),
 
     // Chunk del grafo
-    getGraphChunks: (status = null, assignedTo = null) => {
-        const params = new URLSearchParams();
-        if (status) params.append('status', status);
-        if (assignedTo) params.append('assigned_to', assignedTo);
+    getGraphChunks: (params = {}) => {
+        const searchParams = new URLSearchParams();
+        if (params.status) searchParams.append('status', params.status);
+        if (params.assigned_to) searchParams.append('assigned_to', params.assigned_to);
         
-        const endpoint = `/graph_chunks${params.toString() ? '?' + params.toString() : ''}`;
+        const endpoint = `/graph_chunks${searchParams.toString() ? '?' + searchParams.toString() : ''}`;
         return request(endpoint);
     },
 
-    getGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`),
+    getGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`).then(response => {
+        // Ensure we return the data in a consistent format
+        if (response && !response.status) {
+            // If the response is the direct chunk data, wrap it
+            return { status: 'success', chunk: response };
+        }
+        return response;
+    }),
 
     createGraphChunk: (data) => request('/graph_chunks', { method: 'POST', body: data }),
 
@@ -248,9 +261,9 @@ removeChunkAssignment: (chunkId, userId) => request('/graph_chunk_assignments', 
 deleteGraphChunk: (chunkId) => request(`/graph_chunks/${chunkId}`, { method: 'DELETE' }),
 
 // Admin: Generate Chunks
-generateGraphChunks: (params) => request('/admin/generate_chunks', { 
-    method: 'POST', 
-    body: params 
+generateGraphChunks: (params) => request('/api/admin/generate_chunks', {
+    method: 'POST',
+    body: params
 }),
 
 };

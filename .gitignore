@@ -21,3 +21,10 @@ knowledge_base/*/*/*
 *.jsonl
 *.json
 model*
+raw_sources/*
+*.pdf
+*.txt
+*.json
+*.jsonl
+*.jsonl_bkp
+*.jsonl_bkp

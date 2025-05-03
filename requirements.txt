@@ -1,56 +1,47 @@
-pdfplumber
-nltk
+# Core dependencies
+pydantic>=2.0.0,<3.0.0
+loguru>=0.7.0,<1.0.0
+pyyaml>=6.0,<7.0
+python-dotenv>=1.0.0,<2.0.0
 
-pyyaml
-fastapi
-uvicorn
-pydantic
-python-multipart
-sentencepiece==0.2.0
+# NER dependencies
+transformers>=4.33.0,<5.0.0
+torch>=2.0.0,<3.0.0
+spacy>=3.6.0,<4.0.0
+nltk>=3.8.1,<4.0.0
 
-spacy
-transformers
-numpy<=2.0.0
-regex
+# MCP dependencies
+websockets>=11.0.3,<12.0.0
+fastapi>=0.95.0,<1.0.0
+uvicorn>=0.22.0,<1.0.0
 
+# A2A dependencies
+aiohttp>=3.8.5,<4.0.0
+pyjwt>=2.6.0,<3.0.0
 
-neo4j==5.24.0
+# Knowledge Graph dependencies
+neo4j>=5.9.0,<6.0.0
 
+# Vector Database dependencies
+pymilvus>=2.3.0,<3.0.0
+faiss-cpu>=1.7.4,<2.0.0
+sentence-transformers>=2.2.2,<3.0.0
 
-prometheus-client
-logging-formatter-anticrlf
+# VisuaLex dependencies
+beautifulsoup4>=4.12.0,<5.0.0
+lxml>=4.9.0,<5.0.0
+aiocache>=0.12.0,<1.0.0
 
+# LLM dependencies
+openai>=1.0.0,<2.0.0
+anthropic>=0.5.0,<1.0.0
 
-flask
-werkzeug
+# Testing dependencies
+pytest>=7.4.0,<8.0.0
+pytest-asyncio>=0.21.1,<0.22.0
+requests>=2.28.2,<3.0.0
 
-
-
-accelerate
-bitsandbytes
-optimum
-
-
-datasets
-evaluate
-transformers
-tensorflow
-tqdm
---only-binary=pyarrow
-
-# Dipendenze principali
-openai>=1.0.0
-neo4j>=5.8.0
-python-dotenv>=1.0.0
-
-# Dipendenze opzionali per gestione e analisi dati
-pandas>=2.0.0
-numpy>=1.20.0
-
-# Utilità e logging
-tqdm>=4.65.0
-loguru>=0.7.0
-
-Flask-Session
-Flask-Bcrypt
-psycopg2-binary
+# Development dependencies
+black>=23.7.0,<24.0.0
+isort>=5.12.0,<6.0.0
+mypy>=1.5.1,<2.0.0 
